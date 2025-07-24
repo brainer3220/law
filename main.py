@@ -21,7 +21,40 @@ from pgvector.asyncpg import register_vector
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Legal RAG API", description="Korean Legal Document RAG System")
+
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown."""
+    logger.info("Starting Legal RAG API...")
+
+    # Initialize database
+    if not await init_database():
+        logger.error("Failed to initialize database")
+    else:
+        # Initialize embedding model
+        if not await initialize_embeddings():
+            logger.error("Failed to initialize embedding model")
+
+        # Load data into database
+        if not await load_legal_data():
+            logger.error("Failed to load legal data")
+
+        # Initialize TF-IDF
+        if not await initialize_tfidf():
+            logger.error("Failed to initialize TF-IDF")
+
+        logger.info("Legal RAG API startup completed")
+
+    yield
+
+    if db_pool:
+        await db_pool.close()
+        logger.info("Database connection pool closed")
+
+app = FastAPI(
+    title="Legal RAG API",
+    description="Korean Legal Document RAG System",
+    lifespan=lifespan,
+)
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/legal_rag")
@@ -434,31 +467,6 @@ async def retrieve_context_vector(query: str, top_k: int = 5, source_filter: Opt
         logger.error(f"Error in vector retrieval: {e}")
         return []
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application on startup"""
-    logger.info("Starting Legal RAG API...")
-    
-    # Initialize database
-    if not await init_database():
-        logger.error("Failed to initialize database")
-        return
-    
-    # Initialize embedding model
-    if not await initialize_embeddings():
-        logger.error("Failed to initialize embedding model")
-        return
-    
-    # Load data into database
-    if not await load_legal_data():
-        logger.error("Failed to load legal data")
-        return
-    
-    # Initialize TF-IDF
-    if not await initialize_tfidf():
-        logger.error("Failed to initialize TF-IDF")
-    
-    logger.info("Legal RAG API startup completed")
 
 @app.get("/")
 async def root():
@@ -771,19 +779,11 @@ async def reload_data():
         logger.error(f"Error reloading data: {e}")
         raise HTTPException(status_code=500, detail="Failed to reload data")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up on shutdown"""
-    global db_pool
-    if db_pool:
-        await db_pool.close()
-        logger.info("Database connection pool closed")
 
 async def main():
-    """Main function with pgvector 0.8 optimizations"""
+    """Run the FastAPI application."""
     import sys
-    
-    # Set up logging
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -792,62 +792,14 @@ async def main():
             logging.FileHandler('legal_rag.log')
         ]
     )
-    
-    logger.info("Starting Legal RAG API with pgvector 0.8...")
-    
-    # Initialize database with optimizations
-    if not await init_database():
-        logger.error("Failed to initialize database. Exiting.")
-        sys.exit(1)
-    
-    # Initialize embedding model
-    if not await initialize_embeddings():
-        logger.error("Failed to initialize embedding model. Exiting.")
-        sys.exit(1)
-    
-    # Load data if needed
-    doc_count = await get_document_count()
-    if doc_count == 0:
-        logger.info("No documents found. Loading legal data...")
-        if not await load_legal_data():
-            logger.error("Failed to load legal data. Exiting.")
-            sys.exit(1)
-    else:
-        logger.info(f"Found {doc_count} documents in database")
-    
-    # Initialize TF-IDF if needed
-    async with db_pool.acquire() as conn:
-        tfidf_count = await conn.fetchval("SELECT COUNT(*) FROM documents WHERE tfidf_vector IS NOT NULL")
-        if tfidf_count == 0:
-            logger.info("No TF-IDF vectors found. Initializing...")
-            await initialize_tfidf()
-    
-    # Optimize database settings for pgvector 0.8
-    try:
-        async with db_pool.acquire() as conn:
-            # Set optimal work_mem for vector operations
-            await conn.execute("SET work_mem = '256MB'")
-            # Set maintenance_work_mem for index building
-            await conn.execute("SET maintenance_work_mem = '1GB'")
-            # Optimize for vector operations
-            await conn.execute("SET max_parallel_workers_per_gather = 2")
-            # Set HNSW parameters for better performance
-            await conn.execute("SET hnsw.ef_search = 100")
-            
-        logger.info("Database optimized for pgvector 0.8 operations")
-    except Exception as e:
-        logger.warning(f"Could not apply database optimizations: {e}")
-    
-    logger.info("Legal RAG API initialization completed successfully")
-    
-    # Run the FastAPI application
+
     config = uvicorn.Config(
-        app, 
-        host="0.0.0.0", 
+        app,
+        host="0.0.0.0",
         port=8000,
         log_level="info",
         access_log=True,
-        workers=1  # Single worker for shared database pool
+        workers=1,
     )
     server = uvicorn.Server(config)
     await server.serve()
