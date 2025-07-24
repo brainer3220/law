@@ -17,4 +17,6 @@ dependencies = [
     "scikit-learn>=1.7.0",
     "sentence-transformers>=5.0.0",
     "uvicorn[standard]>=0.24.0",
+    "requests>=2.32.0",
+    "pytest-asyncio>=1.1.0",
 ]
