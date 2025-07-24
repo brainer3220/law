@@ -156,6 +156,8 @@ async def init_database():
 
 async def get_document_count():
     """Get total number of documents in database"""
+    if not db_pool:
+        return 0
     try:
         async with db_pool.acquire() as conn:
             result = await conn.fetchval("SELECT COUNT(*) FROM documents")
@@ -471,8 +473,11 @@ async def retrieve_context_vector(query: str, top_k: int = 5, source_filter: Opt
 @app.get("/")
 async def root():
     """Root endpoint"""
+    if not db_pool:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
     doc_count = await get_document_count()
-    
+
     # Get document types from database
     async with db_pool.acquire() as conn:
         sources = await conn.fetch("SELECT DISTINCT source FROM documents")
@@ -488,8 +493,19 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    if not db_pool:
+        return {
+            "status": "unhealthy",
+            "database_connected": False,
+            "total_documents": 0,
+            "tfidf_ready": False,
+            "tfidf_documents": 0,
+            "embeddings_ready": False,
+            "vector_documents": 0,
+        }
+
     doc_count = await get_document_count()
-    
+
     # Check TF-IDF readiness
     async with db_pool.acquire() as conn:
         tfidf_count = await conn.fetchval("SELECT COUNT(*) FROM documents WHERE tfidf_vector IS NOT NULL")
