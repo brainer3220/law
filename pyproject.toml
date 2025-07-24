@@ -1,0 +1,19 @@
+[project]
+name = "law"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=4.0.0",
+    "faiss-cpu>=1.7.0",
+    "faiss-gpu>=1.7.2",
+    "fastapi>=0.104.0",
+    "jupyter>=1.1.1",
+    "numpy>=2.2.6",
+    "pandas>=2.3.1",
+    "pydantic>=2.0.0",
+    "scikit-learn>=1.7.0",
+    "sentence-transformers>=5.0.0",
+    "uvicorn[standard]>=0.24.0",
+]
