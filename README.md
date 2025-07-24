@@ -4,7 +4,8 @@ A FastAPI-based Retrieval-Augmented Generation (RAG) system for Korean legal doc
 
 ## Features
 
-- **Dual Retrieval Methods**: TF-IDF and sentence embedding-based retrieval
+ - **Dual Retrieval Methods**: TF-IDF and sentence embedding-based retrieval
+ - **PostgreSQL Vector Search**: Uses pgvector 0.8 for scalable similarity search
 - **Korean Legal Documents**: Supports 판결문, 법령, 심결례, 유권해석
 - **RESTful API**: Easy-to-use HTTP endpoints
 - **Real-time Search**: Fast document retrieval and ranking
@@ -22,6 +23,8 @@ source .venv/bin/activate  # Linux/Mac
 # or
 .venv\Scripts\activate     # Windows
 ```
+
+3. Set your PostgreSQL connection in the `DATABASE_URL` environment variable.
 
 ## Usage
 
@@ -49,7 +52,7 @@ Request body:
 ```json
 {
   "query": "계약 해지에 관한 판례를 알려줘",
-  "method": "both",  // "tfidf", "embedding", or "both"
+  "method": "both",  // "tfidf", "embedding", "faiss", "pgvector", or "both"
   "top_k": 5
 }
 ```
@@ -74,7 +77,7 @@ import requests
 # Search query
 response = requests.post("http://localhost:8000/search", json={
     "query": "계약 해지에 관한 판례를 알려줘",
-    "method": "both",
+    "method": "both",  # can also use "pgvector"
     "top_k": 5
 })
 

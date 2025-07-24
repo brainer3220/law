@@ -16,6 +16,8 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 import logging
 import faiss
+import psycopg
+from pgvector.psycopg import register_vector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,10 +39,11 @@ vectorizer = None
 embedding_model = None
 sentence_embeddings = None
 faiss_index = None
+db_conn = None
 
 class QueryRequest(BaseModel):
     query: str
-    method: str = "faiss"  # "tfidf", "embedding", "faiss", or "both"
+    method: str = "pgvector"  # "tfidf", "embedding", "faiss", "pgvector", or "both"
     top_k: int = 5
 
 class RetrievalResult(BaseModel):
@@ -54,6 +57,7 @@ class QueryResponse(BaseModel):
     tfidf_results: Optional[List[RetrievalResult]] = None
     embedding_results: Optional[List[RetrievalResult]] = None
     faiss_results: Optional[List[RetrievalResult]] = None
+    pgvector_results: Optional[List[RetrievalResult]] = None
 
 def get_data_hash(sentences: List[str]) -> str:
     """Generate hash for the current dataset to detect changes"""
@@ -288,6 +292,51 @@ def initialize_faiss():
         logger.error(f"Error initializing FAISS: {e}")
         return False
 
+def initialize_pgvector():
+    """Initialize PostgreSQL with pgvector"""
+    global db_conn, sentence_embeddings
+
+    try:
+        if sentence_embeddings is None:
+            logger.error("Sentence embeddings not available for pgvector")
+            return False
+
+        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+        db_conn = psycopg.connect(db_url)
+        register_vector(db_conn)
+
+        with db_conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            embedding_dim = sentence_embeddings.shape[1]
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sentence_embeddings (
+                    id SERIAL PRIMARY KEY,
+                    sentence TEXT,
+                    source TEXT,
+                    document JSONB,
+                    embedding vector(%s)
+                )
+                """,
+                (embedding_dim,),
+            )
+            cur.execute("SELECT COUNT(*) FROM sentence_embeddings")
+            count = cur.fetchone()[0]
+            if count == 0:
+                for sent, src, doc, emb in zip(sentences, sentence_sources, sentence_docs, sentence_embeddings):
+                    cur.execute(
+                        "INSERT INTO sentence_embeddings (sentence, source, document, embedding) VALUES (%s, %s, %s, %s)",
+                        (sent, src, json.dumps(doc, ensure_ascii=False), emb.tolist()),
+                    )
+            db_conn.commit()
+
+        logger.info("pgvector database initialized")
+        return True
+    except Exception as e:
+        logger.error(f"Error initializing pgvector: {e}")
+        db_conn = None
+        return False
+
 def retrieve_context_tfidf(query: str, top_k: int = 5) -> List[RetrievalResult]:
     """Retrieve context using TF-IDF"""
     if vectorizer is None or tfidf_matrix is None:
@@ -342,17 +391,17 @@ def retrieve_context_faiss(query: str, top_k: int = 5) -> List[RetrievalResult]:
     """Retrieve context using FAISS index (faster than regular embedding search)"""
     if embedding_model is None or faiss_index is None:
         return []
-    
+
     try:
         # Encode query
         query_emb = embedding_model.encode([query], convert_to_numpy=True)
-        
+
         # Normalize query embedding for cosine similarity
         faiss.normalize_L2(query_emb)
-        
+
         # Search in FAISS index
         scores, indices = faiss_index.search(query_emb.astype('float32'), top_k)
-        
+
         results = []
         for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
             if idx != -1 and score > 0:  # Valid index and positive score
@@ -362,10 +411,45 @@ def retrieve_context_faiss(query: str, top_k: int = 5) -> List[RetrievalResult]:
                     score=float(score),
                     document=sentence_docs[idx]  # 문서 전체 반환
                 ))
-        
+
         return results
     except Exception as e:
         logger.error(f"Error in FAISS retrieval: {e}")
+        return []
+
+def retrieve_context_pgvector(query: str, top_k: int = 5) -> List[RetrievalResult]:
+    """Retrieve context using PostgreSQL pgvector"""
+    if embedding_model is None or db_conn is None:
+        return []
+
+    try:
+        query_emb = embedding_model.encode([query], convert_to_numpy=True)[0]
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT sentence, source, document, embedding <-> %s AS distance
+                FROM sentence_embeddings
+                ORDER BY embedding <-> %s
+                LIMIT %s
+                """,
+                (query_emb.tolist(), query_emb.tolist(), top_k),
+            )
+            rows = cur.fetchall()
+
+        results = []
+        for sentence_text, source, doc_json, distance in rows:
+            results.append(
+                RetrievalResult(
+                    sentence=sentence_text,
+                    source=source,
+                    score=float(-distance),
+                    document=json.loads(doc_json),
+                )
+            )
+
+        return results
+    except Exception as e:
+        logger.error(f"Error in pgvector retrieval: {e}")
         return []
 
 @app.on_event("startup")
@@ -389,7 +473,11 @@ async def startup_event():
     # Initialize embeddings
     if not initialize_embeddings():
         logger.error("Failed to initialize embeddings")
-    
+
+    # Initialize pgvector database
+    if not initialize_pgvector():
+        logger.error("Failed to initialize pgvector")
+
     # Initialize FAISS
     if not initialize_faiss():
         logger.error("Failed to initialize FAISS")
@@ -415,6 +503,7 @@ async def health_check():
         "tfidf_ready": tfidf_matrix is not None,
         "embeddings_ready": sentence_embeddings is not None,
         "faiss_ready": faiss_index is not None,
+        "pgvector_ready": db_conn is not None,
         "faiss_total_vectors": faiss_index.ntotal if faiss_index is not None else 0
     }
 
@@ -447,6 +536,12 @@ async def search_documents(request: QueryRequest):
                 response.faiss_results = retrieve_context_faiss(request.query, request.top_k)
             else:
                 logger.warning("FAISS index not available")
+
+        if request.method in ["pgvector", "both"]:
+            if db_conn is not None:
+                response.pgvector_results = retrieve_context_pgvector(request.query, request.top_k)
+            else:
+                logger.warning("pgvector database not available")
         
         return response
         
@@ -484,6 +579,7 @@ async def get_stats():
             "tfidf": tfidf_matrix is not None,
             "embeddings": sentence_embeddings is not None,
             "faiss": faiss_index is not None,
+            "pgvector": db_conn is not None,
             "faiss_total_vectors": faiss_index.ntotal if faiss_index is not None else 0
         },
         "cache_info": {
@@ -519,7 +615,7 @@ async def clear_cache():
 @app.post("/reload")
 async def reload_data():
     """Reload data and reinitialize models (will use cache if available)"""
-    global dataset, sentences, sentence_sources, tfidf_matrix, vectorizer, embedding_model, sentence_embeddings, faiss_index
+    global dataset, sentences, sentence_sources, tfidf_matrix, vectorizer, embedding_model, sentence_embeddings, faiss_index, db_conn
     
     try:
         logger.info("Reloading data...")
@@ -534,6 +630,7 @@ async def reload_data():
         embedding_model = None
         sentence_embeddings = None
         faiss_index = None
+        db_conn = None
         
         # Reload everything
         if not load_legal_data():
@@ -545,6 +642,7 @@ async def reload_data():
         # Initialize models (will use cache if available)
         tfidf_success = initialize_tfidf()
         embedding_success = initialize_embeddings()
+        pg_success = initialize_pgvector()
         faiss_success = initialize_faiss()
         
         return {
@@ -553,6 +651,7 @@ async def reload_data():
             "tfidf_initialized": tfidf_success,
             "embeddings_initialized": embedding_success,
             "faiss_initialized": faiss_success,
+            "pgvector_initialized": pg_success,
             "document_types": list(dataset.keys()) if dataset else []
         }
         
