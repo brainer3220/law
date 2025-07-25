@@ -4,12 +4,12 @@ from typing import List, Dict, Optional
 import uvicorn
 from collections import Counter
 from scripts.full_data_to_datasets import create_huggingface_dataset
+from datasets import Dataset, load_from_disk
 import pickle
 import os
 import hashlib
 from pathlib import Path
 from tqdm.auto import tqdm
-from datasets import Dataset
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
@@ -34,6 +34,9 @@ DATA_DIRECTORIES = [
     "full_data/Training/01.원천데이터/TS_01. 민사법_003. 심결례/",
     "full_data/Training/01.원천데이터/TS_01. 민사법_004. 유권해석/",
 ]
+
+# Directory where the preprocessed HuggingFace dataset is stored
+DATASET_DIR = Path("korean_legal_dataset")
 
 # Global variables for storing data and models
 dataset = None
@@ -132,12 +135,17 @@ def load_legal_data():
     try:
         logger.info("Loading legal data with preprocessing...")
 
-        dataset = create_huggingface_dataset(
-            data_dirs=DATA_DIRECTORIES,
-            output_dir=None,
-            push_to_hub=False,
-            max_workers=os.cpu_count(),
-        )
+        if DATASET_DIR.exists():
+            logger.info(f"Loading dataset from {DATASET_DIR} ...")
+            dataset = load_from_disk(str(DATASET_DIR))
+        else:
+            logger.info("Prebuilt dataset not found; creating new one...")
+            dataset = create_huggingface_dataset(
+                data_dirs=DATA_DIRECTORIES,
+                output_dir=str(DATASET_DIR),
+                push_to_hub=False,
+                max_workers=os.cpu_count(),
+            )
 
         if dataset is None:
             logger.error("Dataset creation failed")
