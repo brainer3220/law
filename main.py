@@ -36,7 +36,7 @@ DATA_DIRECTORIES = [
 ]
 
 # Directory where the preprocessed HuggingFace dataset is stored
-DATASET_DIR = Path("korean_legal_dataset")
+DATASET_DIR = Path("datasets/korean_legal_dataset")
 
 # Global variables for storing data and models
 dataset = None
