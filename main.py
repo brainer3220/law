@@ -161,6 +161,13 @@ def load_legal_data():
                 for sent in item['sentences']:
                     if sent and sent.strip():
                         sentences.append(sent.strip())
+                        doc_type = item.get('document_type', '').strip()
+                        if not doc_type:
+                            import logging
+                            logging.warning(f"Missing or empty 'document_type' for item: {item}")
+                            doc_type = 'UNKNOWN_DOCUMENT_TYPE'
+                        sentence_sources.append(doc_type)
+                        sentence_docs.append(item)
                         sentence_sources.append(item.get('document_type', ''))
                         sentence_docs.append(item)
 
