@@ -2,14 +2,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import uvicorn
-from glob import glob
-import json
+from collections import Counter
+from scripts.full_data_to_datasets import create_huggingface_dataset
+from datasets import Dataset, load_from_disk
 import pickle
 import os
 import hashlib
 from pathlib import Path
 from tqdm.auto import tqdm
-from datasets import Dataset, DatasetDict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
@@ -26,6 +26,17 @@ app = FastAPI(title="Legal RAG API", description="Korean Legal Document RAG Syst
 # Cache configuration
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
+
+# Data directories for preprocessing (same as in scripts/full_data_to_datasets.py)
+DATA_DIRECTORIES = [
+    "full_data/Training/01.원천데이터/TS_01. 민사법_001. 판결문/",
+    "full_data/Training/01.원천데이터/TS_01. 민사법_002. 법령/",
+    "full_data/Training/01.원천데이터/TS_01. 민사법_003. 심결례/",
+    "full_data/Training/01.원천데이터/TS_01. 민사법_004. 유권해석/",
+]
+
+# Directory where the preprocessed HuggingFace dataset is stored
+DATASET_DIR = Path("datasets/korean_legal_dataset")
 
 # Global variables for storing data and models
 dataset = None
@@ -118,55 +129,53 @@ def load_faiss_index(cache_file: Path) -> faiss.Index:
         return None
 
 def load_legal_data():
-    """Load legal documents from JSON files"""
+    """Load and preprocess legal documents using helper script"""
     global dataset, sentences, sentence_sources, sentence_docs
-    
+
     try:
-        logger.info("Loading legal data...")
-        data_type = sorted(glob("full_data/Training/01.원천데이터/*"))
-        
-        if not data_type:
-            logger.warning("No data directories found")
+        logger.info("Loading legal data with preprocessing...")
+
+        if DATASET_DIR.exists():
+            logger.info(f"Loading dataset from {DATASET_DIR} ...")
+            dataset = load_from_disk(str(DATASET_DIR))
+        else:
+            logger.info("Prebuilt dataset not found; creating new one...")
+            dataset = create_huggingface_dataset(
+                data_dirs=DATA_DIRECTORIES,
+                output_dir=str(DATASET_DIR),
+                push_to_hub=False,
+                max_workers=os.cpu_count(),
+            )
+
+        if dataset is None:
+            logger.error("Dataset creation failed")
             return False
-            
-        data_list = sorted([glob(d_type + "/*.json") for d_type in data_type])
-        
-        dataset_dict = {}
-        for i in tqdm(range(len(data_type))):
-            key = data_type[i].split()[-1]
-            json_files = data_list[i]
-            
-            if json_files:
-                try:
-                    dataset_dict[key] = Dataset.from_json(json_files, num_proc=os.cpu_count())
-                    logger.info(f"Loaded {len(json_files)} files for {key}")
-                except Exception as e:
-                    logger.error(f"Error loading {key}: {e}")
-                    continue
-        
-        if not dataset_dict:
-            logger.error("No datasets loaded successfully")
-            return False
-            
-        dataset = DatasetDict(dataset_dict)
-        
-        # Extract sentences from all datasets
+
+        # Extract sentences from dataset
         sentences.clear()
         sentence_sources.clear()
         sentence_docs.clear()
-        
-        for key in dataset.keys():
-            for item in dataset[key]:
-                if 'sentences' in item and isinstance(item['sentences'], list):
-                    for sent in item['sentences']:
-                        if sent and sent.strip():  # Skip empty sentences
-                            sentences.append(sent.strip())
-                            sentence_sources.append(key)
-                            sentence_docs.append(item)  # 문서 전체 저장
-        
-        logger.info(f"Extracted {len(sentences)} sentences from {len(dataset_dict)} document types")
+
+        for item in dataset:
+            if 'sentences' in item and isinstance(item['sentences'], list):
+                for sent in item['sentences']:
+                    if sent and sent.strip():
+                        sentences.append(sent.strip())
+                        doc_type = item.get('document_type', '').strip()
+                        if not doc_type:
+                            import logging
+                            logging.warning(f"Missing or empty 'document_type' for item: {item}")
+                            doc_type = 'UNKNOWN_DOCUMENT_TYPE'
+                        sentence_sources.append(doc_type)
+                        sentence_docs.append(item)
+                        sentence_sources.append(item.get('document_type', ''))
+                        sentence_docs.append(item)
+
+        logger.info(
+            f"Extracted {len(sentences)} sentences from {len(dataset)} documents"
+        )
         return True
-        
+
     except Exception as e:
         logger.error(f"Error loading legal data: {e}")
         return False
@@ -403,7 +412,8 @@ async def root():
         "message": "Legal RAG API",
         "status": "running",
         "total_sentences": len(sentences),
-        "document_types": list(dataset.keys()) if dataset else []
+        "total_documents": len(dataset) if dataset else 0,
+        "document_type_counts": Counter(dataset["document_type"]) if dataset and "document_type" in dataset.column_names else {},
     }
 
 @app.get("/health")
@@ -460,12 +470,12 @@ async def get_stats():
     if not dataset:
         raise HTTPException(status_code=503, detail="Data not loaded")
     
-    stats = {}
-    for key in dataset.keys():
-        stats[key] = {
-            "total_documents": len(dataset[key]),
-            "sample_fields": list(dataset[key].features.keys()) if len(dataset[key]) > 0 else []
-        }
+    stats = {
+        "total_documents": len(dataset),
+        "sample_fields": list(dataset.features.keys()) if len(dataset) > 0 else [],
+    }
+    if "document_type" in dataset.column_names:
+        stats["document_type_counts"] = Counter(dataset["document_type"])
     
     # Get cache info
     data_hash = get_data_hash(sentences) if sentences else "no_data"
@@ -553,7 +563,8 @@ async def reload_data():
             "tfidf_initialized": tfidf_success,
             "embeddings_initialized": embedding_success,
             "faiss_initialized": faiss_success,
-            "document_types": list(dataset.keys()) if dataset else []
+            "total_documents": len(dataset) if dataset else 0,
+            "document_type_counts": Counter(dataset["document_type"]) if dataset and "document_type" in dataset.column_names else {},
         }
         
     except Exception as e:
