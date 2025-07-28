@@ -1,53 +1,68 @@
-# Legal RAG API Testing Guide
+# Legal RAG API v2.0 Testing Guide
 
-## 테스트 개요
+## 📋 테스트 개요
 
-이 프로젝트는 포괄적인 테스트 슈트를 제공합니다:
+Legal RAG API v2.0은 포괄적인 다층 테스트 전략을 제공합니다:
 
-- **Unit Tests**: 개별 컴포넌트 테스트
-- **Integration Tests**: API 엔드포인트 통합 테스트  
-- **Performance Tests**: 성능 및 부하 테스트
-- **End-to-End Tests**: 완전한 워크플로우 테스트
+- **Unit Tests** (`test_unit.py`): 개별 컴포넌트 테스트
+- **Integration Tests** (`test_comprehensive.py`): API 엔드포인트 통합 테스트  
+- **Performance Tests** (`test_performance.py`): 성능 및 부하 테스트
+- **End-to-End Tests** (`test_e2e.py`): 완전한 워크플로우 테스트
+- **Stress Tests** (`test_stress.py`): 스트레스 테스트 및 리소스 한계 테스트
+- **Exception Tests** (`test_exceptions.py`): 예외 처리 및 엣지 케이스 테스트
 
-## 테스트 실행 방법
+## 🛠️ 테스트 실행 방법
 
-### 1. 기본 사용법 (관리 스크립트)
+### 1. UV 기반 테스트 실행 (권장)
 
 ```bash
-# 단위 테스트만 실행
-python manage.py test unit
-
-# 통합 테스트 실행 (서버 필요)
-python manage.py test integration
-
-# 성능 테스트 실행 (서버 필요)
-python manage.py test performance
-
-# E2E 테스트 실행 (서버 필요)
-python manage.py test e2e
-
 # 모든 테스트 실행
-python manage.py test all
+uv run python -m pytest tests/
+
+# 특정 테스트 카테고리
+uv run python -m pytest tests/ -m unit           # 단위 테스트만
+uv run python -m pytest tests/ -m integration    # 통합 테스트만
+uv run python -m pytest tests/ -m performance    # 성능 테스트만
+uv run python -m pytest tests/ -m stress         # 스트레스 테스트만
+uv run python -m pytest tests/ -m e2e            # E2E 테스트만
+uv run python -m pytest tests/ -m exceptions     # 예외 테스트만
 
 # 커버리지 리포트와 함께 실행
-python manage.py test all --coverage
+uv run python -m pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
+
+# 특정 테스트 파일 실행
+uv run python -m pytest tests/test_unit.py -v
 ```
 
-### 2. 전용 테스트 러너 사용
+### 2. 향상된 테스트 러너 사용
 
 ```bash
-# 다양한 테스트 타입
-python run_tests.py unit
-python run_tests.py integration
-python run_tests.py performance
-python run_tests.py e2e
-python run_tests.py all
+# 실행 권한 부여
+chmod +x run_enhanced_tests.sh
 
-# 상세한 리포트 생성
-python run_tests.py report
+# 모든 테스트 실행 (커버리지 포함)
+./run_enhanced_tests.sh --all --coverage --html
 
-# 서버 상태 확인
-python run_tests.py --check-server
+# 특정 테스트 타입
+./run_enhanced_tests.sh --unit --coverage
+./run_enhanced_tests.sh --integration --verbose
+./run_enhanced_tests.sh --performance --detailed
+./run_enhanced_tests.sh --stress --timeout 300
+
+# 빠른 검증 (critical 테스트만)
+./run_enhanced_tests.sh --smoke --fast
+```
+
+### 3. 기본 관리 스크립트 사용
+
+```bash
+# 기본 테스트
+python manage.py test
+
+# 특정 테스트 타입 (레거시)
+python manage.py test unit
+python manage.py test integration
+python manage.py test performance
 ```
 
 ### 3. 직접 pytest 사용

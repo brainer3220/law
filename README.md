@@ -1,6 +1,6 @@
 # Legal RAG API v2.0
 
-A high-performance FastAPI-based Retrieval-Augmented Generation (RAG) system for Korean legal documents with improved architecture and caching.
+A high-performance FastAPI-based Retrieval-Augmented Generation (RAG) system for Korean legal documents with improved architecture, comprehensive testing, and intelligent caching.
 
 ## 🚀 Features
 
@@ -9,9 +9,11 @@ A high-performance FastAPI-based Retrieval-Augmented Generation (RAG) system for
 - **High Performance**: FAISS-based fast similarity search
 - **Smart Caching**: Automatic caching of models and embeddings
 - **RESTful API**: Easy-to-use HTTP endpoints with comprehensive validation
-- **Modular Architecture**: Clean separation of concerns
-- **Configuration Management**: Environment-based configuration
+- **Modular Architecture**: Clean separation of concerns with dependency injection
+- **Configuration Management**: Environment-based configuration with validation
 - **Comprehensive Logging**: Detailed logging with configurable levels
+- **Advanced Testing**: Unit tests, integration tests, performance tests, and stress testing
+- **UV Package Management**: Ultra-fast dependency management with modern Python tooling
 
 ## 📋 Requirements
 
@@ -83,7 +85,20 @@ python manage.py health
 ### Run Tests
 
 ```bash
+# Run all tests
 python manage.py test
+
+# Run specific test types
+uv run python -m pytest tests/ -m unit           # Unit tests only
+uv run python -m pytest tests/ -m integration    # Integration tests only
+uv run python -m pytest tests/ -m performance    # Performance tests only
+uv run python -m pytest tests/ -m stress         # Stress tests only
+
+# Run tests with coverage
+uv run python -m pytest tests/ --cov=. --cov-report=html
+
+# Run enhanced test suite
+./run_enhanced_tests.sh --all --coverage --html
 ```
 
 ## 📚 API Documentation
@@ -158,10 +173,19 @@ python manage.py start --port 8080        # Custom port
 python manage.py start --no-reload        # Disable auto-reload
 
 # Development Tools
-python manage.py test                     # Run tests
+python manage.py test                     # Run basic tests
 python manage.py health                   # Check API health
 python manage.py format                   # Format code (black + isort)
 python manage.py lint                     # Lint code (flake8 + mypy)
+
+# Enhanced Testing (UV-based)
+uv run python -m pytest tests/            # Run all tests
+uv run python -m pytest tests/ -m unit    # Unit tests only
+uv run python -m pytest tests/ -m integration  # Integration tests
+uv run python -m pytest tests/ -m performance  # Performance tests
+uv run python -m pytest tests/ -m stress       # Stress tests
+uv run python -m pytest tests/ --cov=.         # With coverage
+./run_enhanced_tests.sh --all --coverage       # Enhanced test runner
 
 # Data Management
 python manage.py clear-cache              # Clear application cache
@@ -236,11 +260,23 @@ LOG_FILE=legal_rag.log
 ### Core Components
 
 - **`main.py`**: FastAPI application and endpoints
-- **`config.py`**: Configuration management
-- **`models.py`**: Pydantic models for API
-- **`data_loader.py`**: Data loading and preprocessing
-- **`cache_manager.py`**: Caching utilities
+- **`config.py`**: Configuration management with Pydantic validation
+- **`models.py`**: Pydantic models for API request/response validation
+- **`data_loader.py`**: Data loading and preprocessing from HuggingFace datasets
+- **`cache_manager.py`**: Intelligent caching utilities with hash-based keys
 - **`retrievers.py`**: Search algorithms (TF-IDF, Embedding, FAISS)
+
+### Testing Infrastructure
+
+- **`tests/test_unit.py`**: Unit tests for individual components
+- **`tests/test_comprehensive.py`**: Integration tests
+- **`tests/test_e2e.py`**: End-to-end workflow tests
+- **`tests/test_performance.py`**: Performance benchmarking
+- **`tests/test_stress.py`**: Load testing and stress tests
+- **`tests/test_exceptions.py`**: Exception handling and edge cases
+- **`tests/test_utils.py`**: Testing utilities and helpers
+- **`run_enhanced_tests.sh`**: Advanced test runner with UV integration
+- **`pytest.ini`**: Test configuration and markers
 
 ### Data Flow
 
@@ -260,17 +296,57 @@ The application uses intelligent caching to improve performance:
 
 ## 🧪 Testing
 
-Run the comprehensive test suite:
+The project includes a comprehensive test suite with multiple testing strategies:
+
+### Test Types
+
+- **Unit Tests** (`tests/test_unit.py`): Individual component testing
+- **Integration Tests** (`tests/test_comprehensive.py`): Component interaction testing  
+- **End-to-End Tests** (`tests/test_e2e.py`): Complete workflow testing
+- **Performance Tests** (`tests/test_performance.py`): Performance benchmarking
+- **Stress Tests** (`tests/test_stress.py`): Load testing and resource limits
+- **Exception Tests** (`tests/test_exceptions.py`): Error handling and edge cases
+
+### Running Tests
 
 ```bash
+# Quick test run
 python manage.py test
+
+# Comprehensive testing with UV
+uv run python -m pytest tests/ -v
+
+# Specific test categories
+uv run python -m pytest tests/ -m unit           # Unit tests
+uv run python -m pytest tests/ -m integration    # Integration tests
+uv run python -m pytest tests/ -m performance    # Performance tests
+uv run python -m pytest tests/ -m stress         # Stress tests
+
+# Coverage reporting
+uv run python -m pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
+
+# Enhanced test runner with detailed reporting
+chmod +x run_enhanced_tests.sh
+./run_enhanced_tests.sh --all --coverage --html
 ```
 
-The test includes:
-- Health checks
-- API functionality
-- Search performance
-- Error handling
+### Test Configuration
+
+Tests are configured via `pytest.ini` with markers for different test types:
+- `unit`: Fast unit tests
+- `integration`: Integration tests requiring running server
+- `performance`: Performance benchmarking tests  
+- `stress`: Resource-intensive stress tests
+- `e2e`: End-to-end workflow tests
+- `slow`: Long-running tests
+- `critical`: Critical tests that must pass
+
+### Test Reports
+
+After running tests with coverage, check:
+- **HTML Report**: `htmlcov/index.html`
+- **Terminal**: Coverage summary in terminal output
+- **CI/CD**: XML reports in `test_reports/` directory
 
 ## 📝 Example Usage
 
@@ -318,14 +394,17 @@ Each document should be a JSON file with:
 
 ## 🚀 What's New in v2.0
 
-- **Modular Architecture**: Clean separation of concerns
-- **Improved Caching**: Hash-based intelligent caching  
-- **Better Error Handling**: Comprehensive error handling and validation
-- **Performance Monitoring**: Request timing and performance metrics
-- **Configuration Management**: Environment-based configuration
-- **Management Scripts**: Convenient management commands
-- **Enhanced API**: Better request/response models with validation
-- **Comprehensive Testing**: Improved test suite with performance tests
+- **Modular Architecture**: Clean separation of concerns with dependency injection
+- **Improved Caching**: Hash-based intelligent caching with automatic invalidation
+- **Better Error Handling**: Comprehensive error handling and validation with custom exceptions
+- **Performance Monitoring**: Request timing and performance metrics with detailed logging
+- **Configuration Management**: Environment-based configuration with Pydantic validation
+- **Management Scripts**: Convenient UV-powered management commands
+- **Enhanced API**: Better request/response models with comprehensive validation
+- **Advanced Testing Suite**: Multi-tier testing with unit, integration, performance, and stress tests
+- **UV Package Management**: Ultra-fast dependency management and virtual environment handling
+- **Test Coverage**: Comprehensive test coverage reporting with HTML output
+- **CI/CD Ready**: Enhanced testing infrastructure ready for continuous integration
 
 ## 🤝 Contributing
 
@@ -353,12 +432,17 @@ This project is licensed under the MIT License.
 - Subsequent startups use cache and are faster
 - Check logs for progress: `tail -f legal_rag.log`
 
-**3. Connection Errors**
-- Check if server is running: `python manage.py health`
-- Verify port is available: `netstat -an | grep 8000`
-- Check firewall settings
+**3. Test Failures**
+- Run tests to identify issues: `uv run python -m pytest tests/ -v`
+- Check specific test categories: `uv run python -m pytest tests/ -m unit`
+- Review test logs and coverage reports in `htmlcov/`
 
-**4. Cache Issues**
+**4. Performance Issues**
+- Run performance tests: `uv run python -m pytest tests/ -m performance`
+- Monitor resource usage during stress tests
+- Check cache hit rates and model initialization times
+
+**5. Cache Issues**
 - Clear cache: `python manage.py clear-cache`
 - Disable cache: Set `ENABLE_CACHE=false` in `.env`
 - Check disk space for cache directory
