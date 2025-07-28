@@ -1,188 +1,336 @@
 #!/usr/bin/env python3
 """
-Utility script for managing the Legal RAG API
+Management script for Legal RAG API using UV
 """
 import argparse
+import os
 import subprocess
 import sys
 import time
-import requests
 from pathlib import Path
 
-BASE_URL = "http://localhost:8000"
 
-def start_server(host="0.0.0.0", port=8000, reload=True):
-    """Start the FastAPI server"""
-    print(f"🚀 Starting Legal RAG API server on {host}:{port}")
-    print("📚 API Documentation: http://localhost:8000/docs")
-    print("🔍 API Status: http://localhost:8000/health")
-    print("⏹️  Press Ctrl+C to stop")
-    print("-" * 60)
+def run_command(cmd: list, check: bool = True, capture_output: bool = False) -> subprocess.CompletedProcess:
+    """Run a command with proper error handling"""
+    print(f"🔧 Running: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(
+            cmd,
+            check=check,
+            capture_output=capture_output,
+            text=True,
+            cwd=Path(__file__).parent
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Command failed: {e}")
+        if capture_output and e.stdout:
+            print(f"STDOUT: {e.stdout}")
+        if capture_output and e.stderr:
+            print(f"STDERR: {e.stderr}")
+        sys.exit(1)
+
+
+def check_uv_installed():
+    """Check if UV is installed"""
+    try:
+        result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"✅ UV version: {result.stdout.strip()}")
+            return True
+    except FileNotFoundError:
+        pass
+    
+    print("❌ UV is not installed. Please install it first:")
+    print("   Windows: winget install --id=astral-sh.uv")
+    print("   macOS: brew install uv")
+    print("   Linux: curl -LsSf https://astral.sh/uv/install.sh | sh")
+    print("   Or visit: https://docs.astral.sh/uv/getting-started/installation/")
+    return False
+
+
+def install_deps(gpu: bool = False, dev: bool = False):
+    """Install dependencies using UV"""
+    print("📦 Installing dependencies with UV...")
+    
+    if not check_uv_installed():
+        return False
+    
+    # Create virtual environment if it doesn't exist
+    if not Path(".venv").exists():
+        print("🔨 Creating virtual environment...")
+        run_command(["uv", "venv"])
+    
+    # Install dependencies
+    cmd = ["uv", "sync"]
+    
+    if gpu:
+        cmd.extend(["--extra", "gpu"])
+        print("🚀 Installing with GPU support...")
+    
+    if dev:
+        cmd.extend(["--extra", "dev"])
+        print("🔧 Installing development dependencies...")
+    
+    run_command(cmd)
+    print("✅ Dependencies installed successfully!")
+    return True
+
+
+def setup_environment():
+    """Setup the development environment"""
+    print("🛠️ Setting up development environment...")
+    
+    # Create necessary directories
+    dirs = ["cache", "logs", "datasets"]
+    for dir_name in dirs:
+        Path(dir_name).mkdir(exist_ok=True)
+        print(f"📁 Created directory: {dir_name}")
+    
+    # Copy environment file if it doesn't exist
+    if not Path(".env").exists():
+        if Path(".env.example").exists():
+            import shutil
+            shutil.copy(".env.example", ".env")
+            print("📄 Created .env file from .env.example")
+        else:
+            # Create basic .env file
+            env_content = """# Legal RAG API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+API_RELOAD=true
+EMBEDDING_MODEL=jhgan/ko-sroberta-multitask
+TFIDF_MAX_FEATURES=10000
+CACHE_DIR=cache
+ENABLE_CACHE=true
+DEFAULT_TOP_K=5
+MAX_TOP_K=100
+MIN_SIMILARITY_SCORE=0.1
+BATCH_SIZE=32
+LOG_LEVEL=INFO
+LOG_FILE=legal_rag.log
+"""
+            with open(".env", "w", encoding="utf-8") as f:
+                f.write(env_content)
+            print("📄 Created basic .env file")
+    
+    print("✅ Environment setup completed!")
+
+
+def start_server(host: str = None, port: int = None, no_reload: bool = False):
+    """Start the API server"""
+    print("🚀 Starting Legal RAG API server...")
+    
+    if not check_uv_installed():
+        return False
+    
+    cmd = ["uv", "run", "python", "main.py"]
+    
+    # Set environment variables if provided
+    env = os.environ.copy()
+    if host:
+        env["API_HOST"] = host
+    if port:
+        env["API_PORT"] = str(port)
+    if no_reload:
+        env["API_RELOAD"] = "false"
     
     try:
-        cmd = [
-            sys.executable, "-m", "uvicorn", "main:app",
-            "--host", host,
-            "--port", str(port),
-            "--log-level", "info"
-        ]
-        
-        if reload:
-            cmd.append("--reload")
-        
-        subprocess.run(cmd)
+        subprocess.run(cmd, env=env, cwd=Path(__file__).parent)
     except KeyboardInterrupt:
-        print("\n⏹️  Server stopped by user")
-    except Exception as e:
-        print(f"❌ Error starting server: {e}")
-        sys.exit(1)
+        print("\n🛑 Server stopped by user")
 
-def test_api():
-    """Run API tests"""
-    print("🧪 Running API tests...")
-    try:
-        subprocess.run([sys.executable, "test_api.py"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Tests failed with exit code {e.returncode}")
-        sys.exit(1)
-    except FileNotFoundError:
+
+def run_tests():
+    """Run the test suite"""
+    print("🧪 Running tests...")
+    
+    if not check_uv_installed():
+        return False
+    
+    # Run the API test
+    if Path("test_api.py").exists():
+        run_command(["uv", "run", "python", "test_api.py"])
+    else:
         print("❌ test_api.py not found")
-        sys.exit(1)
+        return False
+    
+    print("✅ Tests completed!")
+
 
 def check_health():
     """Check API health"""
+    print("🏥 Checking API health...")
+    
     try:
-        print("🏥 Checking API health...")
-        response = requests.get(f"{BASE_URL}/health", timeout=10)
+        import requests
+        response = requests.get("http://localhost:8000/health", timeout=10)
         
         if response.status_code == 200:
             data = response.json()
             print("✅ API is healthy!")
-            print(f"   Data loaded: {data.get('data_loaded', False)}")
-            print(f"   Total sentences: {data.get('total_sentences', 0)}")
-            print(f"   Total documents: {data.get('total_documents', 0)}")
+            print(f"   Status: {data.get('status')}")
+            print(f"   Data loaded: {data.get('data_loaded')}")
+            print(f"   Total sentences: {data.get('total_sentences')}")
             
             models = data.get('models_ready', {})
             print("   Models ready:")
-            for model, status in models.items():
-                status_icon = "✅" if status else "❌"
-                print(f"     {model}: {status_icon}")
+            for model, ready in models.items():
+                status = "✅" if ready else "❌"
+                print(f"     {model}: {status}")
         else:
-            print(f"❌ API health check failed: {response.status_code}")
+            print(f"❌ API returned status {response.status_code}")
             print(f"   Response: {response.text}")
-            
+    
     except requests.exceptions.ConnectionError:
         print("❌ Cannot connect to API. Is the server running?")
+        print("   Start the server with: python manage.py start")
+    except ImportError:
+        print("❌ requests library not found. Installing...")
+        run_command(["uv", "add", "requests"])
+        print("✅ Please run the health check again")
     except Exception as e:
-        print(f"❌ Health check error: {e}")
+        print(f"❌ Health check failed: {e}")
+
 
 def clear_cache():
-    """Clear API cache"""
-    try:
-        print("🧹 Clearing cache...")
-        response = requests.delete(f"{BASE_URL}/cache", timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            print("✅ Cache cleared successfully!")
-            print(f"   Files deleted: {len(data.get('deleted_files', []))}")
-            print(f"   Space freed: {data.get('freed_space_mb', 0):.2f} MB")
-        else:
-            print(f"❌ Failed to clear cache: {response.status_code}")
-            print(f"   Response: {response.text}")
-            
-    except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to API. Is the server running?")
-    except Exception as e:
-        print(f"❌ Cache clear error: {e}")
+    """Clear application cache"""
+    print("🧹 Clearing cache...")
+    
+    cache_dir = Path("cache")
+    if cache_dir.exists():
+        import shutil
+        shutil.rmtree(cache_dir)
+        cache_dir.mkdir()
+        print("✅ Cache cleared successfully!")
+    else:
+        print("ℹ️ No cache directory found")
+
 
 def reload_data():
-    """Reload API data"""
+    """Reload application data"""
+    print("🔄 Reloading data...")
+    
     try:
-        print("🔄 Reloading data and models...")
-        response = requests.post(f"{BASE_URL}/reload", timeout=120)
+        import requests
+        response = requests.post("http://localhost:8000/reload", timeout=120)
         
         if response.status_code == 200:
             data = response.json()
             print("✅ Data reloaded successfully!")
-            print(f"   Total sentences: {data.get('total_sentences', 0)}")
-            print(f"   Total documents: {data.get('total_documents', 0)}")
+            print(f"   Message: {data.get('message')}")
+            print(f"   Total sentences: {data.get('total_sentences')}")
+            print(f"   Total documents: {data.get('total_documents')}")
             print(f"   Execution time: {data.get('execution_time_ms', 0):.2f}ms")
-            
-            models = data.get('models_initialized', {})
-            print("   Models initialized:")
-            for model, status in models.items():
-                status_icon = "✅" if status else "❌"
-                print(f"     {model}: {status_icon}")
         else:
-            print(f"❌ Failed to reload data: {response.status_code}")
+            print(f"❌ Reload failed with status {response.status_code}")
             print(f"   Response: {response.text}")
-            
+    
     except requests.exceptions.ConnectionError:
         print("❌ Cannot connect to API. Is the server running?")
+    except ImportError:
+        print("❌ requests library not found. Installing...")
+        run_command(["uv", "add", "requests"])
+        print("✅ Please run the reload command again")
     except Exception as e:
-        print(f"❌ Reload error: {e}")
+        print(f"❌ Reload failed: {e}")
 
-def install_deps():
-    """Install dependencies"""
-    print("📦 Installing dependencies...")
-    try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", "."], check=True)
-        print("✅ Dependencies installed successfully!")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to install dependencies: {e}")
-        sys.exit(1)
 
-def setup_env():
-    """Setup environment"""
-    env_file = Path(".env")
-    env_example = Path(".env.example")
+def format_code():
+    """Format code using black and isort"""
+    print("🎨 Formatting code...")
     
-    if not env_file.exists() and env_example.exists():
-        print("⚙️  Creating .env file from .env.example...")
-        env_file.write_text(env_example.read_text(encoding='utf-8'), encoding='utf-8')
-        print("✅ .env file created. Please review and modify as needed.")
-    elif env_file.exists():
-        print("ℹ️  .env file already exists.")
-    else:
-        print("❌ .env.example not found. Cannot create .env file.")
+    if not check_uv_installed():
+        return False
+    
+    try:
+        print("Running black...")
+        run_command(["uv", "run", "black", "."])
+        
+        print("Running isort...")
+        run_command(["uv", "run", "isort", "."])
+        
+        print("✅ Code formatted successfully!")
+    except Exception as e:
+        print(f"❌ Code formatting failed: {e}")
+        print("💡 Make sure dev dependencies are installed: python manage.py install --dev")
+
+
+def lint_code():
+    """Lint code using flake8 and mypy"""
+    print("🔍 Linting code...")
+    
+    if not check_uv_installed():
+        return False
+    
+    try:
+        print("Running flake8...")
+        run_command(["uv", "run", "flake8", ".", "--max-line-length=100"])
+        
+        print("Running mypy...")
+        run_command(["uv", "run", "mypy", ".", "--ignore-missing-imports"])
+        
+        print("✅ Code linting completed!")
+    except Exception as e:
+        print(f"❌ Code linting failed: {e}")
+        print("💡 Make sure dev dependencies are installed: python manage.py install --dev")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Legal RAG API Management Utility")
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description="Legal RAG API Management Script")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
-    # Start server command
+    # Install command
+    install_parser = subparsers.add_parser("install", help="Install dependencies")
+    install_parser.add_argument("--gpu", action="store_true", help="Install GPU dependencies")
+    install_parser.add_argument("--dev", action="store_true", help="Install development dependencies")
+    
+    # Setup command
+    subparsers.add_parser("setup", help="Setup development environment")
+    
+    # Start command
     start_parser = subparsers.add_parser("start", help="Start the API server")
-    start_parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    start_parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    start_parser.add_argument("--host", help="Host to bind to")
+    start_parser.add_argument("--port", type=int, help="Port to bind to")
     start_parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
     
     # Other commands
-    subparsers.add_parser("test", help="Run API tests")
+    subparsers.add_parser("test", help="Run tests")
     subparsers.add_parser("health", help="Check API health")
-    subparsers.add_parser("clear-cache", help="Clear API cache")
-    subparsers.add_parser("reload", help="Reload API data")
-    subparsers.add_parser("install", help="Install dependencies")
-    subparsers.add_parser("setup", help="Setup environment")
+    subparsers.add_parser("clear-cache", help="Clear application cache")
+    subparsers.add_parser("reload", help="Reload application data")
+    subparsers.add_parser("format", help="Format code with black and isort")
+    subparsers.add_parser("lint", help="Lint code with flake8 and mypy")
     
     args = parser.parse_args()
     
-    if args.command == "start":
-        start_server(args.host, args.port, not args.no_reload)
+    if not args.command:
+        parser.print_help()
+        return
+    
+    print(f"🎯 Legal RAG API Management - Running: {args.command}")
+    print("=" * 50)
+    
+    if args.command == "install":
+        install_deps(gpu=args.gpu, dev=args.dev)
+    elif args.command == "setup":
+        setup_environment()
+    elif args.command == "start":
+        start_server(host=args.host, port=args.port, no_reload=args.no_reload)
     elif args.command == "test":
-        test_api()
+        run_tests()
     elif args.command == "health":
         check_health()
     elif args.command == "clear-cache":
         clear_cache()
     elif args.command == "reload":
         reload_data()
-    elif args.command == "install":
-        install_deps()
-    elif args.command == "setup":
-        setup_env()
-    else:
-        parser.print_help()
+    elif args.command == "format":
+        format_code()
+    elif args.command == "lint":
+        lint_code()
+
 
 if __name__ == "__main__":
     main()

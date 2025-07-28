@@ -16,33 +16,46 @@ A high-performance FastAPI-based Retrieval-Augmented Generation (RAG) system for
 ## 📋 Requirements
 
 - Python 3.10+
+- [UV](https://docs.astral.sh/uv/) (Ultra-fast Python package manager)
 - CUDA (optional, for GPU acceleration)
 - 8GB+ RAM (recommended for large datasets)
 
 ## 🛠️ Installation
 
-1. **Clone the repository**:
+### 1. Install UV (if not already installed)
+
+**Windows:**
 ```bash
+winget install --id=astral-sh.uv
+```
+
+**macOS:**
+```bash
+brew install uv
+```
+
+**Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 2. Clone and Setup
+
+```bash
+# Clone the repository
 git clone <repository-url>
 cd law
-```
 
-2. **Install dependencies**:
-```bash
-# Using the management script
+# Setup environment and install dependencies
+python manage.py setup
 python manage.py install
 
-# Or manually with pip
-pip install -e .
-```
+# For GPU support (optional)
+python manage.py install --gpu
 
-3. **Setup environment**:
-```bash
-python manage.py setup
+# For development (optional)
+python manage.py install --dev
 ```
-
-4. **Configure settings** (optional):
-   Edit `.env` file to customize settings like API port, model parameters, etc.
 
 ## 🎯 Quick Start
 
@@ -52,8 +65,11 @@ python manage.py setup
 # Using the management script (recommended)
 python manage.py start
 
-# Or directly
-python main.py
+# With custom host/port
+python manage.py start --host 127.0.0.1 --port 8080
+
+# Without auto-reload
+python manage.py start --no-reload
 ```
 
 The API will be available at `http://localhost:8000`
@@ -126,30 +142,51 @@ POST /reload     # Reload data and models
 
 ## 🔧 Management Commands
 
-The `manage.py` script provides convenient commands:
+The `manage.py` script provides convenient UV-powered commands:
 
 ```bash
-# Start server
-python manage.py start [--host HOST] [--port PORT] [--no-reload]
+# Setup and Installation
+python manage.py setup                    # Setup development environment
+python manage.py install                  # Install dependencies
+python manage.py install --gpu            # Install with GPU support
+python manage.py install --dev            # Install development dependencies
 
-# Check health
-python manage.py health
+# Server Management
+python manage.py start                    # Start server
+python manage.py start --host 0.0.0.0     # Custom host
+python manage.py start --port 8080        # Custom port
+python manage.py start --no-reload        # Disable auto-reload
 
-# Run tests
-python manage.py test
+# Development Tools
+python manage.py test                     # Run tests
+python manage.py health                   # Check API health
+python manage.py format                   # Format code (black + isort)
+python manage.py lint                     # Lint code (flake8 + mypy)
 
-# Clear cache
-python manage.py clear-cache
-
-# Reload data
-python manage.py reload
-
-# Install dependencies
-python manage.py install
-
-# Setup environment
-python manage.py setup
+# Data Management
+python manage.py clear-cache              # Clear application cache
+python manage.py reload                   # Reload data and models
 ```
+
+## ⚡ Why UV?
+
+UV is an extremely fast Python package installer and resolver, written in Rust. Benefits include:
+
+- **🚀 Speed**: 10-100x faster than pip
+- **🔒 Reliability**: More consistent dependency resolution
+- **📦 Better Caching**: Efficient package caching
+- **🛡️ Security**: Better security features
+- **⚙️ Modern**: Built for modern Python development
+
+### UV vs Traditional Tools
+
+| Feature | UV | pip | Poetry |
+|---------|----|----|---------|
+| Install Speed | ⚡ Ultra Fast | 🐌 Slow | 🐢 Moderate |
+| Dependency Resolution | ✅ Excellent | ❌ Basic | ✅ Good |
+| Virtual Environments | ✅ Built-in | ❌ Manual | ✅ Built-in |
+| Lock Files | ✅ Yes | ❌ No | ✅ Yes |
+| Memory Usage | ✅ Low | ✅ Low | ❌ High |
 
 ## ⚙️ Configuration
 

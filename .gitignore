@@ -4,6 +4,19 @@ full_data/*
 cache/*
 datasets/*
 
+# UV specific
+.venv/
+uv.lock.bak
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,linux,macos,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,linux,macos,windows
 

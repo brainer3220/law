@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "datasets>=4.0.0",
     "faiss-cpu>=1.7.0",
-    "faiss-gpu>=1.7.2",
     "fastapi>=0.104.0",
     "jupyter>=1.1.1",
     "numpy>=2.2.6",
@@ -20,6 +19,23 @@ dependencies = [
     "python-multipart>=0.0.6",
     "python-dotenv>=1.0.0",
 ]
+
+[project.optional-dependencies]
+gpu = [
+    "faiss-gpu>=1.7.2",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+
+[project.scripts]
+legal-rag = "main:main"
 
 [build-system]
 requires = ["hatchling"]
