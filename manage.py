@@ -124,19 +124,26 @@ def start_server(host: str = None, port: int = None, no_reload: bool = False):
     if not check_uv_installed():
         return False
     
-    cmd = ["uv", "run", "python", "main.py"]
+    # Build uvicorn command
+    cmd = ["uv", "run", "uvicorn", "main:app"]
     
-    # Set environment variables if provided
-    env = os.environ.copy()
+    # Add host and port
     if host:
-        env["API_HOST"] = host
+        cmd.extend(["--host", host])
+    else:
+        cmd.extend(["--host", "0.0.0.0"])
+    
     if port:
-        env["API_PORT"] = str(port)
-    if no_reload:
-        env["API_RELOAD"] = "false"
+        cmd.extend(["--port", str(port)])
+    else:
+        cmd.extend(["--port", "8000"])
+    
+    # Add reload if not disabled
+    if not no_reload:
+        cmd.append("--reload")
     
     try:
-        subprocess.run(cmd, env=env, cwd=Path(__file__).parent)
+        subprocess.run(cmd, cwd=Path(__file__).parent)
     except KeyboardInterrupt:
         print("\n🛑 Server stopped by user")
 

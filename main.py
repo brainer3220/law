@@ -4,6 +4,7 @@ import logging
 import time
 import os
 from typing import Dict, Any
+from contextlib import asynccontextmanager
 
 from config import settings
 from models import (
@@ -24,13 +25,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-# FastAPI app
-app = FastAPI(
-    title="Legal RAG API", 
-    description="Korean Legal Document RAG System",
-    version="2.0.0"
-)
 
 # Global instances
 data_loader = DataLoader()
@@ -142,9 +136,10 @@ def initialize_retrievers() -> Dict[str, bool]:
     return results
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for FastAPI"""
+    # Startup
     logger.info("Starting Legal RAG API v2.0...")
     
     # Load data
@@ -157,6 +152,20 @@ async def startup_event():
     
     logger.info(f"Retriever initialization results: {results}")
     logger.info("Legal RAG API startup completed")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down Legal RAG API...")
+
+
+# FastAPI app with lifespan
+app = FastAPI(
+    title="Legal RAG API", 
+    description="Korean Legal Document RAG System",
+    version="2.0.0",
+    lifespan=lifespan
+)
 
 
 @app.get("/", response_model=Dict[str, Any])
@@ -342,7 +351,7 @@ async def reload_data():
 
 if __name__ == "__main__":
     uvicorn.run(
-        app, 
+        "main:app",  # Use import string for reload support
         host=settings.API_HOST, 
         port=settings.API_PORT,
         reload=settings.API_RELOAD
