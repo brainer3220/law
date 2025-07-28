@@ -141,21 +141,93 @@ def start_server(host: str = None, port: int = None, no_reload: bool = False):
         print("\n🛑 Server stopped by user")
 
 
-def run_tests():
+def run_tests(test_type: str = "unit", coverage: bool = False):
     """Run the test suite"""
-    print("🧪 Running tests...")
+    print(f"🧪 Running {test_type} tests...")
     
     if not check_uv_installed():
         return False
     
-    # Run the API test
-    if Path("test_api.py").exists():
-        run_command(["uv", "run", "python", "test_api.py"])
-    else:
-        print("❌ test_api.py not found")
-        return False
+    # Check if server is needed for integration tests
+    if test_type in ["integration", "e2e", "performance", "all"]:
+        print("🔍 Checking if server is running...")
+        try:
+            import requests
+            response = requests.get("http://localhost:8000/health", timeout=5)
+            if response.status_code != 200:
+                print("❌ Server is not running. Please start it first:")
+                print("   python manage.py start")
+                return False
+            
+            health_data = response.json()
+            if not health_data.get("data_loaded"):
+                print("❌ Server is running but data is not loaded.")
+                return False
+                
+            print("✅ Server is running and ready")
+            
+        except ImportError:
+            print("📦 Installing requests for server check...")
+            run_command(["uv", "add", "requests", "--group", "dev"])
+            print("🔄 Please run the test command again")
+            return False
+        except Exception as e:
+            print(f"❌ Cannot connect to server: {e}")
+            print("   Please start the server first: python manage.py start")
+            return False
     
-    print("✅ Tests completed!")
+    # Build test command
+    cmd = ["uv", "run", "python", "-m", "pytest"]
+    
+    if test_type == "unit":
+        cmd.extend([
+            "tests/test_comprehensive.py::TestModels",
+            "tests/test_comprehensive.py::TestDataLoader",
+            "tests/test_comprehensive.py::TestCacheManager", 
+            "tests/test_comprehensive.py::TestRetrievers",
+            "-m", "not integration"
+        ])
+    elif test_type == "integration":
+        cmd.extend([
+            "tests/test_comprehensive.py::TestAPIEndpoints",
+            "tests/test_comprehensive.py::TestIntegration",
+            "-m", "integration"
+        ])
+    elif test_type == "performance":
+        cmd.extend(["tests/test_performance.py", "-s"])
+    elif test_type == "e2e":
+        cmd.extend(["tests/test_e2e.py"])
+    elif test_type == "all":
+        cmd.append("tests/")
+    else:
+        cmd.extend(["tests/", "-k", test_type])
+    
+    # Add coverage if requested
+    if coverage:
+        cmd.extend([
+            "--cov=.",
+            "--cov-report=html:htmlcov",
+            "--cov-report=term-missing",
+            "--cov-report=xml"
+        ])
+    
+    # Add verbose output
+    cmd.extend(["-v", "--tb=short"])
+    
+    try:
+        run_command(cmd)
+        print("✅ Tests completed!")
+        
+        if coverage:
+            print("📊 Coverage report generated:")
+            print("   HTML: htmlcov/index.html")
+            print("   XML: coverage.xml")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Tests failed: {e}")
+        return False
 
 
 def check_health():
@@ -295,8 +367,16 @@ def main():
     start_parser.add_argument("--port", type=int, help="Port to bind to")
     start_parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
     
-    # Other commands
-    subparsers.add_parser("test", help="Run tests")
+    # Test command
+    test_parser = subparsers.add_parser("test", help="Run tests")
+    test_parser.add_argument(
+        "test_type", 
+        nargs="?", 
+        default="unit",
+        choices=["unit", "integration", "performance", "e2e", "all"],
+        help="Type of tests to run"
+    )
+    test_parser.add_argument("--coverage", action="store_true", help="Generate coverage report")
     subparsers.add_parser("health", help="Check API health")
     subparsers.add_parser("clear-cache", help="Clear application cache")
     subparsers.add_parser("reload", help="Reload application data")
@@ -319,7 +399,7 @@ def main():
     elif args.command == "start":
         start_server(host=args.host, port=args.port, no_reload=args.no_reload)
     elif args.command == "test":
-        run_tests()
+        run_tests(test_type=args.test_type, coverage=args.coverage)
     elif args.command == "health":
         check_health()
     elif args.command == "clear-cache":

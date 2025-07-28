@@ -2,7 +2,7 @@
 Pydantic models for API requests and responses
 """
 from pydantic import BaseModel, Field, validator
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Any
 from config import settings
 
 
@@ -61,7 +61,7 @@ class HealthResponse(BaseModel):
     total_sentences: int
     total_documents: int
     models_ready: Dict[str, bool]
-    cache_info: Dict[str, any]
+    cache_info: Dict[str, Any]
 
 
 class StatsResponse(BaseModel):
@@ -70,8 +70,8 @@ class StatsResponse(BaseModel):
     total_documents: int
     document_type_counts: Dict[str, int]
     models_ready: Dict[str, bool]
-    cache_info: Dict[str, any]
-    system_info: Dict[str, any]
+    cache_info: Dict[str, Any]
+    system_info: Dict[str, Any]
 
 
 class CacheResponse(BaseModel):
@@ -79,7 +79,7 @@ class CacheResponse(BaseModel):
     message: str
     deleted_files: Optional[List[str]] = None
     freed_space_mb: Optional[float] = None
-    cache_status: Dict[str, any]
+    cache_status: Dict[str, Any]
 
 
 class ReloadResponse(BaseModel):

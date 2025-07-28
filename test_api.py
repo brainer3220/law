@@ -1,7 +1,19 @@
+#!/usr/bin/env python3
+"""
+Legacy API test script for Legal RAG API
+This script provides simple testing functionality.
+For comprehensive testing, use the new test suite in tests/ directory.
+
+Usage:
+    python test_api.py              # Run all tests
+    python manage.py test all       # Run comprehensive test suite
+    python run_tests.py all         # Alternative test runner
+"""
 import requests
 import json
 import time
 from typing import Dict, Any
+import sys
 
 # API base URL
 BASE_URL = "http://localhost:8000"
@@ -200,20 +212,32 @@ def test_performance():
 
 def main():
     """Run all tests"""
-    print("🚀 Starting Legal RAG API Tests")
+    print("🚀 Starting Legal RAG API Tests (Legacy Version)")
     print(f"Target URL: {BASE_URL}")
+    print("=" * 60)
+    print("💡 TIP: For comprehensive testing, use:")
+    print("   python manage.py test all")
+    print("   python run_tests.py all")
+    print("=" * 60)
     
     # Test basic functionality
     if not test_health_and_info():
         print("❌ Health check failed. Is the server running?")
-        return
+        print("💡 Start the server with: python manage.py start")
+        sys.exit(1)
     
     test_statistics()
     test_search_queries()
     test_performance()
     
     print_section("TESTS COMPLETED")
-    print("✅ All tests finished!")
+    print("✅ All legacy tests finished!")
+    print("🔧 For more comprehensive testing:")
+    print("   Unit tests:        python manage.py test unit")
+    print("   Integration tests: python manage.py test integration") 
+    print("   Performance tests: python manage.py test performance")
+    print("   E2E tests:         python manage.py test e2e")
+    print("   All tests:         python manage.py test all --coverage")
 
 if __name__ == "__main__":
     main()

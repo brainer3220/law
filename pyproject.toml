@@ -27,6 +27,13 @@ gpu = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-html>=3.1.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "httpx>=0.24.0",
+    "aiohttp>=3.8.0",
+    "requests>=2.28.0",
+    "psutil>=5.9.0",
     "black>=23.0.0",
     "isort>=5.12.0",
     "flake8>=6.0.0",
@@ -40,6 +47,22 @@ legal-rag = "main:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+exclude = [
+    "tests",
+    "test_*",
+    "cache",
+    "datasets", 
+    "full_data",
+    "htmlcov",
+    "test_reports",
+    "logs",
+    "*.log",
+    "*.ipynb",
+    "*.md"
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -57,3 +80,89 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config",
+    "--color=yes",
+    "--tb=short",
+    "--durations=10",
+    "--cov-fail-under=80"
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests (requires running server)",
+    "performance: Performance tests",
+    "e2e: End-to-end tests",
+    "slow: Slow running tests",
+    "stress: Stress tests",
+    "exceptions: Exception handling tests",
+    "smoke: Smoke tests for quick validation",
+    "critical: Critical tests that must pass",
+    "regression: Regression tests"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning:tensorflow.*"
+]
+testmon = true
+timeout = 300
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "venv/*",
+    ".venv/*",
+    "*/migrations/*",
+    "manage.py",
+    "run_tests.py",
+    "run_enhanced_tests.sh",
+    "scripts/*",
+    "*/__pycache__/*",
+    "*/test_*"
+]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod"
+]
+show_missing = true
+skip_covered = false
+precision = 2
+sort = "Cover"
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Legal RAG API Test Coverage Report"
+
+[tool.coverage.xml]
+output = "test_reports/coverage.xml"
+
+[dependency-groups]
+dev = [
+    "aiohttp>=3.12.14",
+    "black>=25.1.0",
+    "flake8>=7.3.0",
+    "httpx>=0.28.1",
+    "isort>=6.0.1",
+    "mypy>=1.17.0",
+    "pre-commit>=4.2.0",
+    "psutil>=7.0.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1",
+    "pytest-html>=4.1.1",
+    "pytest-mock>=3.14.1",
+    "requests>=2.32.4",
+]

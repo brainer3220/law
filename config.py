@@ -1,9 +1,10 @@
 """
 Configuration settings for Legal RAG API
 """
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 class Settings(BaseSettings):
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     
     # Cache settings
     CACHE_DIR: Path = Path("cache")
-    ENABLE_CACHE: bool = True
+    CACHE_ENABLED: bool = True  # Renamed from ENABLE_CACHE
     
     # Data settings
     DATASET_DIR: Path = Path("datasets/korean_legal_dataset")
@@ -37,7 +38,7 @@ class Settings(BaseSettings):
     MIN_SIMILARITY_SCORE: float = 0.1
     
     # Performance settings
-    MAX_WORKERS: int = None  # Will use os.cpu_count()
+    MAX_WORKERS: Optional[int] = None  # Will use os.cpu_count() if None
     BATCH_SIZE: int = 32
     
     # Logging settings
@@ -47,7 +48,17 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra fields from environment
+    
+    def __post_init__(self):
+        """Post-initialization processing"""
+        if self.MAX_WORKERS is None:
+            self.MAX_WORKERS = os.cpu_count() or 4
 
 
 # Global settings instance
 settings = Settings()
+
+# Set MAX_WORKERS if None
+if settings.MAX_WORKERS is None:
+    settings.MAX_WORKERS = os.cpu_count() or 4

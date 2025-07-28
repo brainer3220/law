@@ -18,7 +18,7 @@ class CacheManager:
     def __init__(self, cache_dir: Path = None):
         self.cache_dir = cache_dir or settings.CACHE_DIR
         self.cache_dir.mkdir(exist_ok=True)
-        self.enabled = settings.ENABLE_CACHE
+        self.cache_enabled = settings.CACHE_ENABLED
     
     def get_data_hash(self, data: List[str]) -> str:
         """Generate hash for the current dataset to detect changes"""
@@ -39,7 +39,7 @@ class CacheManager:
     
     def save_pickle(self, data: Any, cache_file: Path) -> bool:
         """Save data to pickle cache file"""
-        if not self.enabled:
+        if not self.cache_enabled:
             return False
             
         try:
@@ -53,7 +53,7 @@ class CacheManager:
     
     def load_pickle(self, cache_file: Path) -> Any:
         """Load data from pickle cache file"""
-        if not self.enabled:
+        if not self.cache_enabled:
             return None
             
         try:
@@ -67,9 +67,9 @@ class CacheManager:
             logger.error(f"Error loading cache from {cache_file}: {e}")
             return None
     
-    def save_faiss_index(self, index: faiss.Index, cache_file: Path) -> bool:
+    def save_faiss_index(self, index: Any, cache_file: Path) -> bool:
         """Save FAISS index to cache file"""
-        if not self.enabled:
+        if not self.cache_enabled:
             return False
             
         try:
@@ -80,9 +80,9 @@ class CacheManager:
             logger.error(f"Error saving FAISS index to {cache_file}: {e}")
             return False
     
-    def load_faiss_index(self, cache_file: Path) -> faiss.Index:
+    def load_faiss_index(self, cache_file: Path) -> Any:
         """Load FAISS index from cache file"""
-        if not self.enabled:
+        if not self.cache_enabled:
             return None
             
         try:
@@ -155,5 +155,5 @@ class CacheManager:
             "data_hash": data_hash,
             "cache_files": cache_info,
             "total_cache_size_mb": round(total_size / (1024*1024), 2),
-            "cache_enabled": self.enabled
+            "cache_enabled": self.cache_enabled
         }
