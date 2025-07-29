@@ -127,7 +127,7 @@ class TestExceptionHandling:
         
         with patch('retrievers.faiss.IndexFlatIP') as mock_faiss:
             mock_faiss.side_effect = RuntimeError("FAISS error")
-            
+            ㄲ
             result = retriever.initialize()
             assert result is False
     

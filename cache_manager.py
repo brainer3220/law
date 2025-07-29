@@ -3,11 +3,33 @@ Cache management utilities
 """
 import pickle
 import hashlib
-from pathlib import Path
-from typing import Any, Dict, List
+from p    def save_faiss_index(self, index: Any, cache_file: Path) -> bool:
+        """Save FAISS index to cache file"""
+        if not self.cache_enabled or not FAISS_AVAILABLE:
+            return False
+            
+        try:
+            faiss.write_index(index, str(cache_file))
+            logger.info(f"FAISS index saved to {cache_file}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving FAISS index to {cache_file}: {e}")
+            return False
+    
+    def load_faiss_index(self, cache_file: Path) -> Any:
+        """Load FAISS index from cache file"""
+        if not self.cache_enabled or not FAISS_AVAILABLE:
+            return Noneh
+from typing import Any, Dict, List, Union
 import logging
-import faiss
 from config import settings
+
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    faiss = None
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +41,8 @@ class CacheManager:
         self.cache_dir = cache_dir or settings.CACHE_DIR
         self.cache_dir.mkdir(exist_ok=True)
         self.cache_enabled = settings.CACHE_ENABLED
+        # Add enabled property for compatibility
+        self.enabled = self.cache_enabled
     
     def get_data_hash(self, data: List[str]) -> str:
         """Generate hash for the current dataset to detect changes"""
@@ -39,7 +63,7 @@ class CacheManager:
     
     def save_pickle(self, data: Any, cache_file: Path) -> bool:
         """Save data to pickle cache file"""
-        if not self.cache_enabled:
+        if not self.enabled:
             return False
             
         try:
@@ -53,7 +77,7 @@ class CacheManager:
     
     def load_pickle(self, cache_file: Path) -> Any:
         """Load data from pickle cache file"""
-        if not self.cache_enabled:
+        if not self.enabled:
             return None
             
         try:
@@ -67,9 +91,9 @@ class CacheManager:
             logger.error(f"Error loading cache from {cache_file}: {e}")
             return None
     
-    def save_faiss_index(self, index: Any, cache_file: Path) -> bool:
+    def save_faiss_index(self, index: faiss.Index, cache_file: Path) -> bool:
         """Save FAISS index to cache file"""
-        if not self.cache_enabled:
+        if not self.enabled:
             return False
             
         try:
@@ -80,9 +104,9 @@ class CacheManager:
             logger.error(f"Error saving FAISS index to {cache_file}: {e}")
             return False
     
-    def load_faiss_index(self, cache_file: Path) -> Any:
+    def load_faiss_index(self, cache_file: Path) -> faiss.Index:
         """Load FAISS index from cache file"""
-        if not self.cache_enabled:
+        if not self.enabled:
             return None
             
         try:
@@ -155,5 +179,5 @@ class CacheManager:
             "data_hash": data_hash,
             "cache_files": cache_info,
             "total_cache_size_mb": round(total_size / (1024*1024), 2),
-            "cache_enabled": self.cache_enabled
+            "cache_enabled": self.enabled
         }

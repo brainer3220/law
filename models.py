@@ -54,6 +54,21 @@ class QueryResponse(BaseModel):
     faiss_results: Optional[List[RetrievalResult]] = None
 
 
+class ModelInfo(BaseModel):
+    """Information about a loaded model"""
+    model_name: str = Field(..., description="Name of the model")
+    max_seq_length: int = Field(..., description="Maximum sequence length")
+    embedding_dimension: int = Field(..., description="Embedding dimension")
+    loaded_at: str = Field(..., description="When the model was loaded")
+
+
+class ModelManagerResponse(BaseModel):
+    """Response for model manager operations"""
+    message: str = Field(..., description="Operation result message")
+    loaded_models: Dict[str, ModelInfo] = Field(..., description="Currently loaded models")
+    memory_usage: Dict[str, Any] = Field(..., description="Memory usage information")
+
+
 class HealthResponse(BaseModel):
     """Health check response"""
     status: str
@@ -62,6 +77,7 @@ class HealthResponse(BaseModel):
     total_documents: int
     models_ready: Dict[str, bool]
     cache_info: Dict[str, Any]
+    model_manager_info: Optional[Dict[str, Any]] = None
 
 
 class StatsResponse(BaseModel):
@@ -72,6 +88,7 @@ class StatsResponse(BaseModel):
     models_ready: Dict[str, bool]
     cache_info: Dict[str, Any]
     system_info: Dict[str, Any]
+    model_manager_info: Optional[Dict[str, Any]] = None
 
 
 class CacheResponse(BaseModel):

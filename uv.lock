@@ -1479,24 +1479,6 @@ gpu = [
     { name = "faiss-gpu" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "aiohttp" },
-    { name = "black" },
-    { name = "flake8" },
-    { name = "httpx" },
-    { name = "isort" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "psutil" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-html" },
-    { name = "pytest-mock" },
-    { name = "requests" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'dev'", specifier = ">=3.8.0" },
@@ -1529,24 +1511,6 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
 provides-extras = ["gpu", "dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "aiohttp", specifier = ">=3.12.14" },
-    { name = "black", specifier = ">=25.1.0" },
-    { name = "flake8", specifier = ">=7.3.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "isort", specifier = ">=6.0.1" },
-    { name = "mypy", specifier = ">=1.17.0" },
-    { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "psutil", specifier = ">=7.0.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-asyncio", specifier = ">=1.1.0" },
-    { name = "pytest-cov", specifier = ">=6.2.1" },
-    { name = "pytest-html", specifier = ">=4.1.1" },
-    { name = "pytest-mock", specifier = ">=3.14.1" },
-    { name = "requests", specifier = ">=2.32.4" },
-]
 
 [[package]]
 name = "markupsafe"

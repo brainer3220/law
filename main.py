@@ -3,17 +3,19 @@ import uvicorn
 import logging
 import time
 import os
+import numpy as np
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 
 from config import settings
 from models import (
     QueryRequest, QueryResponse, HealthResponse, StatsResponse, 
-    CacheResponse, ReloadResponse
+    CacheResponse, ReloadResponse, ModelManagerResponse, ModelInfo
 )
 from data_loader import DataLoader
 from cache_manager import CacheManager
 from retrievers import TFIDFRetriever, EmbeddingRetriever, FAISSRetriever
+from model_manager import model_manager, get_embedding_model, clear_embedding_cache
 
 # Configure logging
 logging.basicConfig(
@@ -85,12 +87,15 @@ def initialize_retrievers() -> Dict[str, bool]:
         
         if cached_embeddings is not None:
             logger.info("Loading embeddings from cache...")
-            # Still need to load the model for queries
-            from sentence_transformers import SentenceTransformer
-            embedding_retriever.model = SentenceTransformer(settings.EMBEDDING_MODEL)
-            embedding_retriever.embeddings = cached_embeddings
-            embedding_retriever.is_initialized = True
-            results["embedding"] = True
+            # Use reusable model from ModelManager instead of creating new instance
+            embedding_retriever.model = get_embedding_model(settings.EMBEDDING_MODEL)
+            if embedding_retriever.model is None:
+                logger.error("Failed to load embedding model from ModelManager")
+                results["embedding"] = False
+            else:
+                embedding_retriever.embeddings = cached_embeddings
+                embedding_retriever.is_initialized = True
+                results["embedding"] = True
         else:
             logger.info("Creating new embeddings...")
             if embedding_retriever.initialize():
@@ -114,12 +119,16 @@ def initialize_retrievers() -> Dict[str, bool]:
         
         if cached_index and cached_embeddings is not None:
             logger.info("Loading FAISS from cache...")
-            from sentence_transformers import SentenceTransformer
-            faiss_retriever.model = SentenceTransformer(settings.EMBEDDING_MODEL)
-            faiss_retriever.index = cached_index
-            faiss_retriever.embeddings = cached_embeddings
-            faiss_retriever.is_initialized = True
-            results["faiss"] = True
+            # Use reusable model from ModelManager instead of creating new instance
+            faiss_retriever.model = get_embedding_model(settings.EMBEDDING_MODEL)
+            if faiss_retriever.model is None:
+                logger.error("Failed to load embedding model from ModelManager")
+                results["faiss"] = False
+            else:
+                faiss_retriever.index = cached_index
+                faiss_retriever.embeddings = cached_embeddings
+                faiss_retriever.is_initialized = True
+                results["faiss"] = True
         else:
             logger.info("Creating new FAISS index...")
             if faiss_retriever.initialize():
@@ -142,12 +151,26 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Legal RAG API v2.0...")
     
-    # Load data
+    # Preload embedding model for reusability
+    logger.info("Preloading embedding model...")
+    embedding_model = get_embedding_model(settings.EMBEDDING_MODEL)
+    if embedding_model:
+        logger.info(f"Embedding model {settings.EMBEDDING_MODEL} preloaded successfully")
+    else:
+        logger.warning("Failed to preload embedding model, will load on demand")
+    
+    # Load data with optimization
+    logger.info("Loading data...")
     if not data_loader.load_data():
         logger.error("Failed to load legal data")
         return
     
+    # Log current data size for transparency
+    sentences, sources, documents = data_loader.get_data()
+    logger.info(f"Loaded {len(sentences)} sentences for processing")
+    
     # Initialize retrievers
+    logger.info("Initializing retrievers...")
     results = initialize_retrievers()
     
     logger.info(f"Retriever initialization results: {results}")
@@ -157,6 +180,9 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Legal RAG API...")
+    logger.info("Clearing model cache...")
+    cleared_count = model_manager.clear_all_models()
+    logger.info(f"Cleared {cleared_count} models from memory")
 
 
 # FastAPI app with lifespan
@@ -208,7 +234,11 @@ async def health_check():
             "embedding": embedding_retriever and embedding_retriever.is_initialized,
             "faiss": faiss_retriever and faiss_retriever.is_initialized
         },
-        cache_info=cache_manager.get_cache_info(data_hash)
+        cache_info=cache_manager.get_cache_info(data_hash),
+        model_manager_info={
+            "loaded_models": model_manager.list_loaded_models(),
+            "memory_usage": model_manager.get_memory_usage()
+        }
     )
 
 
@@ -291,6 +321,10 @@ async def get_stats():
             "cache_enabled": cache_manager.enabled,
             "embedding_model": settings.EMBEDDING_MODEL,
             "tfidf_max_features": settings.TFIDF_MAX_FEATURES
+        },
+        model_manager_info={
+            "loaded_models": model_manager.list_loaded_models(),
+            "memory_usage": model_manager.get_memory_usage()
         }
     )
 
@@ -321,7 +355,7 @@ async def reload_data():
         start_time = time.time()
         logger.info("Reloading data and models...")
         
-        # Clear current models
+        # Clear current models but keep embedding model in ModelManager for reuse
         tfidf_retriever = None
         embedding_retriever = None
         faiss_retriever = None
@@ -347,6 +381,153 @@ async def reload_data():
     except Exception as e:
         logger.error(f"Error reloading data: {e}")
         raise HTTPException(status_code=500, detail="Failed to reload data")
+
+
+@app.get("/models", response_model=ModelManagerResponse)
+async def get_model_info():
+    """Get information about loaded models"""
+    try:
+        loaded_models = {}
+        for model_name, config in model_manager.list_loaded_models().items():
+            loaded_models[model_name] = ModelInfo(
+                model_name=config["model_name"],
+                max_seq_length=config["max_seq_length"],
+                embedding_dimension=config["embedding_dimension"],
+                loaded_at=config["loaded_at"]
+            )
+        
+        return ModelManagerResponse(
+            message="Model information retrieved successfully",
+            loaded_models=loaded_models,
+            memory_usage=model_manager.get_memory_usage()
+        )
+    except Exception as e:
+        logger.error(f"Error getting model info: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get model information")
+
+
+@app.delete("/models/{model_name}")
+async def clear_specific_model(model_name: str):
+    """Clear a specific model from memory"""
+    try:
+        success = model_manager.clear_model(model_name)
+        if success:
+            return {"message": f"Model {model_name} cleared successfully"}
+        else:
+            raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
+    except Exception as e:
+        logger.error(f"Error clearing model {model_name}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear model")
+
+
+@app.delete("/models")
+async def clear_all_models():
+    """Clear all models from memory"""
+    try:
+        count = model_manager.clear_all_models()
+        return {"message": f"Cleared {count} models from memory"}
+    except Exception as e:
+        logger.error(f"Error clearing all models: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear models")
+
+
+@app.post("/models/preload")
+async def preload_embedding_model():
+    """Preload embedding model for faster initialization"""
+    try:
+        start_time = time.time()
+        model = get_embedding_model(settings.EMBEDDING_MODEL)
+        load_time = (time.time() - start_time) * 1000
+        
+        if model is None:
+            raise HTTPException(status_code=500, detail="Failed to preload embedding model")
+        
+        return {
+            "message": f"Embedding model {settings.EMBEDDING_MODEL} preloaded successfully",
+            "model_name": settings.EMBEDDING_MODEL,
+            "load_time_ms": load_time,
+            "embedding_dimension": model.get_sentence_embedding_dimension()
+        }
+    except Exception as e:
+        logger.error(f"Error preloading model: {e}")
+        raise HTTPException(status_code=500, detail="Failed to preload model")
+
+
+@app.delete("/embeddings/cache")
+async def clear_embeddings_cache():
+    """Clear cached embeddings from ModelManager"""
+    try:
+        count = clear_embedding_cache()
+        return {
+            "message": f"Cleared {count} cached embeddings from memory",
+            "cleared_count": count
+        }
+    except Exception as e:
+        logger.error(f"Error clearing embedding cache: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear embedding cache")
+
+
+@app.get("/embeddings/cache/info")
+async def get_embedding_cache_info():
+    """Get information about cached embeddings"""
+    try:
+        memory_info = model_manager.get_memory_usage()
+        return {
+            "message": "Embedding cache information retrieved successfully",
+            "total_cache_items": memory_info.get("total_embedding_cache_items", 0),
+            "total_cache_size_mb": memory_info.get("total_embedding_cache_size_mb", 0),
+            "cache_details": memory_info.get("embedding_cache_info", {}),
+            "model_info": {
+                "total_models": memory_info.get("total_models", 0),
+                "total_model_size_mb": memory_info.get("total_model_size_mb", 0)
+            },
+            "total_memory_mb": memory_info.get("total_memory_mb", 0)
+        }
+    except Exception as e:
+        logger.error(f"Error getting embedding cache info: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get embedding cache information")
+
+
+@app.post("/embeddings/test-reuse")
+async def test_embedding_reuse():
+    """Test embedding reuse functionality with sample texts"""
+    try:
+        sample_texts = [
+            "법원의 판결에 대한 분석",
+            "헌법상 기본권의 보장",
+            "민법상 계약의 성립요건"
+        ]
+        
+        start_time = time.time()
+        
+        # First generation (should be slower)
+        embeddings1 = model_manager.get_embeddings(sample_texts, use_cache=True)
+        first_time = time.time() - start_time
+        
+        # Second generation (should be faster due to cache)
+        start_time2 = time.time()
+        embeddings2 = model_manager.get_embeddings(sample_texts, use_cache=True)
+        second_time = time.time() - start_time2
+        
+        if embeddings1 is None or embeddings2 is None:
+            raise HTTPException(status_code=500, detail="Failed to generate embeddings")
+        
+        # Verify they are the same
+        are_same = np.array_equal(embeddings1, embeddings2)
+        
+        return {
+            "message": "Embedding reuse test completed",
+            "first_generation_time_ms": first_time * 1000,
+            "second_generation_time_ms": second_time * 1000,
+            "speedup_factor": first_time / second_time if second_time > 0 else "N/A",
+            "embeddings_identical": are_same,
+            "embedding_shape": embeddings1.shape,
+            "sample_texts_count": len(sample_texts),
+            "cache_hit": second_time < first_time * 0.1  # Expect significant speedup
+        }
+    except Exception as e:
+        logger.error(f"Error testing embedding reuse: {e}")
+        raise HTTPException(status_code=500, detail="Failed to test embedding reuse")
 
 
 if __name__ == "__main__":
