@@ -12,6 +12,7 @@ import logging
 
 from models import RetrievalResult
 from config import settings
+from model_manager import get_embedding_model, get_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -108,16 +109,24 @@ class EmbeddingRetriever(BaseRetriever):
         """Initialize sentence transformer model and embeddings"""
         try:
             logger.info("Initializing embedding retriever...")
-            self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
+            # Use reusable model from ModelManager
+            self.model = get_embedding_model(settings.EMBEDDING_MODEL)
+            if self.model is None:
+                logger.error("Failed to load embedding model from ModelManager")
+                return False
             
-            # Encode sentences in batches for memory efficiency
-            logger.info("Encoding sentences...")
-            self.embeddings = self.model.encode(
-                self.sentences,
+            # Generate embeddings using ModelManager's caching system
+            logger.info("Generating embeddings...")
+            self.embeddings = get_embeddings(
+                self.sentences, 
+                settings.EMBEDDING_MODEL,
                 batch_size=settings.BATCH_SIZE,
-                show_progress_bar=True,
-                convert_to_numpy=True
+                use_cache=True
             )
+            
+            if self.embeddings is None:
+                logger.error("Failed to generate embeddings")
+                return False
             
             self.is_initialized = True
             logger.info("Embedding retriever initialized successfully")
@@ -174,16 +183,24 @@ class FAISSRetriever(BaseRetriever):
         """Initialize FAISS index"""
         try:
             logger.info("Initializing FAISS retriever...")
-            self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
+            # Use reusable model from ModelManager
+            self.model = get_embedding_model(settings.EMBEDDING_MODEL)
+            if self.model is None:
+                logger.error("Failed to load embedding model from ModelManager")
+                return False
             
-            # Encode sentences
-            logger.info("Encoding sentences for FAISS...")
-            self.embeddings = self.model.encode(
+            # Generate embeddings using ModelManager's caching system
+            logger.info("Generating embeddings for FAISS...")
+            self.embeddings = get_embeddings(
                 self.sentences,
+                settings.EMBEDDING_MODEL,
                 batch_size=settings.BATCH_SIZE,
-                show_progress_bar=True,
-                convert_to_numpy=True
+                use_cache=True
             )
+            
+            if self.embeddings is None:
+                logger.error("Failed to generate embeddings for FAISS")
+                return False
             
             # Create FAISS index
             embedding_dim = self.embeddings.shape[1]

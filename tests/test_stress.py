@@ -13,8 +13,8 @@ import statistics
 from unittest.mock import patch
 
 from tests.test_utils import (
-    UtilTimer, MemoryMonitor, UtilServerHealthChecker, 
-    MockDataFactory, performance_test, test_metrics
+    UtilTimer, MemoryMonitor, UtilServerHealthChecker,
+    MockDataFactory, performance_test
 )
 
 
@@ -25,7 +25,7 @@ class TestStressAndLoad:
     
     @pytest.fixture(scope="class")
     def server_checker(self):
-        return UtilServerHealthChecker(self.BASE_URL)
+        return ServerHealthChecker(self.BASE_URL)
     
     @performance_test
     def test_concurrent_search_requests(self, server_checker):
@@ -253,7 +253,7 @@ class TestStressAndLoad:
             })()
             mock_load.return_value = mock_dataset
             
-            with UtilTimer("Large dataset loading"):
+            with TestTimer("Large dataset loading"):
                 result = loader.load_data()
             
             assert result is True
@@ -285,7 +285,7 @@ class TestStressAndLoad:
             retriever.initialize()
             
             # Measure search time
-            with UtilTimer(f"Search with {size} documents") as timer:
+            with TestTimer(f"Search with {size} documents") as timer:
                 results = retriever.search("계약 해지", top_k=10)
             
             response_times.append(timer.duration)

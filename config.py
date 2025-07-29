@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # Performance settings
     MAX_WORKERS: Optional[int] = None  # Will use os.cpu_count() if None
     BATCH_SIZE: int = 32
+    DATA_BATCH_SIZE: int = 1000  # Batch size for data processing
+    MAX_SENTENCES_LIMIT: Optional[int] = 5000  # Limit for faster startup (None = no limit)
     
     # Logging settings
     LOG_LEVEL: str = "INFO"

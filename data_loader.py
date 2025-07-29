@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Tuple
 from collections import Counter
 from datasets import Dataset, load_from_disk
 import logging
+from tqdm import tqdm
 
 from scripts.full_data_to_datasets import create_huggingface_dataset
 from config import settings
@@ -24,6 +25,7 @@ class DataLoader:
         self.sources: List[str] = []
         self.documents: List[Dict[str, Any]] = []
         self.is_loaded = False
+        self.max_sentences = getattr(settings, 'MAX_SENTENCES_LIMIT', None)  # Add limit for faster loading
     
     def load_data(self) -> bool:
         """Load and preprocess legal documents"""
@@ -71,7 +73,7 @@ class DataLoader:
             return False
     
     def _extract_sentences(self) -> bool:
-        """Extract sentences from dataset with proper error handling"""
+        """Extract sentences from dataset with proper error handling and optimization"""
         try:
             self.sentences.clear()
             self.sources.clear()
@@ -79,48 +81,75 @@ class DataLoader:
             
             logger.info("Extracting sentences from dataset...")
             
-            for idx, item in enumerate(self.dataset):
-                try:
-                    # Validate item structure
-                    if not isinstance(item, dict):
-                        logger.warning(f"Item {idx} is not a dictionary, skipping")
-                        continue
-                    
-                    # Extract sentences
-                    sentences = item.get('sentences', [])
-                    if not isinstance(sentences, list):
-                        logger.warning(f"Item {idx} has invalid sentences field, skipping")
-                        continue
-                    
-                    # Get document type with fallback
-                    doc_type = item.get('document_type', '').strip()
-                    if not doc_type:
-                        logger.warning(f"Item {idx} missing document_type, using 'UNKNOWN'")
-                        doc_type = 'UNKNOWN'
-                    
-                    # Process each sentence
-                    valid_sentences = 0
-                    for sent in sentences:
-                        if sent and isinstance(sent, str) and sent.strip():
-                            clean_sent = sent.strip()
-                            if len(clean_sent) > 10:  # Filter very short sentences
-                                self.sentences.append(clean_sent)
-                                self.sources.append(doc_type)
-                                self.documents.append(item)
-                                valid_sentences += 1
-                    
-                    if valid_sentences == 0:
-                        logger.warning(f"Item {idx} has no valid sentences")
+            # Get dataset size and set up progress tracking
+            dataset_size = len(self.dataset)
+            logger.info(f"Processing {dataset_size} documents...")
+            
+            # Add batch processing for memory efficiency
+            batch_size = getattr(settings, 'DATA_BATCH_SIZE', 1000)
+            total_sentences = 0
+            
+            # Process in batches with progress bar
+            for batch_start in tqdm(range(0, dataset_size, batch_size), desc="Processing documents"):
+                batch_end = min(batch_start + batch_size, dataset_size)
+                
+                # Process batch
+                for idx in range(batch_start, batch_end):
+                    try:
+                        item = self.dataset[idx]
                         
-                except Exception as e:
-                    logger.error(f"Error processing item {idx}: {e}")
-                    continue
+                        # Validate item structure
+                        if not isinstance(item, dict):
+                            continue
+                        
+                        # Extract sentences
+                        sentences = item.get('sentences', [])
+                        if not isinstance(sentences, list):
+                            continue
+                        
+                        # Get document type with fallback
+                        doc_type = item.get('document_type', '').strip()
+                        if not doc_type:
+                            doc_type = 'UNKNOWN'
+                        
+                        # Process each sentence
+                        valid_sentences_in_doc = 0
+                        for sent in sentences:
+                            if sent and isinstance(sent, str) and sent.strip():
+                                clean_sent = sent.strip()
+                                if len(clean_sent) > 10:  # Filter very short sentences
+                                    self.sentences.append(clean_sent)
+                                    self.sources.append(doc_type)
+                                    self.documents.append(item)
+                                    valid_sentences_in_doc += 1
+                                    total_sentences += 1
+                                    
+                                    # Check sentence limit for faster startup
+                                    if self.max_sentences and total_sentences >= self.max_sentences:
+                                        logger.info(f"Reached sentence limit of {self.max_sentences}, stopping extraction")
+                                        break
+                        
+                        # Break out of document loop if limit reached
+                        if self.max_sentences and total_sentences >= self.max_sentences:
+                            break
+                            
+                    except Exception as e:
+                        logger.debug(f"Error processing item {idx}: {e}")
+                        continue
+                
+                # Break out of batch loop if limit reached
+                if self.max_sentences and total_sentences >= self.max_sentences:
+                    break
+                
+                # Log progress every few batches
+                if (batch_start // batch_size) % 5 == 0:
+                    logger.debug(f"Processed {batch_end} documents, extracted {total_sentences} sentences")
             
             if not self.sentences:
                 logger.error("No valid sentences extracted from dataset")
                 return False
             
-            logger.info(f"Successfully extracted {len(self.sentences)} sentences")
+            logger.info(f"Successfully extracted {len(self.sentences)} sentences from {dataset_size} documents")
             return True
             
         except Exception as e:
