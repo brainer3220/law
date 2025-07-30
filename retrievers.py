@@ -116,7 +116,7 @@ class EmbeddingRetriever(BaseRetriever):
                 return False
             
             # Generate embeddings using ModelManager's caching system
-            logger.info("Generating embeddings...")
+            logger.debug("Generating embeddings...")  # Changed to debug level
             self.embeddings = get_embeddings(
                 self.sentences, 
                 settings.EMBEDDING_MODEL,

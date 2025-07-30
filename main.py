@@ -234,7 +234,7 @@ async def health_check():
             "embedding": embedding_retriever and embedding_retriever.is_initialized,
             "faiss": faiss_retriever and faiss_retriever.is_initialized
         },
-        cache_info=cache_manager.get_cache_info(data_hash),
+        cache_info=cache_manager.get_cache_info(),
         model_manager_info={
             "loaded_models": model_manager.list_loaded_models(),
             "memory_usage": model_manager.get_memory_usage()
@@ -315,7 +315,7 @@ async def get_stats():
             "embedding": embedding_retriever and embedding_retriever.is_initialized,
             "faiss": faiss_retriever and faiss_retriever.is_initialized
         },
-        cache_info=cache_manager.get_cache_info(data_hash),
+        cache_info=cache_manager.get_cache_info(),
         system_info={
             "cpu_count": os.cpu_count(),
             "cache_enabled": cache_manager.enabled,

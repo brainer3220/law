@@ -112,7 +112,10 @@ class ModelManager:
         if use_cache:
             cache_key = self._get_text_hash(texts, model_name)
             if cache_key in self._embedding_cache:
-                logger.debug(f"Retrieved embeddings from cache for {len(texts)} texts")
+                if len(texts) > 100:
+                    logger.info(f"Retrieved embeddings from cache for {len(texts)} texts")
+                else:
+                    logger.debug(f"Retrieved embeddings from cache for {len(texts)} texts")
                 return self._embedding_cache[cache_key]
         
         # Get model
@@ -122,7 +125,18 @@ class ModelManager:
             return None
         
         try:
-            logger.info(f"Generating embeddings for {len(texts)} texts with model {model_name}")
+            # Check if this is a cache hit first
+            if use_cache:
+                cache_key = self._get_text_hash(texts, model_name)
+                if cache_key in self._embedding_cache:
+                    # This was already handled above, but adding for clarity
+                    pass
+            
+            # Only log for large batches or when explicitly requested
+            if len(texts) > 100:
+                logger.info(f"Generating embeddings for {len(texts)} texts with model {model_name} (cache miss)")
+            else:
+                logger.debug(f"Generating embeddings for {len(texts)} texts with model {model_name}")
             embeddings = model.encode(
                 texts,
                 batch_size=batch_size,
