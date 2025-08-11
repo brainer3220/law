@@ -178,6 +178,8 @@ class FAISSRetriever(BaseRetriever):
         self.model: Optional[SentenceTransformer] = None
         self.index: Optional[faiss.Index] = None
         self.embeddings = None
+        # Use L2 distance index when IP is unavailable (older/faiss-lite builds)
+        self._use_l2_index: bool = False
     
     def initialize(self) -> bool:
         """Initialize FAISS index"""
@@ -202,9 +204,18 @@ class FAISSRetriever(BaseRetriever):
                 logger.error("Failed to generate embeddings for FAISS")
                 return False
             
-            # Create FAISS index
+            # Create FAISS index (prefer IP; fallback to L2 if IP unavailable)
             embedding_dim = self.embeddings.shape[1]
-            self.index = faiss.IndexFlatIP(embedding_dim)  # Inner product for cosine similarity
+            if hasattr(faiss, "IndexFlatIP"):
+                self.index = faiss.IndexFlatIP(embedding_dim)  # Inner product for cosine similarity
+                self._use_l2_index = False
+            elif hasattr(faiss, "IndexFlatL2"):
+                logger.warning("FAISS IndexFlatIP not available; falling back to IndexFlatL2")
+                self.index = faiss.IndexFlatL2(embedding_dim)
+                self._use_l2_index = True
+            else:
+                logger.error("Neither FAISS IndexFlatIP nor IndexFlatL2 is available in this build")
+                return False
             
             # Normalize embeddings for cosine similarity
             normalized_embeddings = self.embeddings.copy()
@@ -235,10 +246,16 @@ class FAISSRetriever(BaseRetriever):
             faiss.normalize_L2(query_emb)
             
             # Search in FAISS index
-            scores, indices = self.index.search(query_emb.astype('float32'), top_k)
+            raw_scores_or_dists, indices = self.index.search(query_emb.astype('float32'), top_k)
+            # Convert distances to cosine similarity if using L2 index
+            if self._use_l2_index:
+                # For normalized vectors: d^2 = 2(1 - cos), so cos = 1 - d^2/2
+                sims = 1.0 - (raw_scores_or_dists[0] / 2.0)
+            else:
+                sims = raw_scores_or_dists[0]
             
             results = []
-            for rank, (score, idx) in enumerate(zip(scores[0], indices[0]), 1):
+            for rank, (score, idx) in enumerate(zip(sims, indices[0]), 1):
                 if idx != -1 and score >= min_score:  # Valid index and above threshold
                     results.append(RetrievalResult(
                         sentence=self.sentences[idx],
