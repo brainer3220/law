@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 load_dotenv()
 
@@ -126,7 +127,8 @@ def cmd_ingest_supabase(args: argparse.Namespace) -> None:
 
     # Collect rows
     rows: List[Tuple[str, str, str, str, str, str, str, str, str, str]] = []
-    for path in iter_json_files(DATA_DIR):
+    paths = list(iter_json_files(DATA_DIR))
+    for path in tqdm(paths, desc="Reading JSON", unit="file"):
         rec = load_record(path)
         if not rec:
             continue
@@ -175,10 +177,9 @@ def cmd_ingest_supabase(args: argparse.Namespace) -> None:
     )
 
     with conn.cursor() as cur:
-        for i in range(0, len(rows), batch_size):
-            chunk = rows[i : i + batch_size]
+        for start in tqdm(range(0, len(rows), batch_size), desc="Upserting", unit="batch"):
+            chunk = rows[start : start + batch_size]
             cur.executemany(sql, chunk)
-            print(f"Upserted {i + len(chunk)}/{len(rows)}")
     conn.commit()
     print("Ingest complete.")
 
@@ -438,10 +439,11 @@ def cmd_preview(args: argparse.Namespace) -> None:
 
 def cmd_stats(args: argparse.Namespace) -> None:
     total = 0
-    institutes = {}
-    task_types = {}
+    institutes: dict[str, int] = {}
+    task_types: dict[str, int] = {}
     max_title_len = 0
-    for path in iter_json_files(DATA_DIR):
+    paths = list(iter_json_files(DATA_DIR))
+    for path in tqdm(paths, desc="Scanning", unit="file"):
         rec = load_record(path)
         if not rec:
             continue
@@ -502,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
         # but perform a forced rebuild by dropping table first.
         con.execute("DROP TABLE IF EXISTS records")
         # Trigger index creation
-        _ = search_records(query="", limit=0)
+        search_records(query="", limit=0)
         print("Reindexed.")
     ri.set_defaults(func=_cmd_reindex)
 
