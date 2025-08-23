@@ -6,8 +6,11 @@ import re
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATA_DIR = Path("data")
 DB_PATH = DATA_DIR / "records.duckdb"
@@ -309,7 +312,6 @@ def search_records(
                 rec = load_record(Path(p))
                 if not rec:
                     continue
-                text = rec.text
                 sentences = rec.taskinfo.get("sentences", []) or []
                 sentences_text = " ".join(str(s) for s in sentences if s)
                 all_text = " ".join(
@@ -500,7 +502,6 @@ def build_parser() -> argparse.ArgumentParser:
         # but perform a forced rebuild by dropping table first.
         con.execute("DROP TABLE IF EXISTS records")
         # Trigger index creation
-        from types import SimpleNamespace
         _ = search_records(query="", limit=0)
         print("Reindexed.")
     ri.set_defaults(func=_cmd_reindex)

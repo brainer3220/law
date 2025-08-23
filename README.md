@@ -13,6 +13,7 @@ Usage
 Supabase/Postgres
 -----------------
 - Configure env var: set `SUPABASE_DB_URL` (or `DATABASE_URL`) to your Supabase Postgres connection string. Use a service role key for ingest from local.
+- Environment variables are loaded automatically from a `.env` file when the CLI starts.
 - Example DSN: `postgresql://brainer.iptime.org:5432/postgres?user=postgres.your-tenant-id&password=your-super-secret-and-long-postgres-password`
 - Install deps: `uv venv && uv sync` (adds `duckdb`, `psycopg`)
 - Ingest JSON into Supabase: `uv run main.py ingest-supabase --batch 500`
