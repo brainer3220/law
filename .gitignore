@@ -1,8 +1,4 @@
-1.데이터/
-Sample/
-full_data/*
-cache/*
-datasets/*
+data/*
 
 # UV specific
 .venv/

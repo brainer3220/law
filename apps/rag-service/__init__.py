@@ -1,2 +1,0 @@
-"""RAG service app package."""
-
