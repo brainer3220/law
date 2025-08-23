@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # Logging settings
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "legal_rag.log"
+
+    # Database settings (optional; used by packages/legal_schemas/db)
+    DATABASE_URL: str = "sqlite:///./legal.db"  # e.g., postgresql+psycopg://user:pass@localhost:5432/legal
+    DB_ECHO: bool = False
     
     class Config:
         env_file = ".env"

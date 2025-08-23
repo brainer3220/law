@@ -257,14 +257,24 @@ LOG_FILE=legal_rag.log
 
 ## 🏗️ Architecture
 
-### Core Components
+### Monorepo Layout (in progress)
+
+- `apps/`
+  - `rag-service/`: RAG API (re-exports current `main.app`)
+  - `gateway-api/`, `agent-orchestrator/`, `ingest-service/`, `eval-service/`, `policy-service/`, `audit-service/`, `redteam-service/`, `notification-service/` (scaffolded)
+- `packages/`
+  - `legal_schemas/`: shared Pydantic + SQLAlchemy schemas
+  - `legal_tools/`: retrieval, search router, ingest utilities
+  - `legal_nlp/`, `legal_prompts/`, `legal_evals/`, `legal_guards/` (placeholders)
+- `infra/`: `docker/`, `k8s/`, `terraform/`, `vault/`
+
+### Core Components (current API)
 
 - **`main.py`**: FastAPI application and endpoints
 - **`config.py`**: Configuration management with Pydantic validation
-- **`models.py`**: Pydantic models for API request/response validation
-- **`data_loader.py`**: Data loading and preprocessing from HuggingFace datasets
-- **`cache_manager.py`**: Intelligent caching utilities with hash-based keys
-- **`retrievers.py`**: Search algorithms (TF-IDF, Embedding, FAISS)
+- **`packages/legal_schemas/models.py`**: Pydantic models (root `models.py` re-exports)
+- **`packages/legal_tools/retrieval.py`**: TF-IDF/Embedding/FAISS (root `retrievers.py` re-exports)
+- **`packages/legal_tools/ingest/`**: `DataLoader`, `CacheManager` (root shims re-export)
 
 ### Testing Infrastructure
 
@@ -284,6 +294,13 @@ LOG_FILE=legal_rag.log
 2. **Model Initialization**: TF-IDF vectorizer, sentence embeddings, FAISS index
 3. **Caching**: Models and embeddings cached for fast startup
 4. **Search**: Query → Retrieval → Ranking → Results
+
+### Import Notes (deprecation)
+
+- Prefer `packages.*` imports going forward:
+  - `from packages.legal_schemas import QueryRequest, QueryResponse`
+  - `from packages.legal_tools import FAISSRetriever`
+- Root modules (`models.py`, `retrievers.py`, `data_loader.py`, `cache_manager.py`) remain as shims for compatibility but will be removed in a future major version.
 
 ## 🔄 Caching System
 
