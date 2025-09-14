@@ -681,6 +681,23 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     ask.set_defaults(func=cmd_ask)
 
+    # Serve an OpenAI-compatible, streaming Chat Completions API over HTTP
+    def _cmd_serve(a: argparse.Namespace) -> None:
+        from packages.legal_tools.api_server import serve as api_serve  # type: ignore
+
+        host = getattr(a, "host", "127.0.0.1")
+        port = int(getattr(a, "port", 8080))
+        # Allow overriding data directory for the agent via env
+        if getattr(a, "data_dir", None):
+            os.environ["LAW_DATA_DIR"] = str(Path(a.data_dir))
+        api_serve(host=host, port=port)
+
+    srv = sub.add_parser("serve", help="Run OpenAI-compatible streaming API server")
+    srv.add_argument("--host", default="127.0.0.1")
+    srv.add_argument("--port", type=int, default=8080)
+    srv.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
+    srv.set_defaults(func=_cmd_serve)
+
     return p
 
 
