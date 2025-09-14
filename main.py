@@ -374,29 +374,120 @@ def cmd_ask(args: argparse.Namespace) -> None:
     data_dir = Path(getattr(args, "data_dir", "") or os.getenv("LAW_DATA_DIR") or DATA_DIR)
     result = run_ask(args.question, data_dir=data_dir, top_k=top_k, max_iters=max_iters)
 
-    answer = result.get("answer") or ""
-    if answer.strip():
-        print(answer)
+    # Collect answer and citations
+    answer = (result.get("answer") or "").strip()
+    citations = list(result.get("citations") or [])
+
+    # Prefer the top citation for structured metadata
+    primary = citations[0] if citations else {}
+    meta: dict = {}
+    court = ""
+    docket = ""
+    casetype = ""
+    # Load JSON metadata if path available
+    pstr = str(primary.get("path") or "")
+    if pstr:
+        try:
+            with Path(pstr).open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            info = (data.get("info") or {})
+            court = str(info.get("normalized_court") or "")
+            docket = str(info.get("doc_id") or "")
+            casetype = str(info.get("casetype") or "")
+            meta = info
+        except Exception:
+            # Fall back to doc_id parsing if JSON load fails
+            docket = str(primary.get("doc_id") or "")
     else:
-        print("(No answer produced. Ensure OPENAI_API_KEY is set and try again.)")
-    cites = result.get("citations") or []
-    if cites:
-        print("")
-        print("Citations:")
-        for c in cites:
-            title = c.get("title", "")
-            doc_id = c.get("doc_id", "")
-            pin = c.get("pin_cite", "")
-            src = c.get("source", "")
-            path = c.get("path", "")
-            snippet = c.get("snippet", "")
-            if len(snippet) > 160:
-                snippet = snippet[:157] + "..."
-            print(f"- {title} ({doc_id}) [{pin}; {src}]")
-            if path:
-                print(f"  {path}")
-            if snippet:
-                print(f"  \"{snippet}\"")
+        docket = str(primary.get("doc_id") or "")
+
+    # If court still empty, try to split from doc_id like '대전지방법원-2014가단25143'
+    if (not court) and docket and ("-" in docket):
+        parts = docket.split("-", 1)
+        if len(parts) == 2:
+            court = parts[0].strip() or court
+
+    # Derive 분야 from casetype and question keywords
+    topic_hint = ""
+    q_lower = (args.question or "").replace(" ", "")
+    if any(k in q_lower for k in ["근로시간면제", "면제업무", "타임오프", "근로시간"]):
+        topic_hint = "근로시간면제 관련"
+    field_display = casetype if casetype else ""
+    if topic_hint:
+        field_display = (field_display + " — " if field_display else "") + topic_hint
+
+    # Build 핵심 스니펫 from the primary citation
+    core_snippet = str(primary.get("snippet") or "").strip()
+    if len(core_snippet) > 300:
+        core_snippet = core_snippet[:297] + "..."
+
+    # Simple confidence heuristic
+    conf = "낮음"
+    if len(citations) >= 3:
+        conf = "높음"
+    elif len(citations) == 2:
+        conf = "보통"
+    elif len(citations) == 1:
+        conf = "보통"
+
+    # Clean answer for 결론 (remove bracketed numeric refs like [1])
+    clean_answer = re.sub(r"\s*\[[0-9]+\]", "", answer).strip()
+
+    # Render improved Markdown output
+    lines: List[str] = []
+    lines.append("### 사건 정보")
+    if court:
+        lines.append(f"- 법원: {court}  ")
+    if docket:
+        lines.append(f"- 사건번호: {docket}  ")
+    if field_display:
+        lines.append(f"- 분야: {field_display}")
+
+    if answer:
+        lines.append("")
+        lines.append("### 요약")
+        lines.append(answer)
+
+    # Use question as a minimal 쟁점 when we cannot infer more
+    issue = args.question.strip() if getattr(args, "question", None) else "주요 쟁점"
+    lines.append("")
+    lines.append("### 쟁점")
+    lines.append(f"- {issue}")
+
+    if core_snippet:
+        src_path = str(primary.get("path") or "")
+        lines.append("")
+        lines.append("### 법원 판단(핵심)")
+        lines.append(f"> \"{core_snippet}\"  ")
+        if src_path:
+            # Indicate source of snippet
+            lines.append(f"(출처: `{src_path}`, snippet)")
+
+    if clean_answer:
+        lines.append("")
+        lines.append("### 결론")
+        lines.append(f"- {clean_answer}")
+
+    # Sources and metadata
+    if citations:
+        lines.append("")
+        lines.append("### 출처 및 메타데이터")
+        # Show primary path (first cite)
+        if pstr:
+            lines.append(f"- 파일: `{pstr}`")
+        lines.append(f"- 확신도: {conf}")
+        # Additional sources list (optional)
+        if len(citations) > 1:
+            lines.append("- 추가 출처:")
+            for c in citations[1:]:
+                t = c.get("title", "")
+                d = c.get("doc_id", "")
+                pin = c.get("pin_cite", "")
+                path = c.get("path", "")
+                lines.append(f"  - {t} ({d}) [{pin}] — {path}")
+
+    output = "\n".join(lines) if lines else (answer or "(No answer produced. Ensure OPENAI_API_KEY is set and try again.)")
+    print(output)
 
 
 def build_parser() -> argparse.ArgumentParser:
