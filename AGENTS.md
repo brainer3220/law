@@ -1,43 +1,41 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `main.py`: CLI entry with commands `search`, `preview`, `stats`, `reindex`, `ask`.
-- `packages/legal_tools/`: Search + agent runtime.
-  - `agent_graph.py`: LangGraph multi‑round Q&A (keyword retrieval).
-  - `contextual_rag.py`: Optional chunking utilities (not required by CLI).
-- `packages/legal_schemas/`: Pydantic models (e.g., `Document`, `Section`).
-- `data/`: JSON corpus and DuckDB index (`data/records.duckdb`).
-- `scripts/`: Maintenance tasks.  `tests/`: Pytest suite.
+- `main.py`: CLI entry. Commands: `preview`, `stats`, `ask`, `serve`, optional Postgres: `pg-init`, `pg-load`, `pg-search`.
+- `packages/legal_tools/`: Agent + search utilities.
+  - `agent_graph.py`: LangGraph multi‑round Q&A (keyword retrieval only).
+  - `api_server.py`: OpenAI‑compatible, streaming Chat Completions API.
+  - `pg_search.py`: Postgres BM25/FTS wrapper (optional backend).
+- `packages/legal_schemas/`: Pydantic models.
+- `data/`: Local JSON corpus (large files stay here).
+- `scripts/`: Maintenance/import helpers. `tests/`: Pytest suite (add as needed).
 
 ## Build, Test, and Development Commands
-- Environment: `uv venv && uv sync` (Python 3.11+).
-- Search: `uv run main.py search "주40시간제" --limit 5`.
-- Agent Q&A: `uv run main.py ask "근로시간 면제업무 판례 알려줘" --k 5 --max-iters 3`.
-- Reindex cache: `uv run main.py reindex` (rebuilds DuckDB + FTS index).
-- Tests: `pytest -q` (filter with `-k pattern`).
-- Lint/format: `pre-commit run -a` (Black, isort, Ruff).
+- Setup: `uv venv && uv sync` (Python ≥3.10).
+- Ask (CLI): `uv run main.py ask "근로시간 면제" --k 5 --max-iters 3`.
+- Serve API: `uv run main.py serve --host 127.0.0.1 --port 8080`.
+- Postgres (optional): `uv run main.py pg-init`; `pg-load --data-dir data`; `pg-search "질의" --limit 5`.
+- Tests: `pytest -q` (optionally `-k pattern`). Keep tests offline/deterministic.
 
 ## Coding Style & Naming Conventions
-- Python 3.11+. Use type hints for public APIs.
-- Formatting: Black (line length 100), isort (profile=black), Ruff linting.
-- Naming: modules `snake_case`, classes `PascalCase`, constants `UPPER_SNAKE_CASE`.
+- Python typing for public APIs. Modules `snake_case`, classes `PascalCase`, constants `UPPER_SNAKE_CASE`.
+- Prefer Black/isort/Ruff if configured; otherwise keep Black‑compatible formatting (line length ~100).
 - Keep changes minimal and focused; avoid drive‑by refactors.
 
 ## Testing Guidelines
-- Framework: pytest. Keep tests offline/deterministic; do not require network/API keys.
-- Priorities: DuckDB indexing/search (incl. FTS), agent routing (plan → retrieve → assess → synthesize).
-- Place tests under `tests/` and name by feature (e.g., `test_search.py`).
-- Run: `pytest -q` and optionally `-k <pattern>`.
+- Use pytest; place tests under `tests/` named `test_*.py` (e.g., `tests/test_ask.py`).
+- Target behaviors: Postgres search wrappers, agent loop (decide → search → finalize), CLI formatting.
+- Run fast, hermetic tests; no network/API keys required.
 
 ## Commit & Pull Request Guidelines
-- Commits: Conventional Commits (e.g., `feat: add ask agent`, `fix: duckdb reindex`).
-- PRs: include purpose, concise change summary, test plan (commands + expected output), and linked issues.
-- When UX/CLI output changes, attach before/after samples.
+- Conventional Commits (e.g., `feat(ask): emit structured Markdown`, `chore(api): set default model`).
+- PRs include: purpose, concise change summary, test plan (commands + expected output), and linked issues.
+- If CLI/API output changes, include before/after samples or curl traces.
 
 ## Security & Configuration Tips
-- Offline‑first; never commit secrets or PII. Use `.env.example` for local settings.
-- Use `LAW_DATA_DIR` to point the CLI at a custom data folder; default is `./data`.
-- Keep heavy artifacts in `data/`; do not commit large files.
+- Do not commit secrets/PII. Use `.env.example`.
+- Env vars: `LAW_DATA_DIR` (data root), `OPENAI_API_KEY`, `OPENAI_MODEL` (default `gpt-5-mini-2025-08-07`), `OPENAI_BASE_URL`. For Postgres: `SUPABASE_DB_URL` or `PG_DSN`.
+- Keep heavy artifacts under `data/` and out of VCS.
 
 ## Agent‑Specific Instructions
 - When using an external library, use Context7 MCP to find API docs and examples.
