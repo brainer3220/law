@@ -78,6 +78,18 @@ Notes:
 - Instance must have ParadeDB `pg_search` extension enabled. If not, request enablement or consider PGroonga/RUM (non-BM25) alternatives.
 
 
+HuggingFace LBOX Dataset
+------------------------
+Download the `lbox` casename classification dataset and convert it into local JSONL files:
+
+```
+uv run scripts/import_hf_casename.py --split train
+```
+
+Use `--split` to select `train`, `valid`, `test`, or `test2`. Files are saved under `data/lbox_casename/`.
+Set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` for private access.
+
+
 Notes
 -----
 - Search now uses Postgres. If ParadeDB `pg_search` is enabled, queries use BM25 with snippets; otherwise, it falls back to PostgreSQL FTS.
