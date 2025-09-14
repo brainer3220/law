@@ -92,7 +92,7 @@ Set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` for private access.
 
 Notes
 -----
-- Search now uses Postgres. If ParadeDB `pg_search` is enabled, queries use BM25 with snippets; otherwise, it falls back to PostgreSQL FTS.
+- Search prefers Postgres BM25. When unavailable, it falls back to DuckDB full-text search over the LBOX dataset (downloaded on demand) and finally to naive file scanning.
 - When introducing additional libraries later, check usage via Context7 per project guidance.
  - The `ask` command uses LangGraph with an LLM-driven controller that iteratively decides to search (keyword-only) or finish with a grounded answer. No vector embeddings are used.
 

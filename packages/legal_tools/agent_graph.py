@@ -218,7 +218,7 @@ def _seed_queries(question: str) -> List[str]:
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
-    """Run keyword search via Postgres if available, otherwise local files."""
+    """Run keyword search via Postgres, DuckDB, or local files."""
     hits: List[Hit] = []
     # Prefer Postgres BM25 backend when configured
     try:  # pragma: no cover - requires external service
@@ -243,6 +243,31 @@ def _keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
                 )
             )
     except Exception:
+        pass
+
+    if not hits:
+        # Try DuckDB FTS over HuggingFace dataset
+        try:
+            from packages.legal_tools.duckdb_search import search_fts
+
+            rows = search_fts(query, limit=max(5, limit))
+            for r in rows:
+                snippet = r["facts"] if len(r["facts"]) <= 200 else r["facts"][:197] + "..."
+                hits.append(
+                    Hit(
+                        source="keyword",
+                        path=Path(""),
+                        doc_id=r["doc_id"],
+                        title=r["casename"],
+                        score=r["score"],
+                        snippet=snippet,
+                        line_no=None,
+                    )
+                )
+        except Exception:
+            pass
+
+    if not hits:
         # Fallback to naive filesystem search over local JSON documents
         try:
             from packages.legal_tools.keyword_search import search_files
