@@ -7,25 +7,12 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 # Data directories
 DATA_DIR = Path("data")
-DB_PATH = DATA_DIR / "records.duckdb"
 
-# RAG MVP constants
-CHROMA_DIR = DATA_DIR / "chroma"
-CHROMA_COLLECTION = "rag_mvp"
-
-# ---- Contextual RAG Imports ----
-try:
-    from packages.legal_schemas import Document, Section, SourceType
-    from packages.legal_tools import ContextConfig, ContextualChunker
-except Exception:
-    Document = None  # type: ignore
-    Section = None  # type: ignore
-    SourceType = None  # type: ignore
-    ContextConfig = None  # type: ignore
-    ContextualChunker = None  # type: ignore
+# Vector/embedding logic removed; keyword search only
 
  
 
@@ -62,190 +49,6 @@ class Record:
 
 
 
-# =====================
-# Supabase/Postgres I/O
-# =====================
-
-def _pg_connect(dsn_override: Optional[str] = None):
-    try:
-        import psycopg  # type: ignore
-    except Exception as e:
-        raise RuntimeError(
-            "psycopg (v3) is required for Supabase/Postgres. Install with `uv add psycopg[binary]` or `uv sync`."
-        ) from e
-
-    dsn = dsn_override or os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError(
-            "Set SUPABASE_DB_URL or DATABASE_URL to your Postgres connection string (service role recommended for ingest)."
-        )
-    return psycopg.connect(dsn)
-
-
-def _pg_ensure_schema(conn) -> None:
-    with conn.cursor() as cur:
-        # Enable useful extensions if allowed
-        try:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-        except Exception:
-            pass
-
-        # Create table
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS records (
-                path TEXT PRIMARY KEY,
-                doc_id TEXT,
-                title TEXT,
-                response_institute TEXT,
-                response_date TEXT,
-                task_type TEXT,
-                instruction TEXT,
-                sentences_text TEXT,
-                output TEXT,
-                full_text TEXT,
-                updated_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-        # FTS support (generated tsvector). Not all locales may be installed; keep optional.
-        try:
-            cur.execute(
-                """
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='records' AND column_name='fts'
-                    ) THEN
-                        ALTER TABLE records ADD COLUMN fts tsvector GENERATED ALWAYS AS (
-                            to_tsvector('simple', coalesce(full_text,''))
-                        ) STORED;
-                    END IF;
-                END$$;
-                """
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS records_fts_idx ON records USING GIN (fts)")
-        except Exception:
-            # Fall back to trigram index on full_text for ILIKE queries
-            try:
-                cur.execute("CREATE INDEX IF NOT EXISTS records_full_text_trgm ON records USING GIN (full_text gin_trgm_ops)")
-            except Exception:
-                pass
-    conn.commit()
-
-
-def cmd_ingest_supabase(args: argparse.Namespace) -> None:
-    batch_size = int(getattr(args, "batch", 500))
-    conn = _pg_connect(getattr(args, "dsn", None))
-    _pg_ensure_schema(conn)
-
-    # Collect rows
-    rows: List[Tuple[str, str, str, str, str, str, str, str, str, str]] = []
-    for path in iter_json_files(DATA_DIR):
-        rec = load_record(path)
-        if not rec:
-            continue
-        sentences = rec.taskinfo.get("sentences", []) or []
-        sentences_text = " ".join(str(s) for s in sentences if s)
-        full_text = " ".join(
-            s
-            for s in [
-                rec.doc_id,
-                rec.title,
-                str(rec.info.get("response_institute", "")),
-                str(rec.info.get("response_date", "")),
-                str(rec.info.get("taskType", "")),
-                str(rec.taskinfo.get("instruction", "")),
-                sentences_text,
-                str(rec.taskinfo.get("output", "")),
-            ]
-            if s
-        )
-        rows.append(
-            (
-                str(rec.path),
-                rec.doc_id,
-                rec.title,
-                str(rec.info.get("response_institute", "")),
-                str(rec.info.get("response_date", "")),
-                str(rec.info.get("taskType", "")),
-                str(rec.taskinfo.get("instruction", "")),
-                sentences_text,
-                str(rec.taskinfo.get("output", "")),
-                full_text,
-            )
-        )
-
-    if not rows:
-        print("No JSON files found under data/ to ingest.")
-        return
-
-    sql = (
-        "INSERT INTO records (path, doc_id, title, response_institute, response_date, task_type, instruction, sentences_text, output, full_text)"
-        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-        " ON CONFLICT (path) DO UPDATE SET "
-        " doc_id=EXCLUDED.doc_id, title=EXCLUDED.title, response_institute=EXCLUDED.response_institute,"
-        " response_date=EXCLUDED.response_date, task_type=EXCLUDED.task_type, instruction=EXCLUDED.instruction,"
-        " sentences_text=EXCLUDED.sentences_text, output=EXCLUDED.output, full_text=EXCLUDED.full_text, updated_at=now()"
-    )
-
-    with conn.cursor() as cur:
-        for i in range(0, len(rows), batch_size):
-            chunk = rows[i : i + batch_size]
-            cur.executemany(sql, chunk)
-            print(f"Upserted {i + len(chunk)}/{len(rows)}")
-    conn.commit()
-    print("Ingest complete.")
-
-
-def cmd_search_supabase(args: argparse.Namespace) -> None:
-    query = args.query
-    limit = int(getattr(args, "limit", 10))
-    conn = _pg_connect(getattr(args, "dsn", None))
-    _pg_ensure_schema(conn)
-
-    rows: List[Tuple[str]] = []
-    with conn.cursor() as cur:
-        # Prefer FTS if fts column exists
-        try:
-            cur.execute(
-                "SELECT path FROM records WHERE fts @@ websearch_to_tsquery('simple', %s) LIMIT %s",
-                (query, limit),
-            )
-            rows = cur.fetchall()
-        except Exception:
-            # Fallback to trigram/ILIKE search
-            like = f"%{query}%"
-            cur.execute(
-                "SELECT path FROM records WHERE full_text ILIKE %s LIMIT %s",
-                (like, limit),
-            )
-            rows = cur.fetchall()
-
-    if not rows:
-        print("No matches found.")
-        return
-
-    # Reuse local snippet logic for consistent display
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    for idx, (path_str,) in enumerate(rows, start=1):
-        p = Path(path_str)
-        rec = load_record(p)
-        if not rec:
-            continue
-        print(f"[{idx}] {rec.title} ({rec.doc_id})")
-        print(f"    Path: {rec.path}")
-        snippets: List[Tuple[int, str]] = []
-        for i, line in enumerate(rec.text.splitlines(), start=1):
-            if pattern.search(line):
-                snippets.append((i, line.strip()))
-                if len(snippets) >= 3:
-                    break
-        for ln, text in snippets:
-            snippet = text if len(text) <= 160 else text[:157] + "..."
-            print(f"    L{ln}: {snippet}")
-        print()
 
 
 def iter_json_files(root: Path) -> Iterator[Path]:
@@ -269,6 +72,7 @@ def search_records(
     query: str,
     limit: int = 10,
     root: Path = DATA_DIR,
+    db_path: Optional[Path] = None,
 ) -> List[Tuple[Record, List[Tuple[int, str]]]]:
     """Fast search using a persistent DuckDB index.
 
@@ -277,12 +81,7 @@ def search_records(
     index of the text fields and searches it instead, only re-reading files
     whose modification time changed.
     """
-    try:
-        import duckdb  # type: ignore
-    except Exception as e:
-        raise RuntimeError(
-            "DuckDB is required for search. Install with `uv sync` or `uv pip install -e .`."
-        ) from e
+    raise RuntimeError("DuckDB-based search has been removed. Use `pg-search` instead.")
 
     def ensure_index(con: "duckdb.DuckDBPyConnection") -> None:
         con.execute(
@@ -373,19 +172,99 @@ def search_records(
                     batch,
                 )
 
+        # Try to enable and (re)build FTS index for Korean-friendly search
+        # We avoid INSTALL to keep offline; LOAD may work if bundled.
+        try:
+            con.execute("LOAD fts;")
+            # Build an index over key text columns.
+            # Use ignore='' and stemmer='none' to avoid stripping/English stemming (better for ko text).
+            con.execute(
+                """
+                PRAGMA create_fts_index(
+                    'records',
+                    'path',
+                    'title', 'instruction', 'sentences_text', 'output',
+                    'doc_id', 'response_institute', 'response_date', 'taskType', 'all_text',
+                    stemmer='none', stopwords='', ignore='', strip_accents=0, lower=1, overwrite=1
+                );
+                """
+            )
+        except Exception:
+            # If FTS extension is unavailable, proceed; we'll fall back to LIKE search later.
+            pass
+
     # Open a persistent DB; create directory if needed
     root.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(DB_PATH))
+    dbp = db_path or (root / "records.duckdb")
+    con = duckdb.connect(str(dbp))
     ensure_index(con)
 
-    # Search the index (case-insensitive by querying lowercased text)
-    rows = con.execute(
-        "SELECT path FROM records WHERE all_text LIKE '%' || ? || '%' LIMIT ?",
-        [query.lower(), limit],
-    ).fetchall()
+    # Attempt FTS search first using BM25 ranking. Fallback to LIKE if FTS unavailable.
+    q = (query or "").strip()
+    rows: List[Tuple[str]] = []  # type: ignore
+    used_fts = False
+    try:
+        # Using the automatically created schema from PRAGMA create_fts_index: fts_main_<table>
+        rows = con.execute(
+            """
+            SELECT path
+            FROM (
+                SELECT path, fts_main_records.match_bm25(path, ?) AS score
+                FROM records
+            ) AS sq
+            WHERE score IS NOT NULL
+            ORDER BY score DESC
+            LIMIT ?
+            """,
+            [q, int(limit)],
+        ).fetchall()
+        used_fts = True
+    except Exception:
+        # Fallback: robust LIKE-based search
+        q_lower = q.lower()
+        q_nospace = re.sub(r"\s+", "", q_lower)
+        tokens = [t for t in re.split(r"\s+", q_lower) if t]
+
+        where_clauses: List[str] = []
+        params: List[str | int] = []  # type: ignore
+
+        if tokens:
+            where_clauses.append(
+                "(" + " AND ".join(["all_text LIKE '%' || ? || '%'"] * len(tokens)) + ")"
+            )
+            params.extend(tokens)
+
+        where_clauses.append("regexp_replace(all_text, '\\s+', '', 'g') LIKE '%' || ? || '%'")
+        params.append(q_nospace)
+
+        where_clauses.append("all_text LIKE '%' || ? || '%'")
+        params.append(q_lower)
+
+        variants: List[str] = []
+        if any(k in q_lower for k in ["근로시간", "면제", "타임오프"]):
+            variants.extend(["근로시간", "면제", "타임오프", "노조 전임자"])
+        seen: set[str] = set()
+        for v in variants:
+            v = v.strip().lower()
+            if not v or v in seen:
+                continue
+            seen.add(v)
+            where_clauses.append("all_text LIKE '%' || ? || '%'")
+            params.append(v)
+
+        sql = "SELECT path FROM records WHERE " + " OR ".join(where_clauses) + " LIMIT ?"
+        params.append(int(limit))
+        rows = con.execute(sql, params).fetchall()
 
     matches: List[Tuple[Record, List[Tuple[int, str]]]] = []
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    # Build a highlighting pattern
+    if used_fts:
+        hi_terms = [re.escape(t) for t in re.split(r"\s+", q) if t]
+        pattern = re.compile("|".join(hi_terms) if hi_terms else re.escape(q), re.IGNORECASE)
+    else:
+        # Derived from LIKE-based terms computed earlier
+        hi_terms = [re.escape(t) for t in re.split(r"\s+", q) if t]
+        pattern = re.compile("|".join(hi_terms) if hi_terms else re.escape(q), re.IGNORECASE)
     for (path_str,) in rows:
         filename = Path(str(path_str))
         rec = load_record(filename)
@@ -404,23 +283,7 @@ def search_records(
 
 
 def cmd_search(args: argparse.Namespace) -> None:
-    if not DATA_DIR.exists():
-        print(f"Data directory not found: {DATA_DIR}")
-        return
-    results = search_records(args.query, limit=args.limit)
-    if not results:
-        print("No matches found.")
-        return
-    for idx, (rec, hits) in enumerate(results, start=1):
-        print(f"[{idx}] {rec.title} ({rec.doc_id})")
-        print(f"    Path: {rec.path}")
-        for ln, text in hits:
-            snippet = text
-            # Truncate long snippets for readability
-            if len(snippet) > 160:
-                snippet = snippet[:157] + "..."
-            print(f"    L{ln}: {snippet}")
-        print()
+    raise SystemExit("DuckDB search is removed. Use `pg-search` with Postgres.")
 
 
 def cmd_preview(args: argparse.Namespace) -> None:
@@ -490,215 +353,50 @@ def cmd_stats(args: argparse.Namespace) -> None:
 # ==========================
 
 
-class LocalHashEmbedder:
-    """Simple deterministic embedding function for MVP without external models.
-
-    Hashes character bigrams into a fixed-size vector and L2 normalizes.
-    """
-
-    def __init__(self, dim: int = 384, seed: int = 13) -> None:
-        self.dim = dim
-        self.seed = seed
-        self.model_name = f"local-hash-{dim}"
-
-    def _vec(self, text: str) -> List[float]:
-        import math
-
-        v = [0.0] * self.dim
-        s = f"^{text}$"  # boundary markers
-        for i in range(len(s) - 1):
-            bg = s[i : i + 2]
-            h = hash((bg, self.seed))
-            idx = h % self.dim
-            v[idx] += 1.0
-        # L2 normalize
-        norm = math.sqrt(sum(x * x for x in v)) or 1.0
-        return [x / norm for x in v]
-
-    def embed(self, texts: List[str]) -> List[List[float]]:
-        return [self._vec(t) for t in texts]
+    # (vector embedding logic removed)
 
 
-def _ensure_duck_rag(con) -> None:
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS rag_chunks (
-            chunk_id TEXT PRIMARY KEY,
-            doc_id TEXT,
-            section_id TEXT,
-            ord INTEGER,
-            title TEXT,
-            headings_path TEXT,
-            bm25_text TEXT,
-            chunk_text TEXT,
-            ctx_hash TEXT,
-            keywords TEXT,
-            citations TEXT,
-            path TEXT,
-            embedding_model TEXT
-        )
-        """
-    )
+# =============================
+# LangGraph Agent: law ask
+# =============================
 
 
-def _open_chroma(rebuild: bool = False):
+def cmd_ask(args: argparse.Namespace) -> None:
     try:
-        import chromadb  # type: ignore
+        from packages.legal_tools.agent_graph import run_ask  # type: ignore
     except Exception as e:
         raise RuntimeError(
-            "chromadb is required. Add it to your environment (e.g., `uv add chromadb`)"
+            "LangGraph agent requires `langgraph` installed. Install deps with `uv sync`."
         ) from e
-    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    if rebuild:
-        try:
-            client.delete_collection(CHROMA_COLLECTION)
-        except Exception:
-            pass
-    col = client.get_or_create_collection(name=CHROMA_COLLECTION, metadata={"hnsw:space": "cosine"})
-    return client, col
 
+    top_k = int(getattr(args, "k", 5))
+    max_iters = int(getattr(args, "max_iters", 3))
+    data_dir = Path(getattr(args, "data_dir", "") or os.getenv("LAW_DATA_DIR") or DATA_DIR)
+    result = run_ask(args.question, data_dir=data_dir, top_k=top_k, max_iters=max_iters)
 
-def _records_from_file(path: Path) -> Optional[Tuple["Document", List["Section"]]]:
-    if Document is None or Section is None or SourceType is None:
-        raise RuntimeError("Contextual RAG module not available")
-    rec = load_record(path)
-    if not rec:
-        return None
-    doc_id = rec.doc_id or str(path)
-    document = Document(
-        doc_id=doc_id,
-        title=rec.title or doc_id,
-        source_type=SourceType.document,
-        version=None,
-        source_uri=str(path),
-        language="ko-KR",
-    )
-    section = Section(
-        section_id=f"{doc_id}:0",
-        doc_id=doc_id,
-        headings_path=[rec.title or doc_id],
-        title=rec.title or doc_id,
-        order=0,
-        text=rec.text,
-    )
-    return document, [section]
-
-
-def cmd_rag_index(args: argparse.Namespace) -> None:
-    try:
-        import duckdb  # type: ignore
-    except Exception as e:
-        raise RuntimeError("DuckDB is required. Install with `uv sync`.") from e
-
-    if ContextualChunker is None or ContextConfig is None:
-        raise RuntimeError("Contextual RAG packages not available.")
-
-    # Setup DB + Chroma
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(DB_PATH))
-    _ensure_duck_rag(con)
-    client, col = _open_chroma(rebuild=bool(args.rebuild))
-
-    chunker = ContextualChunker(ContextConfig())
-    embedder = LocalHashEmbedder()
-
-    files = list(iter_json_files(DATA_DIR))
-    if args.limit and args.limit > 0:
-        files = files[: args.limit]
-    if not files:
-        print("No JSON files found under data/ to index.")
-        return
-
-    total_records = 0
-    for i, p in enumerate(files, start=1):
-        maybe = _records_from_file(p)
-        if not maybe:
-            continue
-        document, sections = maybe
-        recs = chunker.build_index_records(document, sections, embedder=embedder)
-        total_records += len(recs)
-
-        # Upsert into DuckDB
-        rows = [
-            (
-                r.chunk_id,
-                r.doc_id,
-                r.section_id,
-                int(r.chunk_id.split(":")[-1]) if ":" in r.chunk_id else 0,
-                document.title,
-                " > ".join(r.headings_path),
-                r.bm25_text,
-                r.chunk_text,
-                r.contextualized_text_hash,
-                ",".join(r.keywords),
-                ",".join(r.normalized_citations),
-                document.source_uri or "",
-                r.embedding_model or embedder.model_name,
-            )
-            for r in recs
-        ]
-        con.executemany(
-            """
-            INSERT OR REPLACE INTO rag_chunks (
-                chunk_id, doc_id, section_id, ord, title, headings_path, bm25_text,
-                chunk_text, ctx_hash, keywords, citations, path, embedding_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-
-        # Upsert into Chroma
-        ids = [r.chunk_id for r in recs]
-        embeddings = [r.embedding or embedder.embed([r.bm25_text])[0] for r in recs]
-        documents = [r.chunk_text for r in recs]
-        metadatas = [
-            {
-                "doc_id": r.doc_id,
-                "section_id": r.section_id,
-                "title": document.title,
-                "headings_path": " > ".join(r.headings_path),
-                "ctx_hash": r.contextualized_text_hash,
-                "keywords": ",".join(r.keywords),
-                "citations": ",".join(r.normalized_citations),
-                "path": document.source_uri or "",
-            }
-            for r in recs
-        ]
-        col.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
-
-        if i % 20 == 0 or i == len(files):
-            print(f"Indexed {i}/{len(files)} files, {total_records} chunks total.")
-
-    print(f"RAG index complete. Files: {len(files)}, Chunks: {total_records}")
-
-
-def cmd_rag_query(args: argparse.Namespace) -> None:
-    _, col = _open_chroma(rebuild=False)
-    embedder = LocalHashEmbedder()
-    qvec = embedder.embed([args.query])[0]
-    res = col.query(query_embeddings=[qvec], n_results=args.k, include=["documents", "metadatas", "distances"])
-
-    ids = (res.get("ids") or [[]])[0]
-    docs = (res.get("documents") or [[]])[0]
-    metas = (res.get("metadatas") or [[]])[0]
-    dists = (res.get("distances") or [[]])[0]
-
-    if not ids:
-        print("No results.")
-        return
-
-    for i, (_id, doc, meta, dist) in enumerate(zip(ids, docs, metas, dists), start=1):
-        title = meta.get("title") if isinstance(meta, dict) else None
-        hp = meta.get("headings_path") if isinstance(meta, dict) else None
-        print(f"[{i}] id={_id}  score={1 - float(dist):.4f}")
-        if title:
-            print(f"    {title}")
-        if hp:
-            print(f"    {hp}")
-        snippet = doc if len(doc) <= 200 else doc[:197] + "..."
-        print(f"    {snippet}")
-        print()
+    answer = result.get("answer") or ""
+    if answer.strip():
+        print(answer)
+    else:
+        print("(No answer produced. Ensure OPENAI_API_KEY is set and try again.)")
+    cites = result.get("citations") or []
+    if cites:
+        print("")
+        print("Citations:")
+        for c in cites:
+            title = c.get("title", "")
+            doc_id = c.get("doc_id", "")
+            pin = c.get("pin_cite", "")
+            src = c.get("source", "")
+            path = c.get("path", "")
+            snippet = c.get("snippet", "")
+            if len(snippet) > 160:
+                snippet = snippet[:157] + "..."
+            print(f"- {title} ({doc_id}) [{pin}; {src}]")
+            if path:
+                print(f"  {path}")
+            if snippet:
+                print(f"  \"{snippet}\"")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -708,10 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    sp = sub.add_parser("search", help="Search dataset by keyword")
-    sp.add_argument("query", help="Keyword to search (case-insensitive)")
-    sp.add_argument("--limit", type=int, default=10, help="Max results to show")
-    sp.set_defaults(func=cmd_search)
+    # DuckDB search removed; prefer `pg-search`
 
     pp = sub.add_parser("preview", help="Preview a single JSON file")
     pp.add_argument("path", help="Path to JSON file")
@@ -720,48 +415,180 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("stats", help="Show simple dataset statistics")
     st.set_defaults(func=cmd_stats)
 
-    # Optional: reindex command to force rebuild
-    ri = sub.add_parser("reindex", help="Rebuild the search index cache")
-    def _cmd_reindex(_: argparse.Namespace) -> None:
+    # DuckDB reindex removed
+
+    # Postgres/Supabase BM25 optional commands (kept optional; default remains offline DuckDB)
+    def _pg_require() -> None:
         try:
-            import duckdb  # type: ignore
+            import psycopg  # type: ignore
         except Exception as e:
             raise RuntimeError(
-                "DuckDB is required. Install with `uv sync` or `uv pip install -e .`."
+                "psycopg is required. Install with `uv pip install psycopg[binary]`."
             ) from e
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        con = duckdb.connect(str(DB_PATH))
-        # Reuse search path logic by calling search with a no-op query to trigger indexing
-        # but perform a forced rebuild by dropping table first.
-        con.execute("DROP TABLE IF EXISTS records")
-        # Trigger index creation
-        from types import SimpleNamespace
-        _ = search_records(query="", limit=0)
-        print("Reindexed.")
-    ri.set_defaults(func=_cmd_reindex)
 
-    # Supabase/Postgres commands
-    ing = sub.add_parser("ingest-supabase", help="Ingest JSON records into Supabase/Postgres")
-    ing.add_argument("--batch", type=int, default=500, help="Upsert batch size")
-    ing.add_argument("--dsn", help="Postgres DSN (overrides env)")
-    ing.set_defaults(func=cmd_ingest_supabase)
+    def _normalize_dsn(dsn: str) -> str:
+        if "://" in dsn:
+            r = urlparse(dsn)
+            path = r.path or ""
+            # Fix cases like .../postgressslmode=require (missing '?')
+            if not r.query and "sslmode=" in (path or ""):
+                # Take everything after dbname as query
+                # e.g., "/postgressslmode=require" -> dbname=postgres, query=sslmode=require
+                p = path.lstrip("/")
+                dbname, _, tail = p.partition("sslmode=")
+                dbname = (dbname or "postgres").rstrip("/")
+                new_query = "sslmode=" + tail
+                r = r._replace(path="/" + dbname, query=new_query)
+            q = parse_qs(r.query, keep_blank_values=True)
+            if "sslmode" not in q:
+                q["sslmode"] = ["require"]
+            new_query = urlencode({k: v[-1] if isinstance(v, list) else v for k, v in q.items()}, doseq=True)
+            return urlunparse(r._replace(query=new_query))
+        # libpq keyword format: ensure sslmode param
+        return dsn if "sslmode=" in dsn else (dsn + (" " if not dsn.endswith(" ") else "") + "sslmode=require")
 
-    ss = sub.add_parser("search-supabase", help="Search via Supabase/Postgres FTS/trigram")
-    ss.add_argument("query", help="Keyword to search (websearch syntax if FTS)" )
-    ss.add_argument("--limit", type=int, default=10)
-    ss.add_argument("--dsn", help="Postgres DSN (overrides env)")
-    ss.set_defaults(func=cmd_search_supabase)
+    def _pg_dsn() -> str:
+        raw = os.getenv("SUPABASE_DB_URL") or os.getenv("PG_DSN")
+        if not raw:
+            raise RuntimeError("Set SUPABASE_DB_URL or PG_DSN for Postgres connection.")
+        return _normalize_dsn(raw)
+
+    def _cmd_pg_init(_: argparse.Namespace) -> None:
+        _pg_require()
+        import psycopg  # type: ignore
+        dsn = _pg_dsn()
+        sql_path = Path("scripts/sql/supabase_bm25.sql")
+        sql = sql_path.read_text(encoding="utf-8") if sql_path.exists() else ""
+        if not sql.strip():
+            raise RuntimeError("Schema SQL not found: scripts/sql/supabase_bm25.sql")
+        try:
+            with psycopg.connect(dsn) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    # Base objects
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS public.legal_docs (
+                          id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                          doc_id       text UNIQUE,
+                          title        text,
+                          body         text,
+                          meta         jsonb,
+                          path         text,
+                          created_at   timestamptz NOT NULL DEFAULT now()
+                        );
+                        """
+                    )
+                    # Try BM25 (pg_search)
+                    bm25_ok = True
+                    try:
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS pg_search;")
+                        cur.execute(
+                            """
+                            CREATE INDEX IF NOT EXISTS legal_docs_bm25_idx
+                            ON public.legal_docs
+                            USING bm25 (id, title, body)
+                            WITH (
+                              key_field='id',
+                              text_fields='{
+                                "title": {"tokenizer": {"type": "icu"}},
+                                "body":  {"tokenizer": {"type": "icu"}}
+                              }'
+                            );
+                            """
+                        )
+                    except Exception:
+                        bm25_ok = False
+
+                    if bm25_ok:
+                        print("Initialized with pg_search (BM25).")
+                        return
+
+                    # Fallback to RUM or GIN FTS
+                    rum_ok = True
+                    try:
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS rum;")
+                        cur.execute(
+                            """
+                            CREATE INDEX IF NOT EXISTS legal_docs_fts_rum
+                            ON public.legal_docs
+                            USING rum ((to_tsvector('simple', COALESCE(title,'') || ' ' || body))) rum_tsvector_ops;
+                            """
+                        )
+                        print("Initialized with RUM FTS (fallback).")
+                        return
+                    except Exception:
+                        rum_ok = False
+
+                    # Final fallback: GIN
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS legal_docs_fts_gin
+                        ON public.legal_docs
+                        USING gin (to_tsvector('simple', COALESCE(title,'') || ' ' || body));
+                        """
+                    )
+                    print("Initialized with GIN FTS (fallback).")
+        except Exception as e:
+            msg = str(e)
+            if "invalid response to SSL negotiation" in msg or "server does not support SSL" in msg:
+                raise RuntimeError(
+                    "Connection failed during SSL negotiation. Verify host/port and add sslmode=require.\n"
+                    "- Supabase direct port: 5432 (or pooled: 6543)\n"
+                    "- Example DSN: postgres://user:pass@host:5432/postgres?sslmode=require"
+                ) from e
+            raise
+
+    def _cmd_pg_load(a: argparse.Namespace) -> None:
+        # Delegate to scripts/supabase_load.py for simplicity
+        from scripts.supabase_load import main as load_main  # type: ignore
+
+        if getattr(a, "data_dir", None):
+            os.environ["LAW_DATA_DIR"] = str(Path(a.data_dir))
+        rc = load_main()
+        if rc != 0:
+            raise SystemExit(rc)
+
+    def _cmd_pg_search(a: argparse.Namespace) -> None:
+        from packages.legal_tools.pg_search import search_bm25  # type: ignore
+
+        rows = search_bm25(a.query, limit=int(a.limit))
+        if not rows:
+            print("No matches.")
+            return
+        for i, r in enumerate(rows, start=1):
+            snip = r.snippet
+            if len(snip) > 160:
+                snip = snip[:157] + "..."
+            print(f"[{i}] {r.title} ({r.doc_id}) score={r.score:.4f}")
+            if r.path:
+                print(f"    {r.path}")
+            if snip:
+                print(f"    \"{snip}\"")
+
+    pg_init = sub.add_parser("pg-init", help="Create Supabase/Postgres schema + BM25 index")
+    pg_init.set_defaults(func=_cmd_pg_init)
+
+    pg_load = sub.add_parser("pg-load", help="Ingest local JSON into Supabase/Postgres")
+    pg_load.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
+    pg_load.set_defaults(func=_cmd_pg_load)
+
+    pg_search = sub.add_parser("pg-search", help="Search Supabase/Postgres with BM25")
+    pg_search.add_argument("query", help="Keyword to search (BM25)")
+    pg_search.add_argument("--limit", type=int, default=10)
+    pg_search.set_defaults(func=_cmd_pg_search)
 
     # RAG MVP (DuckDB + ChromaDB) commands
-    rag_idx = sub.add_parser("rag-index", help="Build Contextual RAG index into DuckDB + ChromaDB")
-    rag_idx.add_argument("--rebuild", action="store_true", help="Drop and rebuild local RAG tables/collection")
-    rag_idx.add_argument("--limit", type=int, default=0, help="Limit number of files to index (0=all)")
-    rag_idx.set_defaults(func=cmd_rag_index)
+    # (removed) rag-index / rag-query commands to eliminate embeddings
 
-    rag_q = sub.add_parser("rag-query", help="Query ChromaDB vector index (semantic)")
-    rag_q.add_argument("query", help="Query text")
-    rag_q.add_argument("--k", type=int, default=5, help="Top-k results")
-    rag_q.set_defaults(func=cmd_rag_query)
+    # LangGraph ask agent
+    ask = sub.add_parser("ask", help="Agentic Q&A over local data using LangGraph")
+    ask.add_argument("question", help="Natural language question (ko)")
+    ask.add_argument("--k", type=int, default=5, help="Top-k evidence to cite")
+    ask.add_argument("--max-iters", type=int, default=3, help="Max retrieval refinement rounds")
+    ask.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
+    ask.set_defaults(func=cmd_ask)
 
     return p
 
