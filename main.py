@@ -8,9 +8,26 @@ import os
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
 
-
+# Data directories
 DATA_DIR = Path("data")
 DB_PATH = DATA_DIR / "records.duckdb"
+
+# RAG MVP constants
+CHROMA_DIR = DATA_DIR / "chroma"
+CHROMA_COLLECTION = "rag_mvp"
+
+# ---- Contextual RAG Imports ----
+try:
+    from packages.legal_schemas import Document, Section, SourceType
+    from packages.legal_tools import ContextConfig, ContextualChunker
+except Exception:
+    Document = None  # type: ignore
+    Section = None  # type: ignore
+    SourceType = None  # type: ignore
+    ContextConfig = None  # type: ignore
+    ContextualChunker = None  # type: ignore
+
+ 
 
 
 @dataclass
@@ -41,6 +58,8 @@ class Record:
         for s in self.taskinfo.get("sentences", []) or []:
             parts.append(str(s))
         return "\n".join(p for p in parts if p)
+
+
 
 
 # =====================
@@ -466,6 +485,222 @@ def cmd_stats(args: argparse.Namespace) -> None:
     print(f"Max title length: {max_title_len}")
 
 
+# ==========================
+# RAG MVP: DuckDB + ChromaDB
+# ==========================
+
+
+class LocalHashEmbedder:
+    """Simple deterministic embedding function for MVP without external models.
+
+    Hashes character bigrams into a fixed-size vector and L2 normalizes.
+    """
+
+    def __init__(self, dim: int = 384, seed: int = 13) -> None:
+        self.dim = dim
+        self.seed = seed
+        self.model_name = f"local-hash-{dim}"
+
+    def _vec(self, text: str) -> List[float]:
+        import math
+
+        v = [0.0] * self.dim
+        s = f"^{text}$"  # boundary markers
+        for i in range(len(s) - 1):
+            bg = s[i : i + 2]
+            h = hash((bg, self.seed))
+            idx = h % self.dim
+            v[idx] += 1.0
+        # L2 normalize
+        norm = math.sqrt(sum(x * x for x in v)) or 1.0
+        return [x / norm for x in v]
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        return [self._vec(t) for t in texts]
+
+
+def _ensure_duck_rag(con) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rag_chunks (
+            chunk_id TEXT PRIMARY KEY,
+            doc_id TEXT,
+            section_id TEXT,
+            ord INTEGER,
+            title TEXT,
+            headings_path TEXT,
+            bm25_text TEXT,
+            chunk_text TEXT,
+            ctx_hash TEXT,
+            keywords TEXT,
+            citations TEXT,
+            path TEXT,
+            embedding_model TEXT
+        )
+        """
+    )
+
+
+def _open_chroma(rebuild: bool = False):
+    try:
+        import chromadb  # type: ignore
+    except Exception as e:
+        raise RuntimeError(
+            "chromadb is required. Add it to your environment (e.g., `uv add chromadb`)"
+        ) from e
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    if rebuild:
+        try:
+            client.delete_collection(CHROMA_COLLECTION)
+        except Exception:
+            pass
+    col = client.get_or_create_collection(name=CHROMA_COLLECTION, metadata={"hnsw:space": "cosine"})
+    return client, col
+
+
+def _records_from_file(path: Path) -> Optional[Tuple["Document", List["Section"]]]:
+    if Document is None or Section is None or SourceType is None:
+        raise RuntimeError("Contextual RAG module not available")
+    rec = load_record(path)
+    if not rec:
+        return None
+    doc_id = rec.doc_id or str(path)
+    document = Document(
+        doc_id=doc_id,
+        title=rec.title or doc_id,
+        source_type=SourceType.document,
+        version=None,
+        source_uri=str(path),
+        language="ko-KR",
+    )
+    section = Section(
+        section_id=f"{doc_id}:0",
+        doc_id=doc_id,
+        headings_path=[rec.title or doc_id],
+        title=rec.title or doc_id,
+        order=0,
+        text=rec.text,
+    )
+    return document, [section]
+
+
+def cmd_rag_index(args: argparse.Namespace) -> None:
+    try:
+        import duckdb  # type: ignore
+    except Exception as e:
+        raise RuntimeError("DuckDB is required. Install with `uv sync`.") from e
+
+    if ContextualChunker is None or ContextConfig is None:
+        raise RuntimeError("Contextual RAG packages not available.")
+
+    # Setup DB + Chroma
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(DB_PATH))
+    _ensure_duck_rag(con)
+    client, col = _open_chroma(rebuild=bool(args.rebuild))
+
+    chunker = ContextualChunker(ContextConfig())
+    embedder = LocalHashEmbedder()
+
+    files = list(iter_json_files(DATA_DIR))
+    if args.limit and args.limit > 0:
+        files = files[: args.limit]
+    if not files:
+        print("No JSON files found under data/ to index.")
+        return
+
+    total_records = 0
+    for i, p in enumerate(files, start=1):
+        maybe = _records_from_file(p)
+        if not maybe:
+            continue
+        document, sections = maybe
+        recs = chunker.build_index_records(document, sections, embedder=embedder)
+        total_records += len(recs)
+
+        # Upsert into DuckDB
+        rows = [
+            (
+                r.chunk_id,
+                r.doc_id,
+                r.section_id,
+                int(r.chunk_id.split(":")[-1]) if ":" in r.chunk_id else 0,
+                document.title,
+                " > ".join(r.headings_path),
+                r.bm25_text,
+                r.chunk_text,
+                r.contextualized_text_hash,
+                ",".join(r.keywords),
+                ",".join(r.normalized_citations),
+                document.source_uri or "",
+                r.embedding_model or embedder.model_name,
+            )
+            for r in recs
+        ]
+        con.executemany(
+            """
+            INSERT OR REPLACE INTO rag_chunks (
+                chunk_id, doc_id, section_id, ord, title, headings_path, bm25_text,
+                chunk_text, ctx_hash, keywords, citations, path, embedding_model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+        # Upsert into Chroma
+        ids = [r.chunk_id for r in recs]
+        embeddings = [r.embedding or embedder.embed([r.bm25_text])[0] for r in recs]
+        documents = [r.chunk_text for r in recs]
+        metadatas = [
+            {
+                "doc_id": r.doc_id,
+                "section_id": r.section_id,
+                "title": document.title,
+                "headings_path": " > ".join(r.headings_path),
+                "ctx_hash": r.contextualized_text_hash,
+                "keywords": ",".join(r.keywords),
+                "citations": ",".join(r.normalized_citations),
+                "path": document.source_uri or "",
+            }
+            for r in recs
+        ]
+        col.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+
+        if i % 20 == 0 or i == len(files):
+            print(f"Indexed {i}/{len(files)} files, {total_records} chunks total.")
+
+    print(f"RAG index complete. Files: {len(files)}, Chunks: {total_records}")
+
+
+def cmd_rag_query(args: argparse.Namespace) -> None:
+    _, col = _open_chroma(rebuild=False)
+    embedder = LocalHashEmbedder()
+    qvec = embedder.embed([args.query])[0]
+    res = col.query(query_embeddings=[qvec], n_results=args.k, include=["documents", "metadatas", "distances"])
+
+    ids = (res.get("ids") or [[]])[0]
+    docs = (res.get("documents") or [[]])[0]
+    metas = (res.get("metadatas") or [[]])[0]
+    dists = (res.get("distances") or [[]])[0]
+
+    if not ids:
+        print("No results.")
+        return
+
+    for i, (_id, doc, meta, dist) in enumerate(zip(ids, docs, metas, dists), start=1):
+        title = meta.get("title") if isinstance(meta, dict) else None
+        hp = meta.get("headings_path") if isinstance(meta, dict) else None
+        print(f"[{i}] id={_id}  score={1 - float(dist):.4f}")
+        if title:
+            print(f"    {title}")
+        if hp:
+            print(f"    {hp}")
+        snippet = doc if len(doc) <= 200 else doc[:197] + "..."
+        print(f"    {snippet}")
+        print()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="law",
@@ -516,6 +751,17 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument("--limit", type=int, default=10)
     ss.add_argument("--dsn", help="Postgres DSN (overrides env)")
     ss.set_defaults(func=cmd_search_supabase)
+
+    # RAG MVP (DuckDB + ChromaDB) commands
+    rag_idx = sub.add_parser("rag-index", help="Build Contextual RAG index into DuckDB + ChromaDB")
+    rag_idx.add_argument("--rebuild", action="store_true", help="Drop and rebuild local RAG tables/collection")
+    rag_idx.add_argument("--limit", type=int, default=0, help="Limit number of files to index (0=all)")
+    rag_idx.set_defaults(func=cmd_rag_index)
+
+    rag_q = sub.add_parser("rag-query", help="Query ChromaDB vector index (semantic)")
+    rag_q.add_argument("query", help="Query text")
+    rag_q.add_argument("--k", type=int, default=5, help="Top-k results")
+    rag_q.set_defaults(func=cmd_rag_query)
 
     return p
 
