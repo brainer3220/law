@@ -80,13 +80,13 @@ Notes:
 
 HuggingFace LBOX Dataset
 ------------------------
-Download the `lbox` casename classification dataset and convert it into local JSONL files:
+Download the `lbox` casename classification dataset and convert it into per-document JSON files:
 
 ```
 uv run scripts/import_hf_casename.py --split train
 ```
 
-Use `--split` to select `train`, `valid`, `test`, or `test2`. Files are saved under `data/lbox_casename/`.
+Use `--split` to select `train`, `valid`, `test`, or `test2`. Files are saved under `data/lbox_casename/<split>/`.
 Set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` for private access.
 
 

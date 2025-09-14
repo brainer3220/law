@@ -24,19 +24,19 @@ def _hf_open(path: str):
         req.add_header("Authorization", f"Bearer {token}")
     return urlopen(req)
 
-def export_split(split: str, out_path: Path) -> int:
-    """Download and convert a dataset split to local JSONL.
+def export_split(split: str, out_dir: Path) -> int:
+    """Download and convert a dataset split to per‑document JSON files.
 
     Args:
         split: Dataset split name (train, valid, test, test2).
-        out_path: Destination path for the converted JSONL.
+        out_dir: Directory to write the converted JSON files.
     Returns:
         Number of records written.
     """
     path = SPLITS[split]
+    out_dir.mkdir(parents=True, exist_ok=True)
     count = 0
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with _hf_open(path) as src, out_path.open("w", encoding="utf-8") as dst:
+    with _hf_open(path) as src:
         for line in src:
             row = json.loads(line)
             obj = {
@@ -49,13 +49,15 @@ def export_split(split: str, out_path: Path) -> int:
                     "sentences": [row["facts"]] if row.get("facts") else [],
                 },
             }
-            dst.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            doc_id = obj["info"]["doc_id"] or str(count)
+            dst = out_dir / f"{doc_id}.json"
+            dst.write_text(json.dumps(obj, ensure_ascii=False) + "\n", encoding="utf-8")
             count += 1
     return count
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Download lbox casename classification split from HuggingFace and convert to local JSONL.",
+        description="Download lbox casename classification split from HuggingFace and convert to per-document JSON.",
     )
     p.add_argument(
         "--split",
@@ -66,17 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--out-dir",
         default="data/lbox_casename",
-        help="Directory to save converted JSONL (default: data/lbox_casename)",
+        help="Root directory for converted JSON files (default: data/lbox_casename)",
     )
     return p
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    out_dir = Path(args.out_dir)
-    out_path = out_dir / f"{args.split}.jsonl"
-    count = export_split(args.split, out_path)
-    print(f"Saved {count} records to {out_path}")
+    out_dir = Path(args.out_dir) / args.split
+    count = export_split(args.split, out_dir)
+    print(f"Saved {count} records under {out_dir}")
 
 if __name__ == "__main__":
     main()
