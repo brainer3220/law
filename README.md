@@ -1,41 +1,63 @@
-Law MVP CLI
-=================
+Law CLI
+=======
 
-Simple command-line tool to explore the legal JSON dataset in `data/`.
+Command-line tool to explore the legal JSON dataset in `data/` and query a Postgres-backed full-text index (BM25 when available).
 
 Usage
 -----
-- Search by keyword (indexed, fast): `uv run main.py search "주40시간제" --limit 5`
 - Preview a file: `uv run main.py preview "data/.../민사법_유권해석_요약_518.json"`
 - Show stats: `uv run main.py stats`
-- Force rebuild index: `uv run main.py reindex`
+- Agentic ask (LangGraph over Postgres): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
 
-Supabase/Postgres
------------------
-- Configure env var: set `SUPABASE_DB_URL` (or `DATABASE_URL`) to your Supabase Postgres connection string. Use a service role key for ingest from local.
-- Example DSN: `postgresql://brainer.iptime.org:5432/postgres?user=postgres.your-tenant-id&password=your-super-secret-and-long-postgres-password`
-- Install deps: `uv venv && uv sync` (adds `duckdb`, `psycopg`)
-- Ingest JSON into Supabase: `uv run main.py ingest-supabase --batch 500`
-- Search via Supabase: `uv run main.py search-supabase "주40시간제" --limit 10`
-- You can also pass a DSN directly: `uv run main.py ingest-supabase --dsn "postgresql://..."`
+Supabase/Postgres (optional; BM25 FTS)
+-------------------------------------
+Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; DuckDB remains default.
 
-Schema notes
-- Table `records` is created automatically with columns mirroring the JSON fields and a `full_text` column.
-- If permitted, an FTS `tsvector` column and GIN index are created; otherwise a trigram index on `full_text` is attempted. Fallback is ILIKE search.
+1) Install optional dependency:
+```
+uv pip install psycopg[binary]
+```
 
-Tips
-- If your password contains special characters, URL-encode them in the DSN or use env vars.
-- Some providers require `?sslmode=require`; include it in the DSN if needed.
+2) Set DSN for Supabase Postgres:
+```
+export SUPABASE_DB_URL='postgresql://postgres.your-tenant-id:your-super-secret-and-long-postgres-password@brainer.iptime.org:5432/postgres?sslmode=disable'
+# or: export PG_DSN=...
+```
+
+3) Initialize schema + BM25 index:
+```
+uv run main.py pg-init
+```
+
+4) Load local JSON to Postgres:
+```
+uv run main.py pg-load --data-dir data
+```
+
+5) Search with BM25:
+```
+uv run main.py pg-search "근로시간 면제" --limit 5
+```
+
+Notes:
+- Instance must have ParadeDB `pg_search` extension enabled. If not, request enablement or consider PGroonga/RUM (non-BM25) alternatives.
+
 
 Notes
 -----
-- Search now uses a persistent DuckDB index stored at `data/records.duckdb` for speed. Files are incrementally reindexed when their mtime changes.
-- DuckDB (`duckdb` Python package) is required. If missing, install via UV.
+- Search now uses Postgres. If ParadeDB `pg_search` is enabled, queries use BM25 with snippets; otherwise, it falls back to PostgreSQL FTS.
 - When introducing additional libraries later, check usage via Context7 per project guidance.
+ - The `ask` command uses LangGraph with an LLM-driven controller that iteratively decides to search (keyword-only) or finish with a grounded answer. No vector embeddings are used.
+
+LLM Setup
+---------
+- Set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`).
+- Default model is `gpt-5-mini-2025-08-07`; override with `OPENAI_MODEL` if needed.
+- The agent makes Chat Completions requests to produce JSON actions (search|final).
+- Optional: `OPENAI_TEMPERATURE` (omit or set a number). If unset, provider default is used.
 
 UV Workflow
 -----------
-- Create a venv and sync: `uv venv && uv sync` (installs `duckdb`)
-- Run without installing: `uv run main.py search "주40시간제" --limit 5`
-- Install console script: `uv pip install -e .` then use `law search "주40시간제"`
-- Alternative run: `uv run law stats` (after editable install)
+- Create a venv and sync: `uv venv && uv sync`
+- Install console script: `uv pip install -e .` then use `law ...`
+- Ensure LangGraph is installed for agent: `uv sync` (installs `langgraph` from `pyproject.toml`)
