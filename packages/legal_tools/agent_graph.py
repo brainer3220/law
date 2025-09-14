@@ -218,31 +218,51 @@ def _seed_queries(question: str) -> List[str]:
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
-    """Use Postgres pg_search (BM25) or fallback FTS via packages.legal_tools.pg_search."""
-    try:
-        from packages.legal_tools.pg_search import search_bm25
-    except Exception as e:
-        raise RuntimeError("Postgres search backend is required. Install psycopg and set SUPABASE_DB_URL/PG_DSN.") from e
-
-    rows = search_bm25(query, limit=max(5, limit))
+    """Run keyword search via Postgres if available, otherwise local files."""
     hits: List[Hit] = []
-    for r in rows:
-        snippet = r.snippet if len(r.snippet) <= 200 else r.snippet[:197] + "..."
-        try:
-            p = Path(r.path) if r.path else Path("")
-        except Exception:
-            p = Path("")
-        hits.append(
-            Hit(
-                source="keyword",
-                path=p,
-                doc_id=r.doc_id,
-                title=r.title,
-                score=r.score,
-                snippet=snippet,
-                line_no=None,
+    # Prefer Postgres BM25 backend when configured
+    try:  # pragma: no cover - requires external service
+        from packages.legal_tools.pg_search import search_bm25
+
+        rows = search_bm25(query, limit=max(5, limit))
+        for r in rows:
+            snippet = r.snippet if len(r.snippet) <= 200 else r.snippet[:197] + "..."
+            try:
+                p = Path(r.path) if r.path else Path("")
+            except Exception:
+                p = Path("")
+            hits.append(
+                Hit(
+                    source="keyword",
+                    path=p,
+                    doc_id=r.doc_id,
+                    title=r.title,
+                    score=r.score,
+                    snippet=snippet,
+                    line_no=None,
+                )
             )
-        )
+    except Exception:
+        # Fallback to naive filesystem search over local JSON documents
+        try:
+            from packages.legal_tools.keyword_search import search_files
+
+            rows = search_files(query, limit=max(5, limit), data_dir=data_dir)
+            for r in rows:
+                snippet = r.snippet if len(r.snippet) <= 200 else r.snippet[:197] + "..."
+                hits.append(
+                    Hit(
+                        source="keyword",
+                        path=r.path,
+                        doc_id=r.doc_id,
+                        title=r.title,
+                        score=r.score,
+                        snippet=snippet,
+                        line_no=None,
+                    )
+                )
+        except Exception:
+            pass
     return hits
 
 
