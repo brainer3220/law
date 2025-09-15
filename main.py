@@ -650,13 +650,22 @@ def build_parser() -> argparse.ArgumentParser:
             return
         for i, r in enumerate(rows, start=1):
             snip = r.snippet
-            if len(snip) > 160:
-                snip = snip[:157] + "..."
+            max_chars = int(getattr(a, "chars", 160) or 0)
+            if not getattr(a, "full", False):
+                if max_chars and len(snip) > max_chars:
+                    snip = snip[: max_chars - 3] + "..."
             print(f"[{i}] {r.title} ({r.doc_id}) score={r.score:.4f}")
             if r.path:
                 print(f"    {r.path}")
-            if snip:
-                print(f"    \"{snip}\"")
+            if getattr(a, "full", False):
+                body = r.body or ""
+                if max_chars and len(body) > max_chars:
+                    body = body[: max_chars - 3] + "..."
+                if body:
+                    print(f"    {body}")
+            else:
+                if snip:
+                    print(f"    \"{snip}\"")
 
     pg_init = sub.add_parser("pg-init", help="Create Supabase/Postgres schema + BM25 index")
     pg_init.set_defaults(func=_cmd_pg_init)
@@ -683,6 +692,13 @@ def build_parser() -> argparse.ArgumentParser:
     pg_search = sub.add_parser("pg-search", help="Search Supabase/Postgres with BM25")
     pg_search.add_argument("query", help="Keyword to search (BM25)")
     pg_search.add_argument("--limit", type=int, default=10)
+    pg_search.add_argument("--full", action="store_true", help="Print full body instead of snippet")
+    pg_search.add_argument(
+        "--chars",
+        type=int,
+        default=0,
+        help="Limit characters for printed body/snippet (0 for unlimited)",
+    )
     pg_search.set_defaults(func=_cmd_pg_search)
 
     # RAG MVP (DuckDB + ChromaDB) commands

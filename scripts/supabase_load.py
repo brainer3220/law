@@ -14,20 +14,75 @@ def iter_json_files(root: Path) -> Iterable[Path]:
             yield p
 
 
+def build_title(info: dict) -> str:
+    # Prefer explicit title fields, then reasonable fallbacks
+    return str(
+        info.get("title")
+        or info.get("casenames")
+        or info.get("caseName")
+        or info.get("caseNum")
+        or ""
+    )
+
+
+def build_doc_id(info: dict, default: str) -> str:
+    return str(
+        info.get("doc_id")
+        or info.get("precedId")
+        or info.get("caseNum")
+        or default
+    )
+
+
 def build_body(data: dict) -> str:
     info = data.get("info", {}) or {}
     task = data.get("taskinfo", {}) or {}
-    parts = [
-        str(info.get("doc_id", "")),
-        str(info.get("title", "")),
-        str(info.get("response_institute", "")),
-        str(info.get("response_date", "")),
-        str(info.get("taskType", "")),
-        str(task.get("instruction", "")),
-        " ".join(str(s) for s in (task.get("sentences") or []) if s),
-        str(task.get("output", "")),
+
+    # Case 1: QA-style records with taskinfo (original civil dataset)
+    has_task = any(
+        bool(task.get(k)) for k in ("instruction", "sentences", "output", "input")
+    )
+    if has_task:
+        parts = [
+            str(info.get("doc_id", "")),
+            str(info.get("title", "")),
+            str(info.get("response_institute", "")),
+            str(info.get("response_date", "")),
+            str(info.get("taskType", "")),
+            str(task.get("instruction", "")),
+            " ".join(str(s) for s in (task.get("sentences") or []) if s),
+            str(task.get("output", "")),
+        ]
+        return "\n".join(p for p in parts if p)
+
+    # Case 2: Summary-style records (형사법 TL_판결문_SUM)
+    # Use fullText as body, add a header line with basic metadata.
+    full_text = info.get("fullText")
+    header_bits = [
+        str(info.get("caseName", "")),
+        str(info.get("caseNum", "")),
+        str(info.get("courtName", "")),
+        str(info.get("sentenceDate", "")),
     ]
-    return "\n".join(p for p in parts if p)
+    header = " | ".join([b for b in header_bits if b])
+    if full_text:
+        return "\n".join([p for p in (header, str(full_text)) if p])
+
+    # Fallback: dump known info fields into a reasonable body
+    info_pairs = []
+    for k in (
+        "caseName",
+        "caseNum",
+        "courtName",
+        "sentenceDate",
+        "lawClass",
+        "DocuType",
+        "sentenceType",
+    ):
+        v = info.get(k)
+        if v:
+            info_pairs.append(f"{k}: {v}")
+    return "\n".join(info_pairs)
 
 
 def ensure_psycopg():
@@ -156,8 +211,8 @@ def main() -> int:
                 continue
             info = raw.get("info", {}) or {}
             task = raw.get("taskinfo", {}) or {}
-            doc_id = str(info.get("doc_id", "")).strip() or str(jp)
-            title = str(info.get("title", ""))
+            doc_id = build_doc_id(info, str(jp))
+            title = build_title(info)
             body = build_body(raw)
             meta_json = json.dumps({"info": info, "taskinfo": task}, ensure_ascii=False)
             batch.append((doc_id, title, body, meta_json, str(jp)))

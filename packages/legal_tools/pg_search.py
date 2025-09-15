@@ -21,6 +21,7 @@ class PgDoc:
     doc_id: str
     title: str
     path: str
+    body: str
     snippet: str
     score: float
 
@@ -45,8 +46,13 @@ def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
         if _has_extension(conn, "pg_search"):
             sql = (
                 """
-                SELECT id::text, COALESCE(doc_id, ''), COALESCE(title, ''), COALESCE(path, ''),
-                       paradedb.snippet(body) AS snippet, paradedb.score(id) AS score
+                SELECT id::text,
+                       COALESCE(doc_id, ''),
+                       COALESCE(title, ''),
+                       COALESCE(path, ''),
+                       COALESCE(body, ''),
+                       paradedb.snippet(body) AS snippet,
+                       paradedb.score(id) AS score
                 FROM public.legal_docs
                 WHERE title @@@ %(q)s OR body @@@ %(q)s
                 ORDER BY score DESC
@@ -61,7 +67,11 @@ def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
                 WITH cfg AS (
                   SELECT 'simple'::regconfig AS cf
                 )
-                SELECT id::text, COALESCE(doc_id, ''), COALESCE(title, ''), COALESCE(path, ''),
+                SELECT id::text,
+                       COALESCE(doc_id, ''),
+                       COALESCE(title, ''),
+                       COALESCE(path, ''),
+                       COALESCE(body, ''),
                        ts_headline(cfg.cf, body, plainto_tsquery(cfg.cf, %(q)s)) AS snippet,
                        ts_rank_cd(
                            to_tsvector(cfg.cf, COALESCE(title,'') || ' ' || body),
@@ -76,5 +86,15 @@ def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
             rows = conn.execute(sql, {"q": query, "k": int(limit)}).fetchall()
     out: List[PgDoc] = []
     for r in rows:
-        out.append(PgDoc(id=r[0], doc_id=r[1], title=r[2], path=r[3], snippet=r[4] or "", score=float(r[5] or 0.0)))
+        out.append(
+            PgDoc(
+                id=r[0],
+                doc_id=r[1],
+                title=r[2],
+                path=r[3],
+                body=r[4] or "",
+                snippet=r[5] or "",
+                score=float(r[6] or 0.0),
+            )
+        )
     return out
