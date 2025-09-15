@@ -57,6 +57,50 @@ class AgentState(TypedDict):
     done: bool
 
 
+# ----------------------- Reference: GPT Use Cases -----------------------
+
+# Repository note: kept as a constant for prompts/docs reuse.
+USE_CASES_MD: str = """
+## 변호사가 GPT를 활용하는 주요 사례
+
+1. **문서 작성 및 초안 작성(drafting)**
+
+   * 계약서, 합의서, 고소장, 답변서, 소장 등 법률문서의 첫 안(draft)을 작성하는 데에 시간을 단축할 수 있음. ([MyCase][1])
+   * 문장 표현 개선, 전문성 있는 어조 조정 등 스타일 수정 및 교정(proofreading)에도 도움됨. ([LexisNexis][2])
+
+2. **법률 리서치 및 사례 정리**
+
+   * 관련 판례(case law), 법령, 논문, 규정 등을 찾아 요약해서 제공. ([purduegloballawschool.edu][3])
+   * 증언 기록(transcripts), 증거 문서, 발견(discovery) 자료 등 복잡한 문서를 이해하기 쉬운 요약본으로 정리. ([MyCase][1])
+
+3. **계약서 검토 및 위험 분석(contract review / risk assessment)**
+
+   * 계약 조항 중 중요한 의무(obligations), 유리하거나 불리한 조항(risk) 등을 확인하고 요약함. ([juro.com][4])
+   * 장황한 계약서를 핵심사항 중심으로 추출(summary / abstract)해서 빠르게 파악할 수 있게 함. ([juro.com][4])
+
+4. **클라이언트 커뮤니케이션 / 내부 커뮤니케이션 개선**
+
+   * 클라이언트에게 복잡한 법률용어를 쉽게 풀어서 설명하는 문서나 메일 초안 작성. ([MyCase][1])
+   * 내부 보고서, 전략제안서, 사건 흐름(timeline) 정리 등 업무 공유용 자료 준비. ([purduegloballawschool.edu][3])
+
+5. **예측 및 전략 수립**
+
+   * 과거 판례 결과, 쟁점(issue)의 경향성을 바탕으로 승소 가능성(predictive outcome)이나 전략적 접근(어느 쟁점에 초점을 둘지 등)을 생각하는 데 참고 자료로 활용. ([MyCase][1])
+   * 증거자료, 정황, 일정 등을 기반으로 일정표(timeline) 또는 사건 흐름을 시각/문서 형태로 구성. ([Business Insider][5])
+
+6. **업무 효율화(operational tasks)**
+
+   * 계약서 발굴(scan) 및 분류(classification) 자동화
+   * 비용 청구(invoices), 법률비(Legal spend) 검토 등 반복적인 사무작업 자동화. ([arXiv][6])
+   * 마케팅 자료, 웹사이트 콘텐츠, 제안서(RFP: Request for Proposal) 등 비(非)본질적인 문서 작업 시간 절약. ([MyCase][1])
+"""
+
+
+def get_lawyer_gpt_use_cases() -> str:
+    """Return curated examples of how lawyers use GPT in practice (Markdown)."""
+    return USE_CASES_MD
+
+
 # -------------------------- LLM utilities -------------------------------
 
 
@@ -136,7 +180,10 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
         "당신은 법률 RAG 에이전트의 컨트롤러입니다. 모든 단계에서 다음 중 하나를 선택하세요:\n"
         "- search: 더 구체적인 검색 질의를 제안합니다.\n"
         "- final: 축약된 답변을 작성합니다. 각 문장에 근거(문서/판례/문장 스니펫)를 포함하세요.\n"
-        f"현재 반복: {iters}/{max_iters}. 반복 한도에 도달하면 반드시 final을 출력하세요."
+        f"현재 반복: {iters}/{max_iters}. 반복 한도에 도달하면 반드시 final을 출력하세요.\n\n"
+        "[내부 참고자료 — 출력 금지]\n"
+        "아래 사례는 에이전트의 목적/역할을 상기시키기 위한 것입니다. 의사결정에만 참고하고, 그대로 답변에 포함하지 마세요.\n"
+        + get_lawyer_gpt_use_cases()
     )
     user = (
         f"질문: {question}\n\n"
@@ -187,13 +234,21 @@ def _llm_finalize(question: str, observations: str, *, allow_general: bool = Fal
             "가능하면 관측된 스니펫을 우선 근거로 삼아 답변하세요.\n"
             "스니펫이 부족/없으면 일반적으로 알려진 법리·개요를 간략히 보완할 수 있습니다.\n"
             "이때 스니펫에 직접 근거하지 않은 문장에는 [일반지식] 표시를 붙이세요.\n"
-            "법률 자문은 금지하며, 사실 요약과 출처 제시에 집중하세요.\n"
+            "법률 자문은 금지하며, 사실 요약과 출처 제시에 집중하세요.\n\n"
+            "[내부 참고자료 — 출력 금지]\n"
+            "아래 사례는 에이전트의 목적/역할을 상기시키기 위한 것입니다. 구성/톤만 참고하고, 그대로 답변에 포함하지 마세요.\n"
+            + get_lawyer_gpt_use_cases()
+            + "\n"
             "출력 형식: 사건 정보(가능하면), 요약, 법원 판단(핵심) 인용, 결론, 출처 및 메타데이터."
         )
     else:
         sys = (
             "당신은 법률 리서치 요약가입니다. 관측된 스니펫만 근거로 간결한 답변을 작성하세요.\n"
-            "법률 자문은 금지하며, 사실 요약과 출처 제시에 집중하세요.\n"
+            "법률 자문은 금지하며, 사실 요약과 출처 제시에 집중하세요.\n\n"
+            "[내부 참고자료 — 출력 금지]\n"
+            "아래 사례는 에이전트의 목적/역할을 상기시키기 위한 것입니다. 구성/톤만 참고하고, 그대로 답변에 포함하지 마세요.\n"
+            + get_lawyer_gpt_use_cases()
+            + "\n"
             "출력 형식: 사건 정보(가능하면), 요약, 법원 판단(핵심) 인용, 결론, 출처 및 메타데이터."
         )
     user = (
