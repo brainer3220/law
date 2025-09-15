@@ -665,6 +665,21 @@ def build_parser() -> argparse.ArgumentParser:
     pg_load.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     pg_load.set_defaults(func=_cmd_pg_load)
 
+    def _cmd_pg_load_jsonl(a: argparse.Namespace) -> None:
+        # Load newline-delimited JSON (id, casetype, casename, facts) into legal_docs
+        from scripts.pg_load_jsonl import main as load_jsonl_main  # type: ignore
+
+        jsonl = getattr(a, "jsonl", None)
+        if not jsonl:
+            raise SystemExit("--jsonl path is required")
+        rc = load_jsonl_main(jsonl=str(jsonl))
+        if rc != 0:
+            raise SystemExit(rc)
+
+    pg_load_jsonl = sub.add_parser("pg-load-jsonl", help="Ingest NDJSON cases into Supabase/Postgres")
+    pg_load_jsonl.add_argument("--jsonl", required=True, help="Path to .jsonl/.ndjson file or directory")
+    pg_load_jsonl.set_defaults(func=_cmd_pg_load_jsonl)
+
     pg_search = sub.add_parser("pg-search", help="Search Supabase/Postgres with BM25")
     pg_search.add_argument("query", help="Keyword to search (BM25)")
     pg_search.add_argument("--limit", type=int, default=10)

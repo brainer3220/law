@@ -66,7 +66,7 @@ uv run main.py pg-init
 
 4) Load local JSON to Postgres:
 ```
-uv run main.py pg-load --data-dir data
+ uv run main.py pg-load --data-dir data
 ```
 
 5) Search with BM25:
@@ -97,3 +97,8 @@ UV Workflow
 - Create a venv and sync: `uv venv && uv sync`
 - Install console script: `uv pip install -e .` then use `law ...`
 - Ensure LangGraph is installed for agent: `uv sync` (installs `langgraph` from `pyproject.toml`)
+4b) Load NDJSON cases (id, casetype, casename, facts) to Postgres:
+```
+uv run main.py pg-load-jsonl --jsonl /path/to/casename_classification/train.jsonl
+# You can pass a directory to load all *.jsonl under it
+```
