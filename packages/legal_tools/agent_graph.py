@@ -16,6 +16,28 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 # Initialize module logger early
 logger = logging.getLogger(__name__)
+_LLM_BLOCKED: bool = False
+
+
+def _env_true(name: str) -> bool:
+    v = os.getenv(name)
+    return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _llm_enabled() -> bool:
+    if _env_true("LAW_OFFLINE"):
+        return False
+    if _LLM_BLOCKED:
+        return False
+    if not os.getenv("OPENAI_API_KEY"):
+        return False
+    return True
+
+
+def _block_llm(err: Exception) -> None:
+    global _LLM_BLOCKED
+    _LLM_BLOCKED = True
+    logger.warning("LLM disabled for this run (reason: %s)", err)
 
 # ----------------------------- Simple Types -----------------------------
 
@@ -114,11 +136,20 @@ def _openai_chat(messages: List[Dict[str, Any]], *, model: Optional[str] = None,
     import os as _os
     import urllib.request as _url
 
+    if not _llm_enabled():
+        raise RuntimeError("LLM disabled (offline mode or missing API key)")
+
     api_key = _os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Set OPENAI_API_KEY to use LLM-driven agent.")
     base = _os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     mdl = model or _os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07")
+    try:
+        env_timeout = float(_os.getenv("OPENAI_TIMEOUT", "0") or 0)
+        if env_timeout > 0:
+            timeout = env_timeout
+    except Exception:
+        pass
 
     payload = {
         "model": mdl,
@@ -199,13 +230,17 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
     logger.info(
         "decide: iters=%s/%s, obs_chars=%s", iters, max_iters, len(observations or "")
     )
+    if not _llm_enabled():
+        logger.info("decide: LLM disabled (offline) -> final")
+        return {"action": "final", "answer": ""}
     try:
         out = _openai_chat([
             {"role": "system", "content": sys},
             {"role": "user", "content": user},
         ])
     except Exception as e:
-        logger.warning("decide: LLM call failed; offline fallback to final. err=%s", e)
+        _block_llm(e)
+        logger.info("decide: falling back to final after LLM error")
         return {"action": "final", "answer": ""}
     # Best-effort JSON extract
     import json as _json
@@ -269,13 +304,17 @@ def _llm_finalize(question: str, observations: str, *, allow_general: bool = Fal
         "- 출처 및 메타데이터: [번호]만 나열 (경로/파일명은 생략)\n"
     )
     logger.info("finalize: composing answer (allow_general=%s)", allow_general)
+    if not _llm_enabled():
+        logger.info("finalize: LLM disabled (offline) -> offline summary")
+        return _offline_summary(question, observations)
     try:
         return _openai_chat([
             {"role": "system", "content": sys},
             {"role": "user", "content": user},
         ])
     except Exception as e:
-        logger.warning("finalize: LLM unavailable; offline deterministic summary. err=%s", e)
+        _block_llm(e)
+        logger.info("finalize: offline deterministic summary after LLM error")
         return _offline_summary(question, observations)
 
 
