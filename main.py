@@ -366,133 +366,30 @@ def cmd_ask(args: argparse.Namespace) -> None:
         from packages.legal_tools.agent_graph import run_ask  # type: ignore
     except Exception as e:
         raise RuntimeError(
-            "LangGraph agent requires `langgraph` installed. Install deps with `uv sync`."
+            "LangGraph agent is unavailable. Ensure dependencies are installed with `uv sync`."
         ) from e
 
     top_k = int(getattr(args, "k", 5))
-    max_iters = int(getattr(args, "max_iters", 3))
     allow_general = bool(getattr(args, "flex", False))
     context_chars = int(getattr(args, "context_chars", 0) or 0)
-    data_dir = Path(getattr(args, "data_dir", "") or os.getenv("LAW_DATA_DIR") or DATA_DIR)
+    # Map the previous --max-tool-calls option to LangGraph max_iters
+    max_iters = int(getattr(args, "max_tool_calls", 8) or 8)
+
+    # Resolve data directory (CLI flag > env > default ./data)
+    data_dir_str = getattr(args, "data_dir", None) or os.getenv("LAW_DATA_DIR") or str(DATA_DIR)
+    data_dir = Path(data_dir_str)
+
     result = run_ask(
         args.question,
         data_dir=data_dir,
         top_k=top_k,
         max_iters=max_iters,
         allow_general=allow_general,
-        context_chars=context_chars,
+        context_chars=context_chars or 800,
     )
 
-    # Collect answer and citations
-    answer = (result.get("answer") or "").strip()
-    citations = list(result.get("citations") or [])
-
-    # Prefer the top citation for structured metadata
-    primary = citations[0] if citations else {}
-    meta: dict = {}
-    court = ""
-    docket = ""
-    casetype = ""
-    # Load JSON metadata if path available
-    pstr = str(primary.get("path") or "")
-    if pstr:
-        try:
-            with Path(pstr).open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            info = (data.get("info") or {})
-            court = str(info.get("normalized_court") or "")
-            docket = str(info.get("doc_id") or "")
-            casetype = str(info.get("casetype") or "")
-            meta = info
-        except Exception:
-            # Fall back to doc_id parsing if JSON load fails
-            docket = str(primary.get("doc_id") or "")
-    else:
-        docket = str(primary.get("doc_id") or "")
-
-    # If court still empty, try to split from doc_id like '대전지방법원-2014가단25143'
-    if (not court) and docket and ("-" in docket):
-        parts = docket.split("-", 1)
-        if len(parts) == 2:
-            court = parts[0].strip() or court
-
-    # Derive 분야 from casetype and question keywords
-    topic_hint = ""
-    q_lower = (args.question or "").replace(" ", "")
-    if any(k in q_lower for k in ["근로시간면제", "면제업무", "타임오프", "근로시간"]):
-        topic_hint = "근로시간면제 관련"
-    field_display = casetype if casetype else ""
-    if topic_hint:
-        field_display = (field_display + " — " if field_display else "") + topic_hint
-
-    # Build 핵심 스니펫 from the primary citation
-    core_snippet = str(primary.get("snippet") or "").strip()
-    if len(core_snippet) > 300:
-        core_snippet = core_snippet[:297] + "..."
-
-    # Simple confidence heuristic
-    conf = "낮음"
-    if len(citations) >= 3:
-        conf = "높음"
-    elif len(citations) == 2:
-        conf = "보통"
-    elif len(citations) == 1:
-        conf = "보통"
-
-    # Clean answer for 결론 (remove bracketed numeric refs like [1])
-    clean_answer = re.sub(r"\s*\[[0-9]+\]", "", answer).strip()
-
-    # Render improved Markdown output
-    lines: List[str] = []
-    lines.append("### 사건 정보")
-    if court:
-        lines.append(f"- 법원: {court}  ")
-    if docket:
-        lines.append(f"- 사건번호: {docket}  ")
-    if field_display:
-        lines.append(f"- 분야: {field_display}")
-
-    if answer:
-        lines.append("")
-        lines.append("### 요약")
-        lines.append(answer)
-
-    # 쟁점 섹션은 자동 생성하지 않습니다 (요청에 따라 제거)
-
-    if core_snippet:
-        src_path = str(primary.get("path") or "")
-        lines.append("")
-        lines.append("### 법원 판단(핵심)")
-        lines.append(f"> \"{core_snippet}\"  ")
-        if src_path:
-            # Indicate source of snippet
-            lines.append(f"(출처: `{src_path}`, snippet)")
-
-    if clean_answer:
-        lines.append("")
-        lines.append("### 결론")
-        lines.append(f"- {clean_answer}")
-
-    # Sources and metadata
-    if citations:
-        lines.append("")
-        lines.append("### 출처 및 메타데이터")
-        # Show primary path (first cite)
-        if pstr:
-            lines.append(f"- 파일: `{pstr}`")
-        lines.append(f"- 확신도: {conf}")
-        # Additional sources list (optional)
-        if len(citations) > 1:
-            lines.append("- 추가 출처:")
-            for c in citations[1:]:
-                t = c.get("title", "")
-                d = c.get("doc_id", "")
-                pin = c.get("pin_cite", "")
-                path = c.get("path", "")
-                lines.append(f"  - {t} ({d}) [{pin}] — {path}")
-
-    output = "\n".join(lines) if lines else (answer or "(No answer produced. Ensure OPENAI_API_KEY is set and try again.)")
-    print(output)
+    ans = (result.get("answer") or "").strip()
+    print(ans if ans else "(LLM 응답이 비어있습니다)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -710,10 +607,11 @@ def build_parser() -> argparse.ArgumentParser:
     # (removed) rag-index / rag-query commands to eliminate embeddings
 
     # LangGraph ask agent
-    ask = sub.add_parser("ask", help="Agentic Q&A over local data using LangGraph")
+    ask = sub.add_parser("ask", help="Agentic Q&A over local data (ReAct tool-use)")
     ask.add_argument("question", help="Natural language question (ko)")
     ask.add_argument("--k", type=int, default=5, help="Top-k evidence to cite")
-    ask.add_argument("--max-iters", type=int, default=3, help="Max retrieval refinement rounds")
+    # ReAct mode is default; max-iters is deprecated
+    ask.add_argument("--max-tool-calls", type=int, default=8, help="Tool calls budget (ReAct mode)")
     ask.add_argument("--flex", action="store_true", help="Allow general knowledge when evidence is insufficient")
     ask.add_argument(
         "--context-chars",
