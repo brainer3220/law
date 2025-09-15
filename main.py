@@ -4,6 +4,8 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
+import logging
+import sys
 import os
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
@@ -397,6 +399,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="law",
         description="MVP CLI to search and preview legal JSON entries.",
     )
+    p.add_argument(
+        "--log-level",
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        help="Logging level (CRITICAL, ERROR, WARNING, INFO, DEBUG). Default: WARNING",
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     # DuckDB search removed; prefer `pg-search`
@@ -645,6 +652,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Configure logging early
+    level_name = str(getattr(args, "log_level", "WARNING")).upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
     args.func(args)
 
 

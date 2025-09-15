@@ -4,6 +4,7 @@ import operator
 import os
 import re
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TypedDict
 from typing_extensions import Annotated, Literal
@@ -12,6 +13,9 @@ from typing_extensions import Annotated, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 
+
+# Initialize module logger early
+logger = logging.getLogger(__name__)
 
 # ----------------------------- Simple Types -----------------------------
 
@@ -143,6 +147,9 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
         "또는\n"
         "{\"action\":\"final\",\"answer\":\"...\"}"
     )
+    logger.info(
+        "decide: iters=%s/%s, obs_chars=%s", iters, max_iters, len(observations or "")
+    )
     out = _openai_chat([
         {"role": "system", "content": sys},
         {"role": "user", "content": user},
@@ -153,10 +160,18 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
 
     m = _re.search(r"\{[\s\S]*\}", out)
     if not m:
+        logger.info("decide: no JSON detected; defaulting to final")
         return {"action": "final", "answer": out.strip()[:2000]}
     try:
-        return _json.loads(m.group(0))
+        decision = _json.loads(m.group(0))
+        action = str(decision.get("action", "final")).lower()
+        if action == "search":
+            logger.info("decide: action=search query=%s", (decision.get("query") or "").strip())
+        else:
+            logger.info("decide: action=final (LLM)")
+        return decision
     except Exception:
+        logger.info("decide: JSON parse failed; defaulting to final")
         return {"action": "final", "answer": out.strip()[:2000]}
 
 
@@ -192,6 +207,7 @@ def _llm_finalize(question: str, observations: str, *, allow_general: bool = Fal
         "- 결론: 요약 재진술 (스니펫 근거가 없는 문장은 [일반지식] 표시)\n"
         "- 출처 및 메타데이터: [번호]만 나열 (경로/파일명은 생략)\n"
     )
+    logger.info("finalize: composing answer (allow_general=%s)", allow_general)
     return _openai_chat([
         {"role": "system", "content": sys},
         {"role": "user", "content": user},
@@ -226,6 +242,7 @@ def _seed_queries(question: str) -> List[str]:
             uniq.append(s)
         if len(uniq) >= 5:
             break
+    logger.info("seed_queries: %s", ", ".join(uniq))
     return uniq
 
 
@@ -239,6 +256,7 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
     except Exception as e:
         raise RuntimeError("Postgres search backend is required. Install psycopg and set SUPABASE_DB_URL/PG_DSN.") from e
 
+    logger.info("search[keyword]: query=%s limit=%s", query, limit)
     rows = search_bm25(query, limit=max(5, limit))
     hits: List[Hit] = []
     for r in rows:
@@ -267,6 +285,7 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
                 line_no=None,
             )
         )
+    logger.info("search[keyword]: hits=%s (pre-dedupe)", len(hits))
     return hits
 
 
@@ -308,17 +327,20 @@ def decide(state: AgentState, *, max_iters: int, allow_general: bool = False) ->
     if iters == 0 and not obs:
         seeds = _seed_queries(q)
         if seeds:
+            logger.info("decide: bootstrap seeds -> %s", ", ".join(seeds[:3]))
             return {"queries": seeds[:3], "iters": 1, "done": False}
     decision = _llm_decide(q, obs, iters, max_iters)
     action = str(decision.get("action", "final")).lower()
     will_reach_limit = (iters + 1) >= max_iters
     if action == "search" and not will_reach_limit:
         query = str(decision.get("query", "")).strip() or q
+        logger.info("decide: continue with query=%s (iters=%s)", query, iters + 1)
         return {"queries": [query], "iters": 1, "done": False}
     # Finalize: either LLM asked to finalize, or we hit the limit — ask LLM for final
     ans = str(decision.get("answer", "")).strip()
     if not ans:
         ans = _llm_finalize(q, obs, allow_general=allow_general).strip()
+    logger.info("decide: finalize (iters=%s)", iters)
     return {"answer": ans or "(LLM 응답이 비어있습니다)", "queries": [], "done": True}
 
 
@@ -327,14 +349,17 @@ def retrieve(state: AgentState, *, data_dir: Path, k: int, context_chars: int = 
     new_qs = state.get("queries", [])
     used = set(state.get("used_queries", []))
     evidence: List[Hit] = []
+    logger.info("retrieve: %s new queries (k=%s, context_chars=%s)", len(new_qs), k, context_chars)
     for q in new_qs:
         if q in used:
             continue
         # keyword-only
         try:
-            evidence.extend(_keyword_search(q, limit=max(5, k), data_dir=data_dir, context_chars=context_chars))
+            q_hits = _keyword_search(q, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
+            evidence.extend(q_hits)
+            logger.info("retrieve: query=%s -> %s hits", q, len(q_hits))
         except Exception:
-            pass
+            logger.exception("retrieve: keyword search failed for query=%s", q)
     # Merge and de-dup; prefer case-like first
     evidence = sorted(evidence, key=lambda h: (not _is_case_like(h), -h.score))
     evidence = _dedupe_hits(evidence)[: max(10, k * 2)]
@@ -359,6 +384,7 @@ def retrieve(state: AgentState, *, data_dir: Path, k: int, context_chars: int = 
                 "source": h.source,
             }
         )
+    logger.info("retrieve: retained %s evidence; summarizing top %s", len(evidence), min(k, len(evidence)))
     return {
         "evidence": evidence,
         "used_queries": list(used.union(new_qs)),
@@ -406,6 +432,13 @@ def build_legal_ask_graph(*, data_dir: Path, top_k: int = 5, max_iters: int = 3,
     workflow.add_edge("finish", END)
 
     memory = InMemorySaver()
+    logger.info(
+        "graph: compiled (top_k=%s, max_iters=%s, allow_general=%s, context_chars=%s)",
+        top_k,
+        max_iters,
+        allow_general,
+        context_chars,
+    )
     return workflow.compile(checkpointer=memory)
 
 
@@ -418,7 +451,8 @@ def run_ask(question: str, *, data_dir: Path, top_k: int = 5, max_iters: int = 3
         allow_general=allow_general,
         context_chars=context_chars,
     )
-    config = {"configurable": {"thread_id": os.urandom(6).hex()}, "recursion_limit": max(10, max_iters * 5)}
+    thread_id = os.urandom(6).hex()
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": max(10, max_iters * 5)}
     # Provide initial empty state
     init: AgentState = {
         "question": question,
@@ -431,5 +465,11 @@ def run_ask(question: str, *, data_dir: Path, top_k: int = 5, max_iters: int = 3
         "citations": [],
         "done": False,
     }
+    logger.info(
+        "run_ask: start thread_id=%s question=%s", thread_id, (question or "").strip()[:80]
+    )
     final = graph.invoke(init, config)
+    logger.info(
+        "run_ask: done thread_id=%s keys=%s", thread_id, ",".join(sorted(final.keys()))
+    )
     return final
