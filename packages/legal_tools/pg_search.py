@@ -34,7 +34,7 @@ def _has_extension(conn, name: str) -> bool:
         return False
 
 
-def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
+def search_bm25(query: str, limit: int = 10, offset: int = 0) -> List[PgDoc]:
     dsn = os.getenv("SUPABASE_DB_URL") or os.getenv("PG_DSN")
     if not dsn:
         raise RuntimeError("Set SUPABASE_DB_URL or PG_DSN for Postgres connection.")
@@ -56,10 +56,10 @@ def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
                 FROM public.legal_docs
                 WHERE title @@@ %(q)s OR body @@@ %(q)s
                 ORDER BY score DESC
-                LIMIT %(k)s
+                LIMIT %(k)s OFFSET %(o)s
                 """
             )
-            rows = conn.execute(sql, {"q": query, "k": int(limit)}).fetchall()
+            rows = conn.execute(sql, {"q": query, "k": int(limit), "o": int(max(0, offset))}).fetchall()
         else:
             # Fallback to PostgreSQL FTS (tsvector + ts_rank)
             sql = (
@@ -80,10 +80,10 @@ def search_bm25(query: str, limit: int = 10) -> List[PgDoc]:
                 FROM public.legal_docs, cfg
                 WHERE to_tsvector(cfg.cf, COALESCE(title,'') || ' ' || body) @@ plainto_tsquery(cfg.cf, %(q)s)
                 ORDER BY score DESC
-                LIMIT %(k)s
+                LIMIT %(k)s OFFSET %(o)s
                 """
             )
-            rows = conn.execute(sql, {"q": query, "k": int(limit)}).fetchall()
+            rows = conn.execute(sql, {"q": query, "k": int(limit), "o": int(max(0, offset))}).fetchall()
     out: List[PgDoc] = []
     for r in rows:
         out.append(
