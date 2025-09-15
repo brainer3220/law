@@ -160,17 +160,27 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
         return {"action": "final", "answer": out.strip()[:2000]}
 
 
-def _llm_finalize(question: str, observations: str) -> str:
+def _llm_finalize(question: str, observations: str, *, allow_general: bool = False) -> str:
     """Ask the LLM to produce a concise, grounded answer using observations only.
 
     Output should contain brief sentences with inline numbered references mapping to the
     provided snippets (e.g., [1], [2]). No speculative claims.
     """
-    sys = (
-        "당신은 법률 리서치 요약가입니다. 관측된 스니펫만 근거로 간결한 답변을 작성하세요.\n"
-        "법률 자문을 하지 말고, 사실 요약과 출처 제시에 집중하세요.\n"
-        "각 주장에는 [번호] 형태의 근거 지시를 포함하세요."
-    )
+    if allow_general:
+        sys = (
+            "당신은 법률 리서치 요약가입니다. \n"
+            "가능하면 관측된 스니펫을 우선 근거로 삼아 간결한 답변을 작성하세요.\n"
+            "관측된 스니펫이 부족하거나 없는 경우, 일반적으로 알려진 법리나 개요를 간략히 설명해도 됩니다.\n"
+            "이때 스니펫에 직접 근거하지 않은 내용에는 [일반지식] 표시를 덧붙이세요.\n"
+            "법률 자문을 하지 말고, 사실 요약과 출처 제시에 집중하세요.\n"
+            "스니펫을 인용한 문장에는 [번호] 형태의 지시를 포함하세요."
+        )
+    else:
+        sys = (
+            "당신은 법률 리서치 요약가입니다. 관측된 스니펫만 근거로 간결한 답변을 작성하세요.\n"
+            "법률 자문을 하지 말고, 사실 요약과 출처 제시에 집중하세요.\n"
+            "각 주장에는 [번호] 형태의 근거 지시를 포함하세요."
+        )
     user = (
         f"질문: {question}\n\n"
         "관측된 스니펫(번호는 그대로 사용):\n"
@@ -217,7 +227,7 @@ def _seed_queries(question: str) -> List[str]:
 # -------------------------- Retrieval utils ----------------------------
 
 
-def _keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
+def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
     """Use Postgres pg_search (BM25) or fallback FTS via packages.legal_tools.pg_search."""
     try:
         from packages.legal_tools.pg_search import search_bm25
@@ -227,7 +237,16 @@ def _keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
     rows = search_bm25(query, limit=max(5, limit))
     hits: List[Hit] = []
     for r in rows:
-        snippet = r.snippet if len(r.snippet) <= 200 else r.snippet[:197] + "..."
+        snippet = r.snippet or ""
+        if context_chars and r.body:
+            ctx = (r.body or "")
+            if context_chars > 0 and len(ctx) > context_chars:
+                ctx = ctx[: context_chars - 3] + "..."
+            # Combine highlighted snippet and raw body context
+            snippet = (snippet + "\n" + ctx).strip()
+        # Cap overly long snippet for safety in prompts
+        if len(snippet) > 1200:
+            snippet = snippet[:1197] + "..."
         try:
             p = Path(r.path) if r.path else Path("")
         except Exception:
@@ -275,7 +294,7 @@ def _dedupe_hits(hits: Iterable[Hit]) -> List[Hit]:
 # ----------------------------- Nodes -----------------------------------
 
 
-def decide(state: AgentState, *, max_iters: int) -> Dict[str, Any]:
+def decide(state: AgentState, *, max_iters: int, allow_general: bool = False) -> Dict[str, Any]:
     """Delegate to the LLM for next action: search or final."""
     q = state.get("question", "")
     obs = state.get("observations", "")
@@ -294,11 +313,11 @@ def decide(state: AgentState, *, max_iters: int) -> Dict[str, Any]:
     # Finalize: either LLM asked to finalize, or we hit the limit — ask LLM for final
     ans = str(decision.get("answer", "")).strip()
     if not ans:
-        ans = _llm_finalize(q, obs).strip()
+        ans = _llm_finalize(q, obs, allow_general=allow_general).strip()
     return {"answer": ans or "(LLM 응답이 비어있습니다)", "queries": [], "done": True}
 
 
-def retrieve(state: AgentState, *, data_dir: Path, k: int) -> Dict[str, Any]:
+def retrieve(state: AgentState, *, data_dir: Path, k: int, context_chars: int = 0) -> Dict[str, Any]:
     """Run keyword + semantic retrieval for new queries and accumulate hits."""
     new_qs = state.get("queries", [])
     used = set(state.get("used_queries", []))
@@ -308,7 +327,7 @@ def retrieve(state: AgentState, *, data_dir: Path, k: int) -> Dict[str, Any]:
             continue
         # keyword-only
         try:
-            evidence.extend(_keyword_search(q, limit=max(5, k), data_dir=data_dir))
+            evidence.extend(_keyword_search(q, limit=max(5, k), data_dir=data_dir, context_chars=context_chars))
         except Exception:
             pass
     # Merge and de-dup; prefer case-like first
@@ -351,7 +370,7 @@ def finish_if_ready(state: AgentState) -> Dict[str, Any]:
 # ----------------------------- Graph build ------------------------------
 
 
-def build_legal_ask_graph(*, data_dir: Path, top_k: int = 5, max_iters: int = 3):
+def build_legal_ask_graph(*, data_dir: Path, top_k: int = 5, max_iters: int = 3, allow_general: bool = False, context_chars: int = 0):
     """LLM-driven loop: decide -> (search) -> decide ... -> final.
 
     - decide: LLM outputs either {action: search, query} or {action: final, answer}.
@@ -359,10 +378,10 @@ def build_legal_ask_graph(*, data_dir: Path, top_k: int = 5, max_iters: int = 3)
     """
 
     def decide_node(state: AgentState):
-        return decide(state, max_iters=max_iters)
+        return decide(state, max_iters=max_iters, allow_general=allow_general)
 
     def search_node(state: AgentState):
-        return retrieve(state, data_dir=data_dir, k=top_k)
+        return retrieve(state, data_dir=data_dir, k=top_k, context_chars=context_chars)
 
     def route_after_decide(state: AgentState) -> Literal["search", "finish"]:
         if state.get("done"):
@@ -385,9 +404,15 @@ def build_legal_ask_graph(*, data_dir: Path, top_k: int = 5, max_iters: int = 3)
     return workflow.compile(checkpointer=memory)
 
 
-def run_ask(question: str, *, data_dir: Path, top_k: int = 5, max_iters: int = 3) -> Dict[str, Any]:
+def run_ask(question: str, *, data_dir: Path, top_k: int = 5, max_iters: int = 3, allow_general: bool = False, context_chars: int = 0) -> Dict[str, Any]:
     """Convenience entry: run the LangGraph and return final state."""
-    graph = build_legal_ask_graph(data_dir=data_dir, top_k=top_k, max_iters=max_iters)
+    graph = build_legal_ask_graph(
+        data_dir=data_dir,
+        top_k=top_k,
+        max_iters=max_iters,
+        allow_general=allow_general,
+        context_chars=context_chars,
+    )
     config = {"configurable": {"thread_id": os.urandom(6).hex()}, "recursion_limit": max(10, max_iters * 5)}
     # Provide initial empty state
     init: AgentState = {

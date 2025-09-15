@@ -371,8 +371,17 @@ def cmd_ask(args: argparse.Namespace) -> None:
 
     top_k = int(getattr(args, "k", 5))
     max_iters = int(getattr(args, "max_iters", 3))
+    allow_general = bool(getattr(args, "flex", False))
+    context_chars = int(getattr(args, "context_chars", 0) or 0)
     data_dir = Path(getattr(args, "data_dir", "") or os.getenv("LAW_DATA_DIR") or DATA_DIR)
-    result = run_ask(args.question, data_dir=data_dir, top_k=top_k, max_iters=max_iters)
+    result = run_ask(
+        args.question,
+        data_dir=data_dir,
+        top_k=top_k,
+        max_iters=max_iters,
+        allow_general=allow_general,
+        context_chars=context_chars,
+    )
 
     # Collect answer and citations
     answer = (result.get("answer") or "").strip()
@@ -448,11 +457,7 @@ def cmd_ask(args: argparse.Namespace) -> None:
         lines.append("### 요약")
         lines.append(answer)
 
-    # Use question as a minimal 쟁점 when we cannot infer more
-    issue = args.question.strip() if getattr(args, "question", None) else "주요 쟁점"
-    lines.append("")
-    lines.append("### 쟁점")
-    lines.append(f"- {issue}")
+    # 쟁점 섹션은 자동 생성하지 않습니다 (요청에 따라 제거)
 
     if core_snippet:
         src_path = str(primary.get("path") or "")
@@ -709,6 +714,13 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("question", help="Natural language question (ko)")
     ask.add_argument("--k", type=int, default=5, help="Top-k evidence to cite")
     ask.add_argument("--max-iters", type=int, default=3, help="Max retrieval refinement rounds")
+    ask.add_argument("--flex", action="store_true", help="Allow general knowledge when evidence is insufficient")
+    ask.add_argument(
+        "--context-chars",
+        type=int,
+        default=0,
+        help="Include up to N chars of raw body context with each snippet (0 to disable)",
+    )
     ask.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     ask.set_defaults(func=cmd_ask)
 

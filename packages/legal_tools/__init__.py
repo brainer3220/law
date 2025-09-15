@@ -1,19 +1,27 @@
-"""Utility tools for legal contextual RAG.
+"""Lightweight namespace for legal tools.
 
-Exposes the ContextualChunker and interfaces for embeddings and indexing.
+Avoid importing heavy dependencies at package import time to keep optional
+features (like the LangGraph agent) usable without extra installs.
 """
 
-from .contextual_rag import (
-    ContextConfig,
-    ContextualChunker,
-    EmbeddingModel,
-    IndexRecord,
-)
+__all__ = []
 
-__all__ = [
-    "ContextConfig",
-    "ContextualChunker",
-    "EmbeddingModel",
-    "IndexRecord",
-]
+# Expose contextual_rag symbols lazily if dependencies are available
+try:  # pragma: no cover - optional import
+    from .contextual_rag import (  # type: ignore
+        ContextConfig,
+        ContextualChunker,
+        EmbeddingModel,
+        IndexRecord,
+    )
 
+    __all__.extend([
+        "ContextConfig",
+        "ContextualChunker",
+        "EmbeddingModel",
+        "IndexRecord",
+    ])
+except Exception:
+    # Optional module not available (e.g., missing pydantic).
+    # This keeps `packages.legal_tools` importable for other features like pg_search/agent_graph.
+    pass
