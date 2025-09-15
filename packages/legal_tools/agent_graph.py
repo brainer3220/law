@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class Hit:
     """A retrieval hit with minimal fields for synthesis and citation."""
 
-    source: Literal["keyword", "semantic"]
+    source: Literal["keyword", "semantic", "mcp"]
     path: Path
     doc_id: str
     title: str
@@ -199,10 +199,14 @@ def _llm_decide(question: str, observations: str, iters: int, max_iters: int) ->
     logger.info(
         "decide: iters=%s/%s, obs_chars=%s", iters, max_iters, len(observations or "")
     )
-    out = _openai_chat([
-        {"role": "system", "content": sys},
-        {"role": "user", "content": user},
-    ])
+    try:
+        out = _openai_chat([
+            {"role": "system", "content": sys},
+            {"role": "user", "content": user},
+        ])
+    except Exception as e:
+        logger.warning("decide: LLM call failed; offline fallback to final. err=%s", e)
+        return {"action": "final", "answer": ""}
     # Best-effort JSON extract
     import json as _json
     import re as _re
@@ -265,10 +269,67 @@ def _llm_finalize(question: str, observations: str, *, allow_general: bool = Fal
         "- 출처 및 메타데이터: [번호]만 나열 (경로/파일명은 생략)\n"
     )
     logger.info("finalize: composing answer (allow_general=%s)", allow_general)
-    return _openai_chat([
-        {"role": "system", "content": sys},
-        {"role": "user", "content": user},
-    ])
+    try:
+        return _openai_chat([
+            {"role": "system", "content": sys},
+            {"role": "user", "content": user},
+        ])
+    except Exception as e:
+        logger.warning("finalize: LLM unavailable; offline deterministic summary. err=%s", e)
+        return _offline_summary(question, observations)
+
+
+def _offline_summary(question: str, observations: str) -> str:
+    """Deterministic offline fallback when LLM is unavailable.
+
+    Builds a concise markdown using available observations only.
+    """
+    obs = (observations or "").strip()
+    if not obs:
+        return (
+            "# 사건 정보\n(관측된 스니펫 없음 — 사건 정보 제공 불가)\n\n"
+            "# 요약\n"
+            "관측된 스니펫이 제공되지 않아 근거 기반 요약을 생성할 수 없습니다. 관련 스니펫을 확보하거나 Postgres 검색 구성을 확인하세요.\n\n"
+            "# 법원 판단(핵심)\n"
+            "인용할 스니펫이 없어 법원 판단을 제시할 수 없습니다.\n\n"
+            "# 결론\n"
+            "증거 스니펫이 필요합니다. 스니펫을 제공하거나 데이터 인덱스를 점검하세요. [일반지식]\n\n"
+            "# 출처 및 메타데이터\n(번호 없음)"
+        )
+    # Use up to first 2 observation lines as quotes
+    lines = [ln.strip() for ln in obs.splitlines() if ln.strip()]
+    quotes = []
+    refs = []
+    for ln in lines:
+        if ln.startswith("[") and "]" in ln:
+            try:
+                num = int(ln[1: ln.index("]")])
+                refs.append(num)
+            except Exception:
+                pass
+        quotes.append(ln)
+        if len(quotes) >= 2:
+            break
+    ref_list = ", ".join(f"[{n}]" for n in sorted(set(refs))[:5]) or "(번호 없음)"
+    q1 = quotes[0] if quotes else ""
+    q2 = quotes[1] if len(quotes) > 1 else ""
+    body = (
+        "# 사건 정보\n(스니펫 기반; 추가 메타데이터 미상)\n\n"
+        "# 요약\n"
+        "관측된 스니펫을 바탕으로 핵심을 간단히 정리합니다. 상세한 법리 해설은 스니펫 범위 내에서만 제시합니다.\n\n"
+        "# 법원 판단(핵심)\n"
+    )
+    if q1:
+        body += f'"{q1}"\n'
+    if q2:
+        body += f'"{q2}"\n'
+    body += (
+        "\n# 결론\n"
+        "위 스니펫 범위에서 파악되는 내용을 요약했습니다. 추가 근거가 있으면 정확도가 향상됩니다.\n\n"
+        "# 출처 및 메타데이터\n"
+        f"{ref_list}"
+    )
+    return body
 
 
 def _seed_queries(question: str) -> List[str]:
@@ -410,7 +471,70 @@ def retrieve(state: AgentState, *, data_dir: Path, k: int, context_chars: int = 
     for q in new_qs:
         if q in used:
             continue
-        # keyword-only
+        # MCP tool prefix handling
+        if q.lower().startswith("mcp:"):
+            try:
+                kind_rest = q.split(":", 2)[1:]
+                kind = (kind_rest[0] if kind_rest else "").strip().lower()
+                rest = kind_rest[1] if len(kind_rest) > 1 else ""
+                from urllib.parse import urlparse, parse_qs
+                title = ""
+                snippet = ""
+                if kind == "context7":
+                    lib, _, qs = rest.partition("?")
+                    params = parse_qs(qs)
+                    topic = (params.get("topic", [""])[0] or None)
+                    try:
+                        tokens = int(params.get("tokens", ["4000"])[0])
+                    except Exception:
+                        tokens = 4000
+                    try:
+                        from packages.legal_tools.mcp_client import context7_docs  # type: ignore
+                        out = context7_docs(lib, topic=topic, tokens=min(10000, max(1000, tokens)))
+                        title = f"MCP Context7: {lib} ({topic or 'docs'})"
+                        snippet = (out or "").strip()
+                    except Exception as e:  # MCP unavailable or failed
+                        title = f"MCP Context7: {lib}"
+                        snippet = f"[MCP] Context7 failed: {e}"
+                elif kind == "astgrep":
+                    patt, _, qs = rest.partition("?")
+                    params = parse_qs(qs)
+                    language = (params.get("language", [""])[0] or None)
+                    try:
+                        max_results = int(params.get("max", params.get("max_results", ["50"]))[0])
+                    except Exception:
+                        max_results = 50
+                    project = (params.get("project", [""])[0] or ".")
+                    try:
+                        from packages.legal_tools.mcp_client import ast_grep_find  # type: ignore
+                        out = ast_grep_find(patt, project_dir=project, language=language, max_results=max_results)
+                        title = f"MCP ast-grep: {patt}"
+                        snippet = (out or "").strip()
+                    except Exception as e:
+                        title = f"MCP ast-grep: {patt}"
+                        snippet = f"[MCP] ast-grep failed: {e}"
+                else:
+                    title = f"MCP: {q}"
+                    snippet = "[MCP] Unknown MCP kind. Use mcp:context7:... or mcp:astgrep:..."
+                # Truncate overly long snippet
+                if len(snippet) > 1200:
+                    snippet = snippet[:1197] + "..."
+                evidence.append(
+                    Hit(
+                        source="mcp",
+                        path=Path(""),
+                        doc_id=f"mcp:{kind}",
+                        title=title,
+                        score=0.0,
+                        snippet=snippet,
+                        line_no=None,
+                    )
+                )
+                logger.info("retrieve: mcp %s -> appended note (len=%s)", kind, len(snippet))
+            except Exception:
+                logger.exception("retrieve: MCP handling failed for %s", q)
+            continue
+        # keyword search (default)
         try:
             q_hits = _keyword_search(q, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
             evidence.extend(q_hits)
