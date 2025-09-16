@@ -16,6 +16,17 @@ _PG_AVAILABLE: bool = True
 _PG_ERROR: Optional[str] = None
 
 
+def _llm_provider() -> str:
+    provider = (os.getenv("LAW_LLM_PROVIDER") or "").strip().lower()
+    if provider:
+        return provider
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    if os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        return "gemini"
+    return "openai"
+
+
 def _env_true(name: str) -> bool:
     value = os.getenv(name)
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -26,9 +37,10 @@ def _llm_enabled() -> bool:
         return False
     if _LLM_BLOCKED:
         return False
-    if not os.getenv("OPENAI_API_KEY"):
-        return False
-    return True
+    provider = _llm_provider()
+    if provider == "gemini":
+        return bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+    return bool(os.getenv("OPENAI_API_KEY"))
 
 
 def _block_llm(err: Exception) -> None:
@@ -437,11 +449,19 @@ class LangChainToolAgent:
             answer = "(질문이 비어있습니다)"
             return self._finalize(cleaned_question, store, answer, intermediate_steps=[], iters=0)
 
+        provider = _llm_provider()
+        logger.info("langchain agent: provider=%s", provider)
         if not _llm_enabled():
-            logger.info("langchain agent: offline mode -> deterministic fallback")
+            logger.info("langchain agent: provider=%s unavailable -> deterministic fallback", provider)
             self._bootstrap_offline(cleaned_question, store)
             answer = _offline_summary(cleaned_question, store.observations_text())
-            return self._finalize(cleaned_question, store, answer, intermediate_steps=[], iters=0)
+            return self._finalize(
+                cleaned_question,
+                store,
+                answer,
+                intermediate_steps=[],
+                iters=0,
+            )
 
         try:
             result = self._invoke_langchain(cleaned_question, store)
@@ -495,6 +515,7 @@ class LangChainToolAgent:
             "intermediate_steps": list(intermediate_steps),
             **({"error": error} if error else {}),
             **({"search_error": _PG_ERROR} if _PG_ERROR else {}),
+            "llm_provider": _llm_provider(),
         }
 
     def _append_search_note(self, answer: str) -> str:
@@ -537,7 +558,6 @@ class LangChainToolAgent:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
         from langchain.tools import StructuredTool  # type: ignore
-        from langchain_openai import ChatOpenAI  # type: ignore
 
         tools = self._build_tools(store)
         prompt = ChatPromptTemplate.from_messages(
@@ -573,15 +593,7 @@ class LangChainToolAgent:
         except Exception:
             timeout = 30.0
 
-        llm = ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07"),
-            temperature=temperature,
-            max_retries=1,
-            timeout=timeout,
-            base_url=os.getenv("OPENAI_BASE_URL"),
-            streaming=False,
-            model_kwargs={"stream": False},
-        )
+        llm = self._create_llm(temperature=temperature, timeout=timeout)
 
         agent = create_tool_calling_agent(llm, tools, prompt)
         executor = AgentExecutor(
@@ -678,6 +690,52 @@ class LangChainToolAgent:
                 "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
             )
         return "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
+
+    def _create_llm(self, *, temperature: float, timeout: float):  # noqa: ANN001 - LangChain types
+        provider = _llm_provider()
+        if provider == "gemini":
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
+            except Exception as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "LangChain Gemini backend requires `langchain-google-genai`. Install it with `uv pip install langchain-google-genai`."
+                ) from exc
+
+            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            kwargs: Dict[str, Any] = {
+                "model": model,
+                "temperature": temperature,
+                "streaming": False,
+                "convert_system_message_to_human": True,
+            }
+            max_output = os.getenv("GEMINI_MAX_OUTPUT_TOKENS")
+            if max_output:
+                try:
+                    kwargs["max_output_tokens"] = int(max_output)
+                except ValueError:
+                    logger.warning("Gemini max output tokens is not an integer: %s", max_output)
+            logger.info("langchain agent: using Gemini model=%s temperature=%s", model, temperature)
+            return ChatGoogleGenerativeAI(**kwargs)
+
+        try:
+            from langchain_openai import ChatOpenAI  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "LangChain OpenAI backend requires `langchain-openai`. Install it with `uv pip install langchain-openai`."
+            ) from exc
+
+        model = os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07")
+        llm = ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            max_retries=1,
+            timeout=timeout,
+            base_url=os.getenv("OPENAI_BASE_URL"),
+            streaming=False,
+            model_kwargs={"stream": False},
+        )
+        logger.info("langchain agent: using OpenAI model=%s temperature=%s", model, temperature)
+        return llm
 
 
 def build_legal_ask_graph(
