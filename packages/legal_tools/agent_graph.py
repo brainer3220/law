@@ -53,7 +53,7 @@ def _block_llm(err: Exception) -> None:
 class Hit:
     """A retrieval hit with minimal fields for synthesis and citation."""
 
-    source: Literal["keyword", "semantic", "mcp"]
+    source: Literal["keyword", "semantic"]
     path: Path
     doc_id: str
     title: str
@@ -161,21 +161,6 @@ class KeywordSearchArgs(BaseModel):
     )
 
 
-class Context7Args(BaseModel):
-    library: str = Field(..., description="Context7 MCP 라이브러리 이름")
-    topic: Optional[str] = Field(None, description="선택적 주제")
-    tokens: Optional[int] = Field(4000, description="최대 토큰 수")
-
-
-class AstGrepArgs(BaseModel):
-    pattern: str = Field(..., description="ast-grep 패턴")
-    project_dir: Optional[str] = Field(
-        None, description="검색할 프로젝트 루트 (기본값: 현재 디렉터리)"
-    )
-    language: Optional[str] = Field(None, description="언어 힌트 (예: python)")
-    max_results: Optional[int] = Field(50, description="최대 결과 수")
-
-
 USE_CASES_MD: str = """
 ## 변호사가 GPT를 활용하는 주요 사례
 
@@ -194,63 +179,6 @@ def get_lawyer_gpt_use_cases() -> str:
 
 def tool_keyword_search(*, query: str, k: int, data_dir: Path, context_chars: int = 0) -> List[Hit]:
     return _keyword_search(query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
-
-
-def tool_mcp_context7(*, library: str, topic: Optional[str] = None, tokens: int = 4000) -> Hit:
-    title = f"MCP Context7: {library} ({topic or 'docs'})"
-    snippet = ""
-    try:
-        from packages.legal_tools.mcp_client import context7_docs  # type: ignore
-
-        snippet = (
-            context7_docs(library, topic=topic, tokens=min(10000, max(1000, int(tokens)))) or ""
-        ).strip()
-    except Exception as exc:  # pragma: no cover - MCP optional
-        title = f"MCP Context7: {library}"
-        snippet = f"[MCP] Context7 failed: {exc}"
-    if len(snippet) > 1200:
-        snippet = snippet[:1197] + "..."
-    return Hit(
-        source="mcp",
-        path=Path(""),
-        doc_id="mcp:context7",
-        title=title,
-        score=0.0,
-        snippet=snippet,
-        line_no=None,
-    )
-
-
-def tool_mcp_astgrep(
-    *, pattern: str, project_dir: str = ".", language: Optional[str] = None, max_results: int = 50
-) -> Hit:
-    title = f"MCP ast-grep: {pattern}"
-    snippet = ""
-    try:
-        from packages.legal_tools.mcp_client import ast_grep_find  # type: ignore
-
-        snippet = (
-            ast_grep_find(
-                pattern,
-                project_dir=project_dir,
-                language=language,
-                max_results=int(max_results),
-            )
-            or ""
-        ).strip()
-    except Exception as exc:  # pragma: no cover - MCP optional
-        snippet = f"[MCP] ast-grep failed: {exc}"
-    if len(snippet) > 1200:
-        snippet = snippet[:1197] + "..."
-    return Hit(
-        source="mcp",
-        path=Path(""),
-        doc_id="mcp:astgrep",
-        title=title,
-        score=0.0,
-        snippet=snippet,
-        line_no=None,
-    )
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
@@ -579,9 +507,7 @@ class LangChainToolAgent:
                     """
 당신은 한국어 법률 리서치 에이전트입니다. 제공된 도구를 사용하여 질문에 대한 근거 기반 답변을 작성하세요.
 - keyword_search: Postgres BM25를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
-- context7_docs: 외부 라이브러리 문서를 Context7 MCP로 조회합니다.
-- ast_grep: 코드베이스에서 패턴을 찾습니다.
-각 도구는 `[번호]`가 붙은 스니펫을 반환하며, 최종 답변의 모든 주장에는 해당 번호를 인용하세요.
+도구는 `[번호]`가 붙은 스니펫을 반환하며, 최종 답변의 모든 주장에는 해당 번호를 인용하세요.
 {general_guidance}
 불필요한 사설을 피하고, 간결한 마크다운 구조로 사건 정보·요약·법원 판단·결론을 제시하세요.
 """.strip(),
@@ -650,49 +576,12 @@ class LangChainToolAgent:
             store.record_action("keyword_search", {"query": query, "returned": len(hits)})
             return formatted
 
-        def context7_tool(library: str, topic: Optional[str] = None, tokens: Optional[int] = 4000) -> str:
-            hit = tool_mcp_context7(library=library, topic=topic, tokens=int(tokens or 4000))
-            formatted = store.add_hits([hit])
-            store.record_action("context7_docs", {"library": library, "topic": topic})
-            return formatted
-
-        def astgrep_tool(
-            pattern: str,
-            project_dir: Optional[str] = None,
-            language: Optional[str] = None,
-            max_results: Optional[int] = 50,
-        ) -> str:
-            hit = tool_mcp_astgrep(
-                pattern=pattern,
-                project_dir=project_dir or ".",
-                language=language,
-                max_results=int(max_results or 50),
-            )
-            formatted = store.add_hits([hit])
-            store.record_action(
-                "ast_grep",
-                {"pattern": pattern, "project_dir": project_dir, "language": language},
-            )
-            return formatted
-
         return [
             StructuredTool.from_function(
                 keyword_tool,
                 name="keyword_search",
                 args_schema=KeywordSearchArgs,
                 description="Postgres BM25 법률 검색. 판례나 행정해석을 찾을 때 사용",
-            ),
-            StructuredTool.from_function(
-                context7_tool,
-                name="context7_docs",
-                args_schema=Context7Args,
-                description="Context7 MCP를 통해 외부 라이브러리 문서를 조회",
-            ),
-            StructuredTool.from_function(
-                astgrep_tool,
-                name="ast_grep",
-                args_schema=AstGrepArgs,
-                description="코드베이스에서 ast-grep 패턴을 검색",
             ),
         ]
 
