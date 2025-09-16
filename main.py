@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
+from packages.env import load_env
+
+# Ensure `.env` files are processed before reading configuration defaults.
+load_env()
+
 # Data directories
 DATA_DIR = Path("data")
 

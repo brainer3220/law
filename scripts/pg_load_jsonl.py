@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 from typing import Iterable, Iterator, Tuple
 
+from packages.env import load_env
+
+load_env()
+
 
 def ensure_psycopg():
     try:
