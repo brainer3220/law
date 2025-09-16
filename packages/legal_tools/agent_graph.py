@@ -10,6 +10,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 
+from packages.legal_tools.law_go_kr import LawSearchError, LawSearchResult, LawSearchResponse, search_law
+
 logger = logging.getLogger(__name__)
 _LLM_BLOCKED: bool = False
 _PG_AVAILABLE: bool = True
@@ -53,7 +55,7 @@ def _block_llm(err: Exception) -> None:
 class Hit:
     """A retrieval hit with minimal fields for synthesis and citation."""
 
-    source: Literal["keyword", "semantic"]
+    source: Literal["keyword", "semantic", "law_api"]
     path: Path
     doc_id: str
     title: str
@@ -161,6 +163,31 @@ class KeywordSearchArgs(BaseModel):
     )
 
 
+class LawSearchArgs(BaseModel):
+    query: str = Field(..., description='법령명 검색 질의 (예: "자동차관리법")')
+    search: Optional[int] = Field(
+        None, description="검색범위 (1: 법령명, 2: 본문검색)"
+    )
+    display: Optional[int] = Field(None, description="표시 건수 (1-100)")
+    page: Optional[int] = Field(None, description="결과 페이지 (1부터)")
+    sort: Optional[str] = Field(
+        None,
+        description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes, efasc, efdes)",
+    )
+    ef_yd: Optional[str] = Field(None, description="시행일자 범위 (예: 20090101~20090130)")
+    anc_yd: Optional[str] = Field(None, description="공포일자 범위 (예: 20090101~20090130)")
+    anc_no: Optional[str] = Field(None, description="공포번호 범위 (예: 306~400)")
+    rr_cls_cd: Optional[str] = Field(None, description="제개정 구분 코드")
+    nb: Optional[int] = Field(None, description="공포번호 검색")
+    org: Optional[str] = Field(None, description="소관부처 코드")
+    knd: Optional[str] = Field(None, description="법령종류 코드")
+    ls_chap_no: Optional[str] = Field(None, description="법령분류 코드")
+    gana: Optional[str] = Field(None, description="사전식 검색 (ga, na 등)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
+
+
 USE_CASES_MD: str = """
 ## 변호사가 GPT를 활용하는 주요 사례
 
@@ -179,6 +206,93 @@ def get_lawyer_gpt_use_cases() -> str:
 
 def tool_keyword_search(*, query: str, k: int, data_dir: Path, context_chars: int = 0) -> List[Hit]:
     return _keyword_search(query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
+
+
+def tool_law_go_search(
+    *,
+    query: str,
+    search: Optional[int] = None,
+    display: Optional[int] = None,
+    page: Optional[int] = None,
+    sort: Optional[str] = None,
+    ef_yd: Optional[str] = None,
+    anc_yd: Optional[str] = None,
+    anc_no: Optional[str] = None,
+    rr_cls_cd: Optional[str] = None,
+    nb: Optional[int] = None,
+    org: Optional[str] = None,
+    knd: Optional[str] = None,
+    ls_chap_no: Optional[str] = None,
+    gana: Optional[str] = None,
+    oc: Optional[str] = None,
+) -> Tuple[LawSearchResponse, List[Hit]]:
+    response = search_law(
+        query=query,
+        search=search,
+        display=display,
+        page=page,
+        sort=sort,
+        ef_yd=ef_yd,
+        anc_yd=anc_yd,
+        anc_no=anc_no,
+        rr_cls_cd=rr_cls_cd,
+        nb=nb,
+        org=org,
+        knd=knd,
+        ls_chap_no=ls_chap_no,
+        gana=gana,
+        oc=oc,
+    )
+    hits: List[Hit] = []
+    for result in response.results:
+        hits.append(_law_result_to_hit(result))
+    return response, hits
+
+
+def _law_result_to_hit(result: LawSearchResult) -> Hit:
+    doc_id = result.law_id or result.serial_number or result.title or "law"
+    try:
+        path = Path(f"law/{doc_id}")
+    except Exception:
+        path = Path("law")
+    snippet = _law_result_snippet(result)
+    return Hit(
+        source="law_api",
+        path=path,
+        doc_id=str(doc_id),
+        title=result.title or result.short_title or str(doc_id),
+        score=1.0,
+        snippet=snippet,
+    )
+
+
+def _law_result_snippet(result: LawSearchResult) -> str:
+    parts: List[str] = []
+    if result.short_title and result.short_title != result.title:
+        parts.append(f"약칭: {result.short_title}")
+    if result.doc_type_name:
+        parts.append(f"구분: {result.doc_type_name}")
+    if result.ministry_name:
+        parts.append(f"소관부처: {result.ministry_name}")
+    if result.revision_name:
+        parts.append(f"제·개정: {result.revision_name}")
+
+    date_parts: List[str] = []
+    if result.promulgation_date:
+        date_parts.append(f"공포 {result.promulgation_date}")
+    if result.enforcement_date:
+        date_parts.append(f"시행 {result.enforcement_date}")
+    if date_parts:
+        parts.append(" / ".join(date_parts))
+
+    if result.promulgation_number:
+        parts.append(f"공포번호: {result.promulgation_number}")
+    if result.detail_link:
+        parts.append(f"상세: {result.detail_link}")
+
+    if not parts:
+        return "법령 메타데이터가 제공되지 않았습니다."
+    return " | ".join(parts)
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
@@ -576,12 +690,76 @@ class LangChainToolAgent:
             store.record_action("keyword_search", {"query": query, "returned": len(hits)})
             return formatted
 
+        def law_search_tool(
+            query: str,
+            search: Optional[int] = None,
+            display: Optional[int] = None,
+            page: Optional[int] = None,
+            sort: Optional[str] = None,
+            ef_yd: Optional[str] = None,
+            anc_yd: Optional[str] = None,
+            anc_no: Optional[str] = None,
+            rr_cls_cd: Optional[str] = None,
+            nb: Optional[int] = None,
+            org: Optional[str] = None,
+            knd: Optional[str] = None,
+            ls_chap_no: Optional[str] = None,
+            gana: Optional[str] = None,
+            oc: Optional[str] = None,
+        ) -> str:
+            store.record_query(query)
+            try:
+                response, hits = tool_law_go_search(
+                    query=query,
+                    search=search,
+                    display=display,
+                    page=page,
+                    sort=sort,
+                    ef_yd=ef_yd,
+                    anc_yd=anc_yd,
+                    anc_no=anc_no,
+                    rr_cls_cd=rr_cls_cd,
+                    nb=nb,
+                    org=org,
+                    knd=knd,
+                    ls_chap_no=ls_chap_no,
+                    gana=gana,
+                    oc=oc,
+                )
+            except LawSearchError as exc:
+                logger.warning("law.go.kr search failed: %s", exc)
+                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
+                return f"[법령 검색 오류] {exc}"
+            except Exception as exc:
+                logger.exception("law.go.kr search unexpected error for query=%s", query)
+                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
+                return f"[법령 검색 오류] {exc}"
+
+            hits = _dedupe_hits(hits)
+            formatted = store.add_hits(hits)
+            store.record_action(
+                "law_go_kr_search",
+                {
+                    "query": query,
+                    "returned": len(hits),
+                    "total": response.total_count,
+                    "page": response.page,
+                },
+            )
+            return formatted
+
         return [
             StructuredTool.from_function(
                 keyword_tool,
                 name="keyword_search",
                 args_schema=KeywordSearchArgs,
                 description="Postgres BM25 법률 검색. 판례나 행정해석을 찾을 때 사용",
+            ),
+            StructuredTool.from_function(
+                law_search_tool,
+                name="law_statute_search",
+                args_schema=LawSearchArgs,
+                description="law.go.kr 법령 검색 API. 법령명, 공포일자 등 메타데이터 조회",
             ),
         ]
 
