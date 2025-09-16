@@ -381,6 +381,10 @@ def cmd_ask(args: argparse.Namespace) -> None:
     data_dir_str = getattr(args, "data_dir", None) or os.getenv("LAW_DATA_DIR") or str(DATA_DIR)
     data_dir = Path(data_dir_str)
 
+    # Offline mode
+    if bool(getattr(args, "offline", False)):
+        os.environ["LAW_OFFLINE"] = "1"
+
     result = run_ask(
         args.question,
         data_dir=data_dir,
@@ -627,7 +631,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include up to N chars of raw body context with each snippet (0 to disable)",
     )
     ask.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
+    ask.add_argument("--offline", action="store_true", help="Disable external LLM calls (offline mode)")
     ask.set_defaults(func=cmd_ask)
+
+    # MCP utilities (optional)
+    def _cmd_mcp_context7(a: argparse.Namespace) -> None:
+        from packages.legal_tools.mcp_client import context7_docs, MCPUnavailable  # type: ignore
+
+        try:
+            out = context7_docs(a.library, topic=getattr(a, "topic", None), tokens=int(getattr(a, "tokens", 5000)))
+        except MCPUnavailable as e:
+            raise SystemExit(str(e))
+        print(out)
+
+    mcp_c7 = sub.add_parser("mcp-context7-docs", help="Fetch docs via Context7 MCP (optional)")
+    mcp_c7.add_argument("library", help="Library name to resolve (e.g., 'requests', 'next.js')")
+    mcp_c7.add_argument("--topic", help="Optional topic focus", default=None)
+    mcp_c7.add_argument("--tokens", type=int, default=5000, help="Max tokens to retrieve")
+    mcp_c7.set_defaults(func=_cmd_mcp_context7)
+
+    def _cmd_mcp_ast_grep(a: argparse.Namespace) -> None:
+        from packages.legal_tools.mcp_client import ast_grep_find, MCPUnavailable  # type: ignore
+
+        proj = getattr(a, "project", None) or str(Path.cwd())
+        try:
+            out = ast_grep_find(a.pattern, project_dir=proj, language=getattr(a, "language", None), max_results=int(getattr(a, "max_results", 50)))
+        except MCPUnavailable as e:
+            raise SystemExit(str(e))
+        print(out)
+
+    mcp_ag = sub.add_parser("mcp-ast-grep", help="Search code via ast-grep MCP (optional)")
+    mcp_ag.add_argument("pattern", help="Pattern or YAML rule text")
+    mcp_ag.add_argument("--project", help="Project root (default: CWD)")
+    mcp_ag.add_argument("--language", help="Language hint (e.g., python, typescript)")
+    mcp_ag.add_argument("--max-results", type=int, default=50)
+    mcp_ag.set_defaults(func=_cmd_mcp_ast_grep)
 
     # Serve an OpenAI-compatible, streaming Chat Completions API over HTTP
     def _cmd_serve(a: argparse.Namespace) -> None:
