@@ -42,6 +42,42 @@ class LawSearchError(RuntimeError):
 
 
 @dataclass
+class LawInterpretationResult:
+    serial_no: Optional[str]
+    title: Optional[str]
+    case_no: Optional[str]
+    inquiry_org: Optional[str]
+    reply_org: Optional[str]
+    reply_date: Optional[str]
+    detail_link: Optional[str]
+    raw: Dict[str, Any]
+
+
+@dataclass
+class LawInterpretationResponse:
+    query: Optional[str]
+    section: Optional[str]
+    total_count: Optional[int]
+    page: Optional[int]
+    results: List[LawInterpretationResult]
+    raw: Dict[str, Any]
+
+
+@dataclass
+class LawInterpretationDetail:
+    serial_no: Optional[str]
+    title: Optional[str]
+    case_no: Optional[str]
+    interpretation_date: Optional[str]
+    interpretation_org: Optional[str]
+    inquiry_org: Optional[str]
+    summary: Optional[str]
+    reply: Optional[str]
+    reason: Optional[str]
+    raw: Dict[str, Any]
+
+
+@dataclass
 class LawDetailParagraph:
     number: Optional[str]
     text: Optional[str]
@@ -168,6 +204,86 @@ def search_law(
     return response
 
 
+def search_law_interpretations(
+    *,
+    query: Optional[str] = None,
+    search: Optional[int] = None,
+    display: Optional[int] = None,
+    page: Optional[int] = None,
+    inq: Optional[str] = None,
+    rpl: Optional[int] = None,
+    gana: Optional[str] = None,
+    itmno: Optional[int] = None,
+    reg_yd: Optional[str] = None,
+    expl_yd: Optional[str] = None,
+    sort: Optional[str] = None,
+    oc: Optional[str] = None,
+    timeout: float = 10.0,
+    base_url: str = LAW_GO_KR_BASE_URL,
+) -> LawInterpretationResponse:
+    """Search law.go.kr for legal interpretation cases (법령해석례)."""
+
+    resolved_oc = _resolve_oc(oc)
+    params: Dict[str, Any] = {"OC": resolved_oc, "target": "expc", "type": "JSON"}
+
+    if query:
+        params["query"] = query
+    if search:
+        params["search"] = int(search)
+    if display:
+        params["display"] = max(1, min(100, int(display)))
+    if page:
+        params["page"] = max(1, int(page))
+    if inq:
+        params["inq"] = inq
+    if rpl:
+        params["rpl"] = int(rpl)
+    if gana:
+        params["gana"] = gana
+    if itmno:
+        params["itmno"] = int(itmno)
+    if reg_yd:
+        params["regYd"] = reg_yd
+    if expl_yd:
+        params["explYd"] = expl_yd
+    if sort:
+        params["sort"] = sort
+
+    data = _call_api(params=params, base_url=base_url, timeout=timeout)
+    entries = _collect_entries(data)
+    results: List[LawInterpretationResult] = []
+    seen_ids: set[str] = set()
+    for entry in entries:
+        serial_no = _first_str(entry, ["법령해석례일련번호", "serialNo", "expcId"])
+        key = serial_no or _first_str(entry, ["안건명", "title"]) or ""
+        if not key:
+            continue
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        results.append(
+            LawInterpretationResult(
+                serial_no=serial_no,
+                title=_first_str(entry, ["안건명", "title"]),
+                case_no=_first_str(entry, ["안건번호", "caseNo"]),
+                inquiry_org=_first_str(entry, ["질의기관명", "inqOrg"]),
+                reply_org=_first_str(entry, ["회신기관명", "replyOrg"]),
+                reply_date=_format_date(_first_str(entry, ["회신일자", "replyDate"])),
+                detail_link=_first_str(entry, ["법령해석례상세링크", "detailLink"]),
+                raw=entry,
+            )
+        )
+
+    return LawInterpretationResponse(
+        query=_first_str(data, ["키워드", "keyword"]),
+        section=_first_str(data, ["section"]),
+        total_count=_first_int(data, ["totalCnt", "total"]),
+        page=_first_int(data, ["page"]),
+        results=results,
+        raw=data,
+    )
+
+
 def fetch_law_detail(
     *,
     law_id: Optional[str] = None,
@@ -220,6 +336,41 @@ def fetch_law_detail(
         raw=data,
     )
     return response
+
+
+def fetch_law_interpretation(
+    *,
+    interpretation_id: Optional[str] = None,
+    lm: Optional[str] = None,
+    oc: Optional[str] = None,
+    timeout: float = 10.0,
+    base_url: str = LAW_GO_KR_DETAIL_URL,
+) -> LawInterpretationDetail:
+    """Fetch a legal interpretation detail from law.go.kr."""
+
+    if not interpretation_id and not lm:
+        raise LawSearchError("법령해석례 상세 조회에는 ID 또는 LM 값이 필요합니다.")
+
+    resolved_oc = _resolve_oc(oc)
+    params: Dict[str, Any] = {"OC": resolved_oc, "target": "expc", "type": "JSON"}
+    if interpretation_id:
+        params["ID"] = interpretation_id
+    if lm:
+        params["LM"] = lm
+
+    data = _call_api(params=params, base_url=base_url, timeout=timeout)
+    return LawInterpretationDetail(
+        serial_no=_first_str(data, ["법령해석례일련번호", "ID", "expcId"]),
+        title=_first_str(data, ["안건명", "title"]),
+        case_no=_first_str(data, ["안건번호", "caseNo"]),
+        interpretation_date=_format_date(_first_str(data, ["해석일자", "replyDate"])),
+        interpretation_org=_first_str(data, ["해석기관명", "replyOrg"]),
+        inquiry_org=_first_str(data, ["질의기관명", "inqOrg"]),
+        summary=_first_str(data, ["질의요지", "summary"]),
+        reply=_first_str(data, ["회답", "reply"]),
+        reason=_first_str(data, ["이유", "reason"]),
+        raw=data,
+    )
 
 
 def _resolve_oc(override: Optional[str]) -> str:

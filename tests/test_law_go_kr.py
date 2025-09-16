@@ -10,12 +10,22 @@ from packages.legal_tools.law_go_kr import (
     LawDetailArticle,
     LawDetailParagraph,
     LawDetailResponse,
+    LawInterpretationDetail,
+    LawInterpretationResponse,
+    LawInterpretationResult,
     LawSearchResponse,
     LawSearchResult,
     fetch_law_detail,
+    fetch_law_interpretation,
     search_law,
+    search_law_interpretations,
 )
-from packages.legal_tools.agent_graph import tool_law_go_detail, tool_law_go_search
+from packages.legal_tools.agent_graph import (
+    tool_law_go_detail,
+    tool_law_go_interpretation_detail,
+    tool_law_go_interpretations,
+    tool_law_go_search,
+)
 
 
 class _FakeHeaders:
@@ -216,4 +226,137 @@ def test_tool_law_go_detail_returns_hits(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(hits) >= 1
     assert hits[0].source == "law_api"
     assert "목적" in hits[0].snippet
+
+
+def test_search_law_interpretations_parses_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    sample = {
+        "LawSearch": {
+            "target": "expc",
+            "키워드": "자동차",
+            "section": "법령해석례명",
+            "totalCnt": 1,
+            "page": 1,
+            "expc": [
+                {
+                    "법령해석례일련번호": "EXPC001",
+                    "안건명": "자동차 관련 질의",
+                    "안건번호": "13-0217",
+                    "질의기관명": "국토교통부",
+                    "회신기관명": "법제처",
+                    "회신일자": "20200101",
+                    "법령해석례상세링크": "http://www.law.go.kr/expc?case=EXPC001",
+                }
+            ],
+        }
+    }
+
+    monkeypatch.setenv(LAW_GO_KR_OC_ENV, "tester")
+
+    def fake_call_api(*, params, base_url, timeout):  # type: ignore[no-untyped-def]
+        assert params["target"] == "expc"
+        return sample
+
+    monkeypatch.setattr("packages.legal_tools.law_go_kr._call_api", fake_call_api)
+
+    response = search_law_interpretations(query="자동차")
+    assert response.total_count == 1
+    assert len(response.results) == 1
+    result = response.results[0]
+    assert result.title == "자동차 관련 질의"
+    assert result.case_no == "13-0217"
+    assert result.reply_org == "법제처"
+    assert result.reply_date == "2020-01-01"
+
+
+def test_tool_law_go_interpretations_returns_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_response = LawInterpretationResponse(
+        query="자동차",
+        section="법령해석례명",
+        total_count=1,
+        page=1,
+        results=[
+            LawInterpretationResult(
+                serial_no="EXPC001",
+                title="자동차 관련 질의",
+                case_no="13-0217",
+                inquiry_org="국토교통부",
+                reply_org="법제처",
+                reply_date="2020-01-01",
+                detail_link="http://www.law.go.kr/expc?case=EXPC001",
+                raw={},
+            )
+        ],
+        raw={},
+    )
+
+    def fake_search_interpretations(**_: Any) -> LawInterpretationResponse:
+        return fake_response
+
+    monkeypatch.setattr(
+        "packages.legal_tools.agent_graph.search_law_interpretations",
+        fake_search_interpretations,
+    )
+
+    response, hits = tool_law_go_interpretations(query="자동차")
+    assert response.total_count == 1
+    assert len(hits) == 1
+    assert hits[0].source == "law_api"
+    assert "회신기관" in hits[0].snippet
+
+
+def test_fetch_law_interpretation_returns_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    sample = {
+        "법령해석례일련번호": "EXPC001",
+        "안건명": "자동차 관련 질의",
+        "안건번호": "13-0217",
+        "해석일자": "20200101",
+        "해석기관명": "법제처",
+        "질의기관명": "국토교통부",
+        "질의요지": "자동차 관련 업무 처리 방안",
+        "회답": "관련 규정에 따라 처리하십시오.",
+        "이유": "법령 해석 결과",
+    }
+
+    monkeypatch.setenv(LAW_GO_KR_OC_ENV, "tester")
+
+    def fake_call_api(*, params, base_url, timeout):  # type: ignore[no-untyped-def]
+        assert params["target"] == "expc"
+        assert params["ID"] == "EXPC001"
+        return sample
+
+    monkeypatch.setattr("packages.legal_tools.law_go_kr._call_api", fake_call_api)
+
+    detail = fetch_law_interpretation(interpretation_id="EXPC001")
+    assert detail.serial_no == "EXPC001"
+    assert detail.title == "자동차 관련 질의"
+    assert detail.reply and "처리" in detail.reply
+
+
+def test_tool_law_go_interpretation_detail_returns_hit(monkeypatch: pytest.MonkeyPatch) -> None:
+    detail = LawInterpretationDetail(
+        serial_no="EXPC001",
+        title="자동차 관련 질의",
+        case_no="13-0217",
+        interpretation_date="2020-01-01",
+        interpretation_org="법제처",
+        inquiry_org="국토교통부",
+        summary="자동차 관련 업무 처리 방안",
+        reply="관련 규정에 따라 처리하십시오.",
+        reason="법령 해석 결과",
+        raw={},
+    )
+
+    def fake_fetch_interpretation(**_: Any) -> LawInterpretationDetail:
+        return detail
+
+    monkeypatch.setattr(
+        "packages.legal_tools.agent_graph.fetch_law_interpretation",
+        fake_fetch_interpretation,
+    )
+
+    response, hits = tool_law_go_interpretation_detail(interpretation_id="EXPC001")
+    assert response.reply and "처리" in response.reply
+    assert len(hits) == 1
+    assert hits[0].source == "law_api"
+    assert "해석기관" in hits[0].snippet
 *** End of File

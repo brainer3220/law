@@ -13,11 +13,16 @@ from typing_extensions import Literal
 from packages.legal_tools.law_go_kr import (
     LawDetailArticle,
     LawDetailResponse,
+    LawInterpretationDetail,
+    LawInterpretationResponse,
+    LawInterpretationResult,
     LawSearchError,
     LawSearchResult,
     LawSearchResponse,
     fetch_law_detail,
+    fetch_law_interpretation,
     search_law,
+    search_law_interpretations,
 )
 
 logger = logging.getLogger(__name__)
@@ -207,6 +212,30 @@ class LawDetailArgs(BaseModel):
     oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
 
 
+class LawInterpretationSearchArgs(BaseModel):
+    query: Optional[str] = Field(None, description='법령해석례 검색 질의 (예: "착공")')
+    search: Optional[int] = Field(None, description="검색범위 (1: 안건명, 2: 본문)")
+    display: Optional[int] = Field(None, description="표시 건수 (1-100)")
+    page: Optional[int] = Field(None, description="결과 페이지 (1부터)")
+    inq: Optional[str] = Field(None, description="질의기관 코드")
+    rpl: Optional[int] = Field(None, description="회신기관 코드")
+    gana: Optional[str] = Field(None, description="사전식 검색 (ga, na 등)")
+    itmno: Optional[int] = Field(None, description="안건번호 (숫자)")
+    reg_yd: Optional[str] = Field(None, description="등록일자 범위 (예: 20090101~20090130)")
+    expl_yd: Optional[str] = Field(None, description="해석일자 범위 (예: 20090101~20090130)")
+    sort: Optional[str] = Field(
+        None,
+        description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes)",
+    )
+    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+
+
+class LawInterpretationDetailArgs(BaseModel):
+    interpretation_id: Optional[str] = Field(None, description="법령해석례 일련번호 (ID)")
+    lm: Optional[str] = Field(None, description="법령해석례명 (LM)")
+    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+
+
 USE_CASES_MD: str = """
 ## 변호사가 GPT를 활용하는 주요 사례
 
@@ -299,6 +328,69 @@ def tool_law_go_detail(
     return detail, hits
 
 
+def tool_law_go_interpretations(
+    *,
+    query: Optional[str] = None,
+    search: Optional[int] = None,
+    display: Optional[int] = None,
+    page: Optional[int] = None,
+    inq: Optional[str] = None,
+    rpl: Optional[int] = None,
+    gana: Optional[str] = None,
+    itmno: Optional[int] = None,
+    reg_yd: Optional[str] = None,
+    expl_yd: Optional[str] = None,
+    sort: Optional[str] = None,
+    oc: Optional[str] = None,
+) -> Tuple[LawInterpretationResponse, List[Hit]]:
+    response = search_law_interpretations(
+        query=query,
+        search=search,
+        display=display,
+        page=page,
+        inq=inq,
+        rpl=rpl,
+        gana=gana,
+        itmno=itmno,
+        reg_yd=reg_yd,
+        expl_yd=expl_yd,
+        sort=sort,
+        oc=oc,
+    )
+    hits: List[Hit] = []
+    for result in response.results:
+        hits.append(_law_interpretation_to_hit(result))
+    return response, hits
+
+
+def tool_law_go_interpretation_detail(
+    *,
+    interpretation_id: Optional[str] = None,
+    lm: Optional[str] = None,
+    oc: Optional[str] = None,
+) -> Tuple[LawInterpretationDetail, List[Hit]]:
+    detail = fetch_law_interpretation(
+        interpretation_id=interpretation_id,
+        lm=lm,
+        oc=oc,
+    )
+    doc_id = detail.serial_no or detail.case_no or detail.title or "interpretation"
+    try:
+        path = Path(f"interpretations/{doc_id}")
+    except Exception:
+        path = Path("interpretations")
+    snippet = _law_interpretation_detail_snippet(detail)
+    hit = Hit(
+        source="law_api",
+        path=path,
+        doc_id=str(doc_id),
+        title=detail.title or detail.case_no or str(doc_id),
+        score=1.0,
+        snippet=snippet,
+    )
+    return detail, [hit]
+
+
 def _law_result_to_hit(result: LawSearchResult) -> Hit:
     doc_id = result.law_id or result.serial_number or result.title or "law"
     try:
@@ -343,6 +435,59 @@ def _law_result_snippet(result: LawSearchResult) -> str:
     if not parts:
         return "법령 메타데이터가 제공되지 않았습니다."
     return " | ".join(parts)
+
+
+def _law_interpretation_to_hit(result: LawInterpretationResult) -> Hit:
+    doc_id = result.serial_no or result.case_no or (result.title or "interpretation")
+    try:
+        path = Path(f"interpretations/{doc_id}")
+    except Exception:
+        path = Path("interpretations")
+    snippet = _law_interpretation_snippet(result)
+    title = result.title or result.case_no or doc_id
+    return Hit(
+        source="law_api",
+        path=path,
+        doc_id=str(doc_id),
+        title=title,
+        score=1.0,
+        snippet=snippet,
+    )
+
+
+def _law_interpretation_snippet(result: LawInterpretationResult) -> str:
+    parts: List[str] = []
+    if result.case_no:
+        parts.append(f"안건번호: {result.case_no}")
+    if result.inquiry_org:
+        parts.append(f"질의기관: {result.inquiry_org}")
+    if result.reply_org:
+        parts.append(f"회신기관: {result.reply_org}")
+    if result.reply_date:
+        parts.append(f"회신일자: {result.reply_date}")
+    if result.detail_link:
+        parts.append(f"상세: {result.detail_link}")
+    if not parts:
+        parts.append("법령해석례 메타데이터가 제공되지 않았습니다.")
+    return " | ".join(parts)
+
+
+def _law_interpretation_detail_snippet(detail: LawInterpretationDetail) -> str:
+    parts: List[str] = []
+    if detail.case_no:
+        parts.append(f"안건번호: {detail.case_no}")
+    if detail.interpretation_org:
+        parts.append(f"해석기관: {detail.interpretation_org}")
+    if detail.interpretation_date:
+        parts.append(f"해석일자: {detail.interpretation_date}")
+    if detail.summary:
+        parts.append(f"질의요지: {detail.summary}")
+    if detail.reply:
+        parts.append(f"회답: {detail.reply}")
+    elif detail.reason:
+        parts.append(f"이유: {detail.reason}")
+    snippet = " | ".join(parts)
+    return snippet[:1200] if len(snippet) > 1200 else snippet or "법령해석례 본문 정보가 제공되지 않았습니다."
 
 
 def _law_article_to_hit(detail: LawDetailResponse, article: LawDetailArticle, base_path: Path) -> Hit:
@@ -937,6 +1082,104 @@ class LangChainToolAgent:
             )
             return formatted
 
+        def law_interpretation_tool(
+            query: Optional[str] = None,
+            search: Optional[int] = None,
+            display: Optional[int] = None,
+            page: Optional[int] = None,
+            inq: Optional[str] = None,
+            rpl: Optional[int] = None,
+            gana: Optional[str] = None,
+            itmno: Optional[int] = None,
+            reg_yd: Optional[str] = None,
+            expl_yd: Optional[str] = None,
+            sort: Optional[str] = None,
+            oc: Optional[str] = None,
+        ) -> str:
+            store.record_query(query or "")
+            try:
+                response, hits = tool_law_go_interpretations(
+                    query=query,
+                    search=search,
+                    display=display,
+                    page=page,
+                    inq=inq,
+                    rpl=rpl,
+                    gana=gana,
+                    itmno=itmno,
+                    reg_yd=reg_yd,
+                    expl_yd=expl_yd,
+                    sort=sort,
+                    oc=oc,
+                )
+            except LawSearchError as exc:
+                logger.warning("law.go.kr interpretation search failed: %s", exc)
+                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
+                return f"[법령해석례 검색 오류] {exc}"
+            except Exception as exc:
+                logger.exception("law.go.kr interpretation unexpected error for query=%s", query)
+                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
+                return f"[법령해석례 검색 오류] {exc}"
+
+            hits = _dedupe_hits(hits)
+            formatted = store.add_hits(hits)
+            store.record_action(
+                "law_go_kr_interpretation",
+                {
+                    "query": query,
+                    "returned": len(hits),
+                    "total": response.total_count,
+                    "page": response.page,
+                },
+            )
+            return formatted
+
+        def law_interpretation_detail_tool(
+            interpretation_id: Optional[str] = None,
+            lm: Optional[str] = None,
+            oc: Optional[str] = None,
+        ) -> str:
+            try:
+                detail, hits = tool_law_go_interpretation_detail(
+                    interpretation_id=interpretation_id,
+                    lm=lm,
+                    oc=oc,
+                )
+            except LawSearchError as exc:
+                logger.warning("law.go.kr interpretation detail failed: %s", exc)
+                store.record_action(
+                    "law_go_kr_interpretation_detail",
+                    {
+                        "interpretation_id": interpretation_id,
+                        "lm": lm,
+                        "error": str(exc),
+                    },
+                )
+                return f"[법령해석례 본문 조회 오류] {exc}"
+            except Exception as exc:
+                logger.exception("law.go.kr interpretation detail unexpected error")
+                store.record_action(
+                    "law_go_kr_interpretation_detail",
+                    {
+                        "interpretation_id": interpretation_id,
+                        "lm": lm,
+                        "error": str(exc),
+                    },
+                )
+                return f"[법령해석례 본문 조회 오류] {exc}"
+
+            hits = _dedupe_hits(hits)
+            formatted = store.add_hits(hits)
+            store.record_action(
+                "law_go_kr_interpretation_detail",
+                {
+                    "interpretation_id": detail.serial_no,
+                    "title": detail.title,
+                    "has_reply": bool(detail.reply),
+                },
+            )
+            return formatted
+
         return [
             StructuredTool.from_function(
                 keyword_tool,
@@ -955,6 +1198,18 @@ class LangChainToolAgent:
                 name="law_statute_detail",
                 args_schema=LawDetailArgs,
                 description="law.go.kr 법령 본문 조회 API. 특정 법령의 조문 내용을 확인",
+            ),
+            StructuredTool.from_function(
+                law_interpretation_tool,
+                name="law_interpretation_search",
+                args_schema=LawInterpretationSearchArgs,
+                description="law.go.kr 법령해석례 검색 API. 질의/회신 사례 검색",
+            ),
+            StructuredTool.from_function(
+                law_interpretation_detail_tool,
+                name="law_interpretation_detail",
+                args_schema=LawInterpretationDetailArgs,
+                description="law.go.kr 법령해석례 본문 조회 API. 질의요지·회답 확인",
             ),
         ]
 
