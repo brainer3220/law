@@ -7,11 +7,15 @@ import pytest
 
 from packages.legal_tools.law_go_kr import (
     LAW_GO_KR_OC_ENV,
+    LawDetailArticle,
+    LawDetailParagraph,
+    LawDetailResponse,
     LawSearchResponse,
     LawSearchResult,
+    fetch_law_detail,
     search_law,
 )
-from packages.legal_tools.agent_graph import tool_law_go_search
+from packages.legal_tools.agent_graph import tool_law_go_detail, tool_law_go_search
 
 
 class _FakeHeaders:
@@ -127,4 +131,89 @@ def test_tool_law_go_search_returns_hits(monkeypatch: pytest.MonkeyPatch) -> Non
     assert hit.source == "law_api"
     assert "국토교통부" in hit.snippet
     assert "상세:" in hit.snippet
+
+
+def test_fetch_law_detail_parses_articles(monkeypatch: pytest.MonkeyPatch) -> None:
+    sample = {
+        "Law": {
+            "법령ID": "009682",
+            "법령명_한글": "자동차관리법",
+            "공포일자": "20200101",
+            "시행일자": "20200701",
+            "조문": [
+                {
+                    "조문번호": "제1조",
+                    "조문제목": "목적",
+                    "조문내용": "이 법은 자동차 ...",
+                    "항": [
+                        {"항번호": "①", "항내용": "이 법은 자동차를 효율적으로 관리하기 위한 목적이다."}
+                    ],
+                }
+            ],
+        }
+    }
+
+    monkeypatch.setenv(LAW_GO_KR_OC_ENV, "tester")
+
+    def fake_call_api(*, params, base_url, timeout):  # type: ignore[no-untyped-def]
+        assert params["ID"] == "009682"
+        return sample
+
+    monkeypatch.setattr("packages.legal_tools.law_go_kr._call_api", fake_call_api)
+
+    detail = fetch_law_detail(law_id="009682")
+    assert detail.law_id == "009682"
+    assert detail.title == "자동차관리법"
+    assert detail.promulgation_date == "2020-01-01"
+    assert len(detail.articles) == 1
+    article = detail.articles[0]
+    assert article.article_no == "제1조"
+    assert article.title == "목적"
+    assert article.content.startswith("이 법은 자동차")
+    assert article.paragraphs and article.paragraphs[0].text.startswith("이 법은 자동차")
+
+
+def test_tool_law_go_detail_returns_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    detail = LawDetailResponse(
+        law_id="009682",
+        title="자동차관리법",
+        short_title="자동차법",
+        promulgation_date="2020-01-01",
+        enforcement_date="2020-07-01",
+        promulgation_number="17000",
+        doc_type="법률",
+        ministry="국토교통부",
+        language="KO",
+        articles=[
+            LawDetailArticle(
+                article_no="제1조",
+                title="목적",
+                content="이 법은 자동차를 효율적으로 관리하기 위한 목적이다.",
+                enforcement_date="2020-07-01",
+                amendment_type="개정",
+                paragraphs=[
+                    LawDetailParagraph(
+                        number="①",
+                        text="이 법은 자동차를 효율적으로 관리하기 위한 목적이다.",
+                        clause_number=None,
+                        clause_text=None,
+                        raw={},
+                    )
+                ],
+                raw={},
+            )
+        ],
+        raw={},
+    )
+
+    def fake_fetch_law_detail(**_: Any) -> LawDetailResponse:
+        return detail
+
+    monkeypatch.setattr("packages.legal_tools.agent_graph.fetch_law_detail", fake_fetch_law_detail)
+
+    response, hits = tool_law_go_detail(law_id="009682")
+    assert response.title == "자동차관리법"
+    assert len(hits) >= 1
+    assert hits[0].source == "law_api"
+    assert "목적" in hits[0].snippet
 *** End of File

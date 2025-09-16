@@ -10,7 +10,15 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 
-from packages.legal_tools.law_go_kr import LawSearchError, LawSearchResult, LawSearchResponse, search_law
+from packages.legal_tools.law_go_kr import (
+    LawDetailArticle,
+    LawDetailResponse,
+    LawSearchError,
+    LawSearchResult,
+    LawSearchResponse,
+    fetch_law_detail,
+    search_law,
+)
 
 logger = logging.getLogger(__name__)
 _LLM_BLOCKED: bool = False
@@ -188,6 +196,17 @@ class LawSearchArgs(BaseModel):
     )
 
 
+class LawDetailArgs(BaseModel):
+    law_id: Optional[str] = Field(None, description="법령 ID (ID)")
+    mst: Optional[str] = Field(None, description="법령 마스터 번호 (MST)")
+    lm: Optional[str] = Field(None, description="법령명 (LM)")
+    ld: Optional[int] = Field(None, description="공포일자 (YYYYMMDD)")
+    ln: Optional[int] = Field(None, description="공포번호")
+    jo: Optional[int] = Field(None, description="조번호 (6자리: 조번호+조가지)")
+    lang: Optional[str] = Field(None, description="언어 (KO 또는 ORI)")
+    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+
+
 USE_CASES_MD: str = """
 ## 변호사가 GPT를 활용하는 주요 사례
 
@@ -249,6 +268,37 @@ def tool_law_go_search(
     return response, hits
 
 
+def tool_law_go_detail(
+    *,
+    law_id: Optional[str] = None,
+    mst: Optional[str] = None,
+    lm: Optional[str] = None,
+    ld: Optional[int] = None,
+    ln: Optional[int] = None,
+    jo: Optional[int] = None,
+    lang: Optional[str] = None,
+    oc: Optional[str] = None,
+) -> Tuple[LawDetailResponse, List[Hit]]:
+    detail = fetch_law_detail(
+        law_id=law_id,
+        mst=mst,
+        lm=lm,
+        ld=ld,
+        ln=ln,
+        jo=jo,
+        lang=lang,
+        oc=oc,
+    )
+    hits: List[Hit] = []
+    doc_id = detail.law_id or detail.title or "law"
+    base_path = Path(f"law/{doc_id}")
+    for article in detail.articles[:8]:
+        hits.append(_law_article_to_hit(detail, article, base_path))
+    if not hits:
+        hits.append(_law_metadata_hit(detail, base_path))
+    return detail, hits
+
+
 def _law_result_to_hit(result: LawSearchResult) -> Hit:
     doc_id = result.law_id or result.serial_number or result.title or "law"
     try:
@@ -292,6 +342,87 @@ def _law_result_snippet(result: LawSearchResult) -> str:
 
     if not parts:
         return "법령 메타데이터가 제공되지 않았습니다."
+    return " | ".join(parts)
+
+
+def _law_article_to_hit(detail: LawDetailResponse, article: LawDetailArticle, base_path: Path) -> Hit:
+    article_id = article.article_no or article.title or "article"
+    try:
+        path = base_path / f"article-{article_id}"
+    except Exception:
+        path = base_path
+    snippet = _law_article_snippet(article)
+    title_parts = [detail.title or detail.short_title or "법령", article.article_no]
+    title = " - ".join([part for part in title_parts if part])
+    return Hit(
+        source="law_api",
+        path=path,
+        doc_id=str(detail.law_id or detail.title or "law"),
+        title=title,
+        score=1.0,
+        snippet=snippet,
+    )
+
+
+def _law_metadata_hit(detail: LawDetailResponse, base_path: Path) -> Hit:
+    snippet = _law_metadata_snippet(detail)
+    title = detail.title or detail.short_title or "법령"
+    return Hit(
+        source="law_api",
+        path=base_path,
+        doc_id=str(detail.law_id or title or "law"),
+        title=title,
+        score=1.0,
+        snippet=snippet,
+    )
+
+
+def _law_article_snippet(article: LawDetailArticle) -> str:
+    parts: List[str] = []
+    if article.title:
+        parts.append(article.title)
+    if article.content:
+        parts.append(article.content)
+    else:
+        paragraph_texts = [
+            _combine_clause(paragraph)
+            for paragraph in article.paragraphs
+            if paragraph.text or paragraph.clause_text
+        ]
+        if paragraph_texts:
+            parts.extend(paragraph_texts[:2])
+    if not parts:
+        parts.append("조문 내용이 제공되지 않았습니다.")
+    return " | ".join(parts)[:1200]
+
+
+def _combine_clause(paragraph: LawDetailParagraph) -> str:
+    clause = paragraph.clause_text or ""
+    text = paragraph.text or ""
+    if clause and text:
+        return f"{clause} — {text}"
+    if text:
+        return text
+    return clause
+
+
+def _law_metadata_snippet(detail: LawDetailResponse) -> str:
+    parts: List[str] = []
+    if detail.doc_type:
+        parts.append(f"구분: {detail.doc_type}")
+    if detail.ministry:
+        parts.append(f"소관부처: {detail.ministry}")
+    date_parts: List[str] = []
+    if detail.promulgation_date:
+        date_parts.append(f"공포 {detail.promulgation_date}")
+    if detail.enforcement_date:
+        date_parts.append(f"시행 {detail.enforcement_date}")
+    if date_parts:
+        parts.append(" / ".join(date_parts))
+    if detail.promulgation_number:
+        parts.append(f"공포번호: {detail.promulgation_number}")
+    if not parts:
+        parts.append("법령 메타데이터가 제공되지 않았습니다.")
     return " | ".join(parts)
 
 
@@ -748,6 +879,64 @@ class LangChainToolAgent:
             )
             return formatted
 
+        def law_detail_tool(
+            law_id: Optional[str] = None,
+            mst: Optional[str] = None,
+            lm: Optional[str] = None,
+            ld: Optional[int] = None,
+            ln: Optional[int] = None,
+            jo: Optional[int] = None,
+            lang: Optional[str] = None,
+            oc: Optional[str] = None,
+        ) -> str:
+            try:
+                response, hits = tool_law_go_detail(
+                    law_id=law_id,
+                    mst=mst,
+                    lm=lm,
+                    ld=ld,
+                    ln=ln,
+                    jo=jo,
+                    lang=lang,
+                    oc=oc,
+                )
+            except LawSearchError as exc:
+                logger.warning("law.go.kr detail failed: %s", exc)
+                store.record_action(
+                    "law_go_kr_detail",
+                    {
+                        "law_id": law_id,
+                        "mst": mst,
+                        "lm": lm,
+                        "error": str(exc),
+                    },
+                )
+                return f"[법령 본문 조회 오류] {exc}"
+            except Exception as exc:
+                logger.exception("law.go.kr detail unexpected error")
+                store.record_action(
+                    "law_go_kr_detail",
+                    {
+                        "law_id": law_id,
+                        "mst": mst,
+                        "lm": lm,
+                        "error": str(exc),
+                    },
+                )
+                return f"[법령 본문 조회 오류] {exc}"
+
+            hits = _dedupe_hits(hits)
+            formatted = store.add_hits(hits)
+            store.record_action(
+                "law_go_kr_detail",
+                {
+                    "law_id": response.law_id,
+                    "title": response.title,
+                    "articles": len(response.articles),
+                },
+            )
+            return formatted
+
         return [
             StructuredTool.from_function(
                 keyword_tool,
@@ -760,6 +949,12 @@ class LangChainToolAgent:
                 name="law_statute_search",
                 args_schema=LawSearchArgs,
                 description="law.go.kr 법령 검색 API. 법령명, 공포일자 등 메타데이터 조회",
+            ),
+            StructuredTool.from_function(
+                law_detail_tool,
+                name="law_statute_detail",
+                args_schema=LawDetailArgs,
+                description="law.go.kr 법령 본문 조회 API. 특정 법령의 조문 내용을 확인",
             ),
         ]
 

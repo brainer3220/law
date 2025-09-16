@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from urllib import error, parse, request
 
 LAW_GO_KR_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
+LAW_GO_KR_DETAIL_URL = "http://www.law.go.kr/DRF/lawService.do"
 LAW_GO_KR_OC_ENV = "LAW_GO_KR_OC"
 
 
@@ -38,6 +39,41 @@ class LawSearchResponse:
 
 class LawSearchError(RuntimeError):
     """Raised when the law.go.kr search API returns an error."""
+
+
+@dataclass
+class LawDetailParagraph:
+    number: Optional[str]
+    text: Optional[str]
+    clause_number: Optional[str]
+    clause_text: Optional[str]
+    raw: Dict[str, Any]
+
+
+@dataclass
+class LawDetailArticle:
+    article_no: Optional[str]
+    title: Optional[str]
+    content: Optional[str]
+    enforcement_date: Optional[str]
+    amendment_type: Optional[str]
+    paragraphs: List[LawDetailParagraph]
+    raw: Dict[str, Any]
+
+
+@dataclass
+class LawDetailResponse:
+    law_id: Optional[str]
+    title: Optional[str]
+    short_title: Optional[str]
+    promulgation_date: Optional[str]
+    enforcement_date: Optional[str]
+    promulgation_number: Optional[str]
+    doc_type: Optional[str]
+    ministry: Optional[str]
+    language: Optional[str]
+    articles: List[LawDetailArticle]
+    raw: Dict[str, Any]
 
 
 def search_law(
@@ -132,6 +168,60 @@ def search_law(
     return response
 
 
+def fetch_law_detail(
+    *,
+    law_id: Optional[str] = None,
+    mst: Optional[str] = None,
+    lm: Optional[str] = None,
+    ld: Optional[int] = None,
+    ln: Optional[int] = None,
+    jo: Optional[int] = None,
+    lang: Optional[str] = None,
+    oc: Optional[str] = None,
+    timeout: float = 10.0,
+    base_url: str = LAW_GO_KR_DETAIL_URL,
+) -> LawDetailResponse:
+    """Fetch law detail (articles) data from law.go.kr API."""
+
+    if not (law_id or mst or lm):
+        raise LawSearchError("법령 상세 조회에는 ID, MST, LM 중 최소 하나가 필요합니다.")
+
+    resolved_oc = _resolve_oc(oc)
+    params: Dict[str, Any] = {"OC": resolved_oc, "target": "law", "type": "JSON"}
+
+    if law_id:
+        params["ID"] = law_id
+    if mst:
+        params["MST"] = mst
+    if lm:
+        params["LM"] = lm
+    if ld:
+        params["LD"] = int(ld)
+    if ln:
+        params["LN"] = int(ln)
+    if jo:
+        params["JO"] = int(jo)
+    if lang:
+        params["LANG"] = lang
+
+    data = _call_api(params=params, base_url=base_url, timeout=timeout)
+
+    response = LawDetailResponse(
+        law_id=_first_str(data, ["법령ID", "lawID", "lawId"]),
+        title=_first_str(data, ["법령명_한글", "법령명", "lawName"]),
+        short_title=_first_str(data, ["법령명약칭", "약칭", "shortTitle"]),
+        promulgation_date=_format_date(_first_str(data, ["공포일자", "promulgationDate"])),
+        enforcement_date=_format_date(_first_str(data, ["시행일자", "enforcementDate"])),
+        promulgation_number=_first_str(data, ["공포번호", "promulgationNumber"]),
+        doc_type=_first_str(data, ["법종구분", "법령구분명", "docCls"]),
+        ministry=_first_str(data, ["소관부처", "소관부처명", "ministry"]),
+        language=_first_str(data, ["언어", "language"]),
+        articles=_extract_articles(data),
+        raw=data,
+    )
+    return response
+
+
 def _resolve_oc(override: Optional[str]) -> str:
     oc = (override or os.getenv(LAW_GO_KR_OC_ENV) or "").strip()
     if not oc:
@@ -192,6 +282,94 @@ def _collect_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _looks_like_entry(node: Dict[str, Any]) -> bool:
     keys = set(node.keys())
     return bool(keys.intersection({"법령명한글", "법령명", "lawId"}))
+
+
+def _extract_articles(data: Dict[str, Any]) -> List[LawDetailArticle]:
+    articles: List[LawDetailArticle] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if _looks_like_article(node):
+                articles.append(_build_article(node))
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                _walk(value)
+
+    _walk(data)
+
+    uniq: Dict[str, LawDetailArticle] = {}
+    ordered: List[LawDetailArticle] = []
+    for article in articles:
+        key = article.article_no or f"{article.title}-{len(ordered)}"
+        if key in uniq:
+            continue
+        uniq[key] = article
+        ordered.append(article)
+    return ordered
+
+
+def _looks_like_article(node: Dict[str, Any]) -> bool:
+    keys = set(node.keys())
+    return bool(keys.intersection({"조문내용", "조문번호", "조문제목"}))
+
+
+def _build_article(entry: Dict[str, Any]) -> LawDetailArticle:
+    article_no = _first_str(entry, ["조문번호", "조문번호문자열", "articleNo"])
+    title = _first_str(entry, ["조문제목", "articleTitle"])
+    content = _first_str(entry, ["조문내용", "articleContent"])
+    paragraphs = _extract_paragraphs(entry)
+    return LawDetailArticle(
+        article_no=article_no,
+        title=title,
+        content=content,
+        enforcement_date=_format_date(_first_str(entry, ["조문시행일자", "articleEnforceDate"])),
+        amendment_type=_first_str(entry, ["조문제개정유형", "articleAmendType"]),
+        paragraphs=paragraphs,
+        raw=entry,
+    )
+
+
+def _extract_paragraphs(entry: Dict[str, Any]) -> List[LawDetailParagraph]:
+    paragraphs: List[LawDetailParagraph] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if _looks_like_paragraph(node):
+                paragraphs.append(_build_paragraph(node))
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                _walk(value)
+
+    _walk(entry)
+
+    uniq: Dict[str, LawDetailParagraph] = {}
+    ordered: List[LawDetailParagraph] = []
+    for para in paragraphs:
+        key = (para.number or "") + (para.text or "") + (para.clause_number or "")
+        if key in uniq:
+            continue
+        uniq[key] = para
+        ordered.append(para)
+    return ordered
+
+
+def _looks_like_paragraph(node: Dict[str, Any]) -> bool:
+    keys = set(node.keys())
+    return bool(keys.intersection({"항내용", "호내용", "항번호", "호번호"}))
+
+
+def _build_paragraph(entry: Dict[str, Any]) -> LawDetailParagraph:
+    return LawDetailParagraph(
+        number=_first_str(entry, ["항번호", "paragraphNo"]),
+        text=_first_str(entry, ["항내용", "paragraphContent", "내용"]),
+        clause_number=_first_str(entry, ["호번호", "clauseNo"]),
+        clause_text=_first_str(entry, ["호내용", "clauseContent"]),
+        raw=entry,
+    )
 
 
 def _first_str(source: Any, keys: Sequence[str]) -> Optional[str]:
