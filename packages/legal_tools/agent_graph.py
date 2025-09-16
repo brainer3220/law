@@ -467,8 +467,17 @@ class LangChainToolAgent:
             result = self._invoke_langchain(cleaned_question, store)
             intermediate_steps = result.get("intermediate_steps", [])
             answer = str(result.get("output", "")).strip()
-            if not answer:
+
+            if store.total_hits() == 0:
+                logger.info("langchain agent: no evidence from tool calls; bootstrapping seed queries")
+                self._bootstrap_offline(cleaned_question, store)
+                store.record_action("fallback", {"reason": "no_hits_after_agent"})
+            if store.total_hits() == 0:
                 answer = _offline_summary(cleaned_question, store.observations_text())
+            else:
+                if not answer or not self._has_citation(answer):
+                    answer = self._summarize_with_llm(cleaned_question, store.observations_text())
+
             return self._finalize(
                 cleaned_question,
                 store,
@@ -529,6 +538,9 @@ class LangChainToolAgent:
                 + _PG_ERROR
             )
         return text
+
+    def _has_citation(self, answer: str) -> bool:
+        return bool(re.search(r"\[\d+\]", answer or ""))
 
     def _bootstrap_offline(self, question: str, store: EvidenceStore) -> None:
         seeds = _seed_queries(question) or ([question] if question else [])
@@ -736,6 +748,62 @@ class LangChainToolAgent:
         )
         logger.info("langchain agent: using OpenAI model=%s temperature=%s", model, temperature)
         return llm
+
+    def _summarize_with_llm(self, question: str, observations: str) -> str:
+        if not observations.strip():
+            return _offline_summary(question, observations)
+        if not _llm_enabled():
+            return _offline_summary(question, observations)
+        try:
+            llm = self._create_llm(
+                temperature=0.0,
+                timeout=30.0,
+            )
+        except Exception as exc:  # pragma: no cover - optional dependency path
+            logger.warning("langchain agent: summarize fallback due to LLM error: %s", exc)
+            _block_llm(exc if isinstance(exc, Exception) else Exception(str(exc)))
+            return _offline_summary(question, observations)
+
+        from langchain.prompts import ChatPromptTemplate  # type: ignore
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """
+당신은 법률 리서치 요약가입니다. 주어진 스니펫만 근거로 한국어 요약을 작성하세요.
+- 사건 정보, 요약, 법원 판단(핵심), 결론, 출처 및 메타데이터 순으로 마크다운 섹션을 구성합니다.
+- 각 주장에는 [번호] 형태의 인용을 포함합니다.
+- 근거가 부족하면 간단히 한계를 언급하세요.
+""".strip(),
+                ),
+                (
+                    "user",
+                    "질문: {question}\n\n스니펫:\n{observations}\n\n지침: {guidance}",
+                ),
+            ]
+        )
+
+        chain = prompt | llm  # type: ignore
+        try:
+            output = chain.invoke(
+                {
+                    "question": question,
+                    "observations": observations,
+                    "guidance": self._general_guidance(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover - runtime failure
+            logger.warning("langchain agent: summarize invoke failed: %s", exc)
+            _block_llm(exc)
+            return _offline_summary(question, observations)
+
+        if isinstance(output, str):
+            return output.strip()
+        content = getattr(output, "content", None)
+        if isinstance(content, str):
+            return content.strip()
+        return str(output)
 
 
 def build_legal_ask_graph(
