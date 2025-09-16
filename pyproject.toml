@@ -10,6 +10,7 @@ dependencies = [
     "langchain-openai>=0.1.8",
     "langchain-google-genai>=0.0.7",
     "langgraph>=0.6.0,<0.7",
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]

@@ -7,6 +7,10 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from typing import Iterable
 
+from packages.env import load_env
+
+load_env()
+
 
 def iter_json_files(root: Path) -> Iterable[Path]:
     for p in root.rglob("*.json"):
