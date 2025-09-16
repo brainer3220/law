@@ -359,4 +359,3 @@ def test_tool_law_go_interpretation_detail_returns_hit(monkeypatch: pytest.Monke
     assert len(hits) == 1
     assert hits[0].source == "law_api"
     assert "해석기관" in hits[0].snippet
-*** End of File

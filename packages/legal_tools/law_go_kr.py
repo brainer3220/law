@@ -3,13 +3,19 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib import error, parse, request
 
 LAW_GO_KR_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 LAW_GO_KR_DETAIL_URL = "http://www.law.go.kr/DRF/lawService.do"
 LAW_GO_KR_OC_ENV = "LAW_GO_KR_OC"
+SENSITIVE_PARAM_KEYS: frozenset[str] = frozenset({"OC", "password", "secret", "token", "api_key"})
+MASKED_SECRET = "********"
+LAW_ENTRY_KEYS: frozenset[str] = frozenset({"법령명한글", "법령명", "lawId"})
+INTERPRETATION_ENTRY_KEYS: frozenset[str] = frozenset({"법령해석례일련번호", "serialNo", "expcId"})
+INTERPRETATION_TITLE_KEYS: frozenset[str] = frozenset({"안건명", "title"})
 
 
 logger = logging.getLogger(__name__)
@@ -389,9 +395,16 @@ def _resolve_oc(override: Optional[str]) -> str:
 def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[str, Any]:
     query_string = parse.urlencode(params, doseq=True)
     url = f"{base_url}?{query_string}"
-    logger.debug("law.go.kr request url=%s params=%s", url, _redact_params(params))
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
+    redacted_params: Dict[str, Any] | None = None
+    redacted_url: str | None = None
+    if debug_enabled:
+        redacted_params = _redact_params(params)
+        redacted_url = _redact_url(base_url, redacted_params)
+        logger.debug("law.go.kr request url=%s params=%s", redacted_url, redacted_params)
     req = request.Request(url, headers={"Accept": "application/json"})
     charset: Optional[str] = None
+    start_time = time.perf_counter()
     try:
         with request.urlopen(req, timeout=timeout) as resp:
             status = getattr(resp, "status", 200)
@@ -399,20 +412,27 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
                 raise LawSearchError(f"법령 검색 API 호출 실패 (status={status})")
             charset = resp.headers.get_content_charset() if resp.headers else None
             raw = resp.read()
-            logger.debug(
-                "law.go.kr response metadata status=%s charset=%s content_length=%s headers=%s",
-                status,
-                charset,
-                len(raw),
-                dict(resp.headers.items()) if resp.headers else {},
-            )
+            if debug_enabled:
+                duration = time.perf_counter() - start_time
+                logger.debug(
+                    "law.go.kr response metadata url=%s status=%s charset=%s content_length=%s headers=%s duration=%.3fs",
+                    redacted_url,
+                    status,
+                    charset,
+                    len(raw),
+                    dict(resp.headers.items()) if resp.headers else {},
+                    duration,
+                )
     except error.URLError as exc:
-        logger.debug(
-            "law.go.kr request failed url=%s params=%s error=%s",
-            url,
-            _redact_params(params),
-            repr(exc),
-        )
+        if debug_enabled:
+            duration = time.perf_counter() - start_time
+            logger.debug(
+                "law.go.kr request failed url=%s params=%s error=%s duration=%.3fs",
+                redacted_url,
+                redacted_params,
+                repr(exc),
+                duration,
+            )
         raise LawSearchError(f"법령 검색 API 호출 중 오류가 발생했습니다: {exc}") from exc
 
     encoding = charset or "utf-8"
@@ -424,20 +444,22 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        logger.debug(
-            "law.go.kr response body decode failure url=%s encoding=%s body_preview=%s",
-            url,
-            encoding,
-            _clip_text(text),
-        )
+        if debug_enabled:
+            logger.debug(
+                "law.go.kr response body decode failure url=%s encoding=%s body_preview=%s",
+                redacted_url,
+                encoding,
+                _clip_text(text),
+            )
         raise LawSearchError(f"법령 검색 API 응답을 JSON으로 파싱하지 못했습니다: {exc}") from exc
     else:
-        logger.debug(
-            "law.go.kr response body parsed url=%s encoding=%s body_preview=%s",
-            url,
-            encoding,
-            _clip_text(text),
-        )
+        if debug_enabled:
+            logger.debug(
+                "law.go.kr response body parsed url=%s encoding=%s body_preview=%s",
+                redacted_url,
+                encoding,
+                _clip_text(text),
+            )
 
     if not isinstance(data, dict):
         raise LawSearchError("법령 검색 API 응답 형식이 예상과 다릅니다 (객체가 아님)")
@@ -446,26 +468,27 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
 
 def _clip_text(value: str, *, limit: int = 1000) -> str:
     text = value.strip().replace("\r", " ").replace("\n", " ")
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "…"
+    return text if len(text) <= limit else f"{text[:limit]}…"
 
 
-def _redact_params(params: Dict[str, Any]) -> Dict[str, Any]:
+def _redact_params(params: Dict[str, Any], sensitive_keys: Iterable[str] = SENSITIVE_PARAM_KEYS) -> Dict[str, Any]:
     redacted = dict(params)
-    if "OC" in redacted:
-        redacted["OC"] = _mask_secret(redacted["OC"])
+    for key in sensitive_keys:
+        if key in redacted:
+            redacted[key] = _mask_secret(redacted[key])
     return redacted
 
 
-def _mask_secret(value: Any, *, visible: int = 4) -> str:
+def _mask_secret(value: Any) -> str:
     text = str(value or "")
     if not text:
         return ""
-    if len(text) <= visible:
-        return "*" * len(text)
-    hidden = len(text) - visible
-    return ("*" * hidden) + text[-visible:]
+    return MASKED_SECRET
+
+
+def _redact_url(base_url: str, params: Dict[str, Any]) -> str:
+    query_string = parse.urlencode(params, doseq=True)
+    return f"{base_url}?{query_string}" if query_string else base_url
 
 
 def _collect_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -487,7 +510,12 @@ def _collect_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _looks_like_entry(node: Dict[str, Any]) -> bool:
     keys = set(node.keys())
-    return bool(keys.intersection({"법령명한글", "법령명", "lawId"}))
+    if keys.intersection(LAW_ENTRY_KEYS):
+        return True
+    return bool(
+        keys.intersection(INTERPRETATION_ENTRY_KEYS)
+        and keys.intersection(INTERPRETATION_TITLE_KEYS)
+    )
 
 
 def _extract_articles(data: Dict[str, Any]) -> List[LawDetailArticle]:
