@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib import error, parse, request
+
+import structlog
 
 LAW_GO_KR_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 LAW_GO_KR_DETAIL_URL = "http://www.law.go.kr/DRF/lawService.do"
@@ -18,7 +19,7 @@ INTERPRETATION_ENTRY_KEYS: frozenset[str] = frozenset({"법령해석례일련번
 INTERPRETATION_TITLE_KEYS: frozenset[str] = frozenset({"안건명", "title"})
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -395,13 +396,9 @@ def _resolve_oc(override: Optional[str]) -> str:
 def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[str, Any]:
     query_string = parse.urlencode(params, doseq=True)
     url = f"{base_url}?{query_string}"
-    debug_enabled = logger.isEnabledFor(logging.DEBUG)
-    redacted_params: Dict[str, Any] | None = None
-    redacted_url: str | None = None
-    if debug_enabled:
-        redacted_params = _redact_params(params)
-        redacted_url = _redact_url(base_url, redacted_params)
-        logger.debug("law.go.kr request url=%s params=%s", redacted_url, redacted_params)
+    redacted_params = _redact_params(params)
+    redacted_url = _redact_url(base_url, redacted_params)
+    logger.debug("law_go_kr_request", url=redacted_url, params=redacted_params)
     req = request.Request(url, headers={"Accept": "application/json"})
     charset: Optional[str] = None
     start_time = time.perf_counter()
@@ -412,27 +409,25 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
                 raise LawSearchError(f"법령 검색 API 호출 실패 (status={status})")
             charset = resp.headers.get_content_charset() if resp.headers else None
             raw = resp.read()
-            if debug_enabled:
-                duration = time.perf_counter() - start_time
-                logger.debug(
-                    "law.go.kr response metadata url=%s status=%s charset=%s content_length=%s headers=%s duration=%.3fs",
-                    redacted_url,
-                    status,
-                    charset,
-                    len(raw),
-                    dict(resp.headers.items()) if resp.headers else {},
-                    duration,
-                )
-    except error.URLError as exc:
-        if debug_enabled:
             duration = time.perf_counter() - start_time
             logger.debug(
-                "law.go.kr request failed url=%s params=%s error=%s duration=%.3fs",
-                redacted_url,
-                redacted_params,
-                repr(exc),
-                duration,
+                "law_go_kr_response_metadata",
+                url=redacted_url,
+                status=status,
+                charset=charset,
+                content_length=len(raw),
+                headers=dict(resp.headers.items()) if resp.headers else {},
+                duration=duration,
             )
+    except error.URLError as exc:
+        duration = time.perf_counter() - start_time
+        logger.debug(
+            "law_go_kr_request_failed",
+            url=redacted_url,
+            params=redacted_params,
+            error=repr(exc),
+            duration=duration,
+        )
         raise LawSearchError(f"법령 검색 API 호출 중 오류가 발생했습니다: {exc}") from exc
 
     encoding = charset or "utf-8"
@@ -444,22 +439,20 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        if debug_enabled:
-            logger.debug(
-                "law.go.kr response body decode failure url=%s encoding=%s body_preview=%s",
-                redacted_url,
-                encoding,
-                _clip_text(text),
-            )
+        logger.debug(
+            "law_go_kr_response_decode_failure",
+            url=redacted_url,
+            encoding=encoding,
+            body_preview=_clip_text(text),
+        )
         raise LawSearchError(f"법령 검색 API 응답을 JSON으로 파싱하지 못했습니다: {exc}") from exc
     else:
-        if debug_enabled:
-            logger.debug(
-                "law.go.kr response body parsed url=%s encoding=%s body_preview=%s",
-                redacted_url,
-                encoding,
-                _clip_text(text),
-            )
+        logger.debug(
+            "law_go_kr_response_parsed",
+            url=redacted_url,
+            encoding=encoding,
+            body_preview=_clip_text(text),
+        )
 
     if not isinstance(data, dict):
         raise LawSearchError("법령 검색 API 응답 형식이 예상과 다릅니다 (객체가 아님)")

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import structlog
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 
@@ -25,7 +25,7 @@ from packages.legal_tools.law_go_kr import (
     search_law_interpretations,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 _LLM_BLOCKED: bool = False
 _PG_AVAILABLE: bool = True
 _PG_ERROR: Optional[str] = None
@@ -61,7 +61,7 @@ def _llm_enabled() -> bool:
 def _block_llm(err: Exception) -> None:
     global _LLM_BLOCKED
     _LLM_BLOCKED = True
-    logger.warning("LLM disabled for this run (reason: %s)", err)
+    logger.warning("llm_disabled_for_run", reason=str(err))
 
 
 @dataclass
@@ -575,7 +575,7 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
     global _PG_AVAILABLE, _PG_ERROR
     if not _PG_AVAILABLE:
         if _PG_ERROR:
-            logger.debug("search[keyword]: skipping Postgres backend (reason: %s)", _PG_ERROR)
+            logger.debug("search_keyword_skip_pg", reason=_PG_ERROR)
         return []
 
     try:  # pragma: no cover - optional dependency path
@@ -583,16 +583,16 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
     except Exception as exc:  # pragma: no cover - optional dependency
         _PG_AVAILABLE = False
         _PG_ERROR = f"Postgres backend unavailable: {exc}"
-        logger.warning("search[keyword]: %s", _PG_ERROR)
+        logger.warning("search_keyword_pg_unavailable", error=_PG_ERROR)
         return []
 
-    logger.info("search[keyword]: query=%s limit=%s", query, limit)
+    logger.info("search_keyword_start", query=query, limit=limit)
     try:
         rows = search_bm25(query, limit=max(5, limit))
     except Exception as exc:
         _PG_AVAILABLE = False
         _PG_ERROR = f"Postgres search failed: {exc}"
-        logger.warning("search[keyword]: %s", _PG_ERROR)
+        logger.warning("search_keyword_pg_failed", error=_PG_ERROR)
         return []
     hits: List[Hit] = []
     for r in rows:
@@ -645,7 +645,7 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
                     page_total=total,
                 )
             )
-    logger.info("search[keyword]: hits=%s (pre-dedupe)", len(hits))
+    logger.info("search_keyword_hits", count=len(hits), stage="pre_dedupe")
     return hits
 
 
@@ -690,7 +690,7 @@ def _seed_queries(question: str) -> List[str]:
             uniq.append(item)
         if len(uniq) >= 5:
             break
-    logger.info("seed_queries: %s", ", ".join(uniq))
+    logger.info("seed_queries_selected", queries=uniq)
     return uniq
 
 
@@ -768,9 +768,13 @@ class LangChainToolAgent:
             return self._finalize(cleaned_question, store, answer, intermediate_steps=[], iters=0)
 
         provider = _llm_provider()
-        logger.info("langchain agent: provider=%s", provider)
+        logger.info("langchain_agent_provider", provider=provider)
         if not _llm_enabled():
-            logger.info("langchain agent: provider=%s unavailable -> deterministic fallback", provider)
+            logger.info(
+                "langchain_agent_provider_unavailable",
+                provider=provider,
+                fallback="deterministic",
+            )
             self._bootstrap_offline(cleaned_question, store)
             answer = _offline_summary(cleaned_question, store.observations_text())
             return self._finalize(
@@ -787,7 +791,7 @@ class LangChainToolAgent:
             answer = str(result.get("output", "")).strip()
 
             if store.total_hits() == 0:
-                logger.info("langchain agent: no evidence from tool calls; bootstrapping seed queries")
+                logger.info("langchain_agent_bootstrap_seed_queries")
                 self._bootstrap_offline(cleaned_question, store)
                 store.record_action("fallback", {"reason": "no_hits_after_agent"})
             if store.total_hits() == 0:
@@ -804,7 +808,7 @@ class LangChainToolAgent:
                 iters=len(intermediate_steps),
             )
         except Exception as exc:
-            logger.exception("langchain agent failed; falling back to offline summary")
+            logger.exception("langchain_agent_failed", fallback="offline_summary")
             _block_llm(exc)
             if store.total_hits() == 0:
                 self._bootstrap_offline(cleaned_question, store)
@@ -872,7 +876,7 @@ class LangChainToolAgent:
                     context_chars=self.context_chars,
                 )
             except Exception as exc:
-                logger.exception("offline bootstrap failed for query=%s", q)
+                logger.exception("offline_bootstrap_failed", query=q)
                 store.record_action("keyword_search", {"query": q, "error": str(exc)})
                 continue
             hits = _dedupe_hits(hits)
@@ -963,7 +967,7 @@ class LangChainToolAgent:
                     context_chars=ctx,
                 )
             except Exception as exc:
-                logger.exception("keyword_search tool failed for query=%s", query)
+                logger.exception("keyword_search_failed", query=query)
                 store.record_action("keyword_search", {"query": query, "error": str(exc)})
                 return f"[검색 오류] {exc}"
             hits = _dedupe_hits(hits)
@@ -1008,11 +1012,11 @@ class LangChainToolAgent:
                     oc=oc,
                 )
             except LawSearchError as exc:
-                logger.warning("law.go.kr search failed: %s", exc)
+                logger.warning("law_go_kr_search_failed", error=str(exc))
                 store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
                 return f"[법령 검색 오류] {exc}"
             except Exception as exc:
-                logger.exception("law.go.kr search unexpected error for query=%s", query)
+                logger.exception("law_go_kr_search_unexpected_error", query=query)
                 store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
                 return f"[법령 검색 오류] {exc}"
 
@@ -1051,7 +1055,7 @@ class LangChainToolAgent:
                     oc=oc,
                 )
             except LawSearchError as exc:
-                logger.warning("law.go.kr detail failed: %s", exc)
+                logger.warning("law_go_kr_detail_failed", error=str(exc))
                 store.record_action(
                     "law_go_kr_detail",
                     {
@@ -1063,7 +1067,7 @@ class LangChainToolAgent:
                 )
                 return f"[법령 본문 조회 오류] {exc}"
             except Exception as exc:
-                logger.exception("law.go.kr detail unexpected error")
+                logger.exception("law_go_kr_detail_unexpected_error")
                 store.record_action(
                     "law_go_kr_detail",
                     {
@@ -1118,11 +1122,11 @@ class LangChainToolAgent:
                     oc=oc,
                 )
             except LawSearchError as exc:
-                logger.warning("law.go.kr interpretation search failed: %s", exc)
+                logger.warning("law_go_kr_interpretation_search_failed", error=str(exc))
                 store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
                 return f"[법령해석례 검색 오류] {exc}"
             except Exception as exc:
-                logger.exception("law.go.kr interpretation unexpected error for query=%s", query)
+                logger.exception("law_go_kr_interpretation_unexpected_error", query=query)
                 store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
                 return f"[법령해석례 검색 오류] {exc}"
 
@@ -1151,7 +1155,7 @@ class LangChainToolAgent:
                     oc=oc,
                 )
             except LawSearchError as exc:
-                logger.warning("law.go.kr interpretation detail failed: %s", exc)
+                logger.warning("law_go_kr_interpretation_detail_failed", error=str(exc))
                 store.record_action(
                     "law_go_kr_interpretation_detail",
                     {
@@ -1162,7 +1166,7 @@ class LangChainToolAgent:
                 )
                 return f"[법령해석례 본문 조회 오류] {exc}"
             except Exception as exc:
-                logger.exception("law.go.kr interpretation detail unexpected error")
+                logger.exception("law_go_kr_interpretation_detail_unexpected_error")
                 store.record_action(
                     "law_go_kr_interpretation_detail",
                     {
@@ -1247,8 +1251,8 @@ class LangChainToolAgent:
                 try:
                     kwargs["max_output_tokens"] = int(max_output)
                 except ValueError:
-                    logger.warning("Gemini max output tokens is not an integer: %s", max_output)
-            logger.info("langchain agent: using Gemini model=%s temperature=%s", model, temperature)
+                    logger.warning("gemini_max_output_tokens_invalid", raw_value=max_output)
+            logger.info("langchain_agent_gemini", model=model, temperature=temperature)
             return ChatGoogleGenerativeAI(**kwargs)
 
         try:
@@ -1268,7 +1272,7 @@ class LangChainToolAgent:
             streaming=False,
             model_kwargs={"stream": False},
         )
-        logger.info("langchain agent: using OpenAI model=%s temperature=%s", model, temperature)
+        logger.info("langchain_agent_openai", model=model, temperature=temperature)
         return llm
 
     def _summarize_with_llm(self, question: str, observations: str) -> str:
@@ -1282,7 +1286,7 @@ class LangChainToolAgent:
                 timeout=30.0,
             )
         except Exception as exc:  # pragma: no cover - optional dependency path
-            logger.warning("langchain agent: summarize fallback due to LLM error: %s", exc)
+            logger.warning("langchain_agent_summarize_fallback", error=str(exc))
             _block_llm(exc if isinstance(exc, Exception) else Exception(str(exc)))
             return _offline_summary(question, observations)
 
@@ -1316,7 +1320,7 @@ class LangChainToolAgent:
                 }
             )
         except Exception as exc:  # pragma: no cover - runtime failure
-            logger.warning("langchain agent: summarize invoke failed: %s", exc)
+            logger.warning("langchain_agent_summarize_invoke_failed", error=str(exc))
             _block_llm(exc)
             return _offline_summary(question, observations)
 
@@ -1350,11 +1354,11 @@ def build_legal_ask_graph(
             return agent.run(question)
 
     logger.info(
-        "langchain tool agent ready (top_k=%s, max_iters=%s, allow_general=%s, context_chars=%s)",
-        top_k,
-        max_iters,
-        allow_general,
-        context_chars,
+        "langchain_tool_agent_ready",
+        top_k=top_k,
+        max_iters=max_iters,
+        allow_general=allow_general,
+        context_chars=context_chars,
     )
     return _Adapter()
 
@@ -1377,13 +1381,13 @@ def run_ask(
         context_chars=context,
     )
     logger.info(
-        "run_ask: start question=%s top_k=%s max_iters=%s allow_general=%s context_chars=%s",
-        (question or "").strip()[:80],
-        top_k,
-        max_iters,
-        allow_general,
-        context,
+        "run_ask_start",
+        question=(question or "").strip()[:80],
+        top_k=top_k,
+        max_iters=max_iters,
+        allow_general=allow_general,
+        context_chars=context,
     )
     final = agent.run(question)
-    logger.info("run_ask: completed keys=%s", ",".join(sorted(final.keys())))
+    logger.info("run_ask_complete", keys=sorted(final.keys()))
     return final

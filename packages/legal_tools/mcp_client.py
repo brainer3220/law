@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import json
-import logging
 import shutil
 import subprocess
 from contextlib import contextmanager
@@ -10,7 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class MCPUnavailable(RuntimeError):

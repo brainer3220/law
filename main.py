@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
+import structlog
+
 from packages.env import load_env
 
 # Ensure `.env` files are processed before reading configuration defaults.
@@ -692,17 +694,49 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def configure_logging(level_name: str) -> None:
+    level_value = getattr(logging, level_name.upper(), logging.WARNING)
+    timestamper = structlog.processors.TimeStamper(fmt="iso", key="timestamp")
+
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            timestamper,
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processor=structlog.processors.KeyValueRenderer(
+            key_order=["timestamp", "level", "logger", "event"],
+            sort_keys=True,
+        ),
+        foreign_pre_chain=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            timestamper,
+        ],
+    )
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(formatter)
+    handler.setLevel(level_value)
+
+    logging.basicConfig(level=level_value, handlers=[handler], force=True)
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     # Configure logging early
     level_name = str(getattr(args, "log_level", "WARNING")).upper()
-    level = getattr(logging, level_name, logging.WARNING)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    configure_logging(level_name)
     args.func(args)
 
 
