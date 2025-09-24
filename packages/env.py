@@ -5,7 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Union
 
-from dotenv import find_dotenv, load_dotenv
+try:  # pragma: no cover - optional dependency
+    from dotenv import find_dotenv, load_dotenv
+except Exception:  # pragma: no cover - optional dependency
+    def find_dotenv(*args, **kwargs):
+        return ""
+
+    def load_dotenv(*args, **kwargs):
+        return False
 
 
 PathLike = Union[str, Path]

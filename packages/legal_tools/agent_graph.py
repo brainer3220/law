@@ -6,7 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import structlog
+try:  # pragma: no cover - optional dependency guard
+    import structlog
+except Exception:  # pragma: no cover - fallback logger
+    class _StructlogProxy:
+        def __getattr__(self, name: str):
+            def _noop(*_args, **_kwargs):
+                return None
+
+            return _noop
+
+    structlog = _StructlogProxy()  # type: ignore
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 

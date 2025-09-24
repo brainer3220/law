@@ -7,7 +7,17 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib import error, parse, request
 
-import structlog
+try:  # pragma: no cover - optional dependency guard
+    import structlog
+except Exception:  # pragma: no cover - fallback logger
+    class _StructlogProxy:
+        def __getattr__(self, name: str):
+            def _noop(*_args, **_kwargs):
+                return None
+
+            return _noop
+
+    structlog = _StructlogProxy()  # type: ignore
 
 LAW_GO_KR_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 LAW_GO_KR_DETAIL_URL = "http://www.law.go.kr/DRF/lawService.do"

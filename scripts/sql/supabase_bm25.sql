@@ -27,8 +27,8 @@ USING bm25 (id, title, body)
 WITH (
   key_field='id',
   text_fields='{
-    "title": {"tokenizer": {"type": "icu"}},
-    "body":  {"tokenizer": {"type": "icu"}}
+    "title": {"tokenizer": {"type": "icu"}, "boost": 1.5},
+    "body":  {"tokenizer": {"type": "icu"}, "filters": [{"type": "lowercase"}]}
   }'
 );
 

@@ -503,8 +503,8 @@ def build_parser() -> argparse.ArgumentParser:
                             WITH (
                               key_field='id',
                               text_fields='{
-                                "title": {"tokenizer": {"type": "icu"}},
-                                "body":  {"tokenizer": {"type": "icu"}}
+                                "title": {"tokenizer": {"type": "icu"}, "boost": 1.5},
+                                "body":  {"tokenizer": {"type": "icu"}, "filters": [{"type": "lowercase"}]}
                               }'
                             );
                             """
@@ -575,6 +575,18 @@ def build_parser() -> argparse.ArgumentParser:
                 if max_chars and len(snip) > max_chars:
                     snip = snip[: max_chars - 3] + "..."
             print(f"[{i}] {r.title} ({r.doc_id}) score={r.score:.4f}")
+            if r.score_components:
+                fusion_bits = []
+                raw_bits = []
+                for key, value in sorted(r.score_components.items()):
+                    if key.startswith("raw:"):
+                        raw_bits.append(f"{key[4:]}={value:.3f}")
+                    else:
+                        fusion_bits.append(f"{key}={value:.4f}")
+                if fusion_bits:
+                    print(f"    fusion: {', '.join(fusion_bits)}")
+                if raw_bits:
+                    print(f"    raw: {', '.join(raw_bits)}")
             if r.path:
                 print(f"    {r.path}")
             if getattr(a, "full", False):

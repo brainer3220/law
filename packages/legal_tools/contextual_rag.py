@@ -8,6 +8,7 @@ from typing import Iterable, List, Optional, Protocol, Sequence, Tuple
 from pydantic import BaseModel, Field
 
 from packages.legal_schemas import Anchor, Chunk, Document, Section, SourceType
+from packages.legal_tools.lexical import expand_with_synonyms
 
 
 class ContextConfig(BaseModel):
@@ -230,11 +231,12 @@ class ContextualChunker:
 
     # ----------------------- BM25 text -----------------------
     def _bm25_text(self, document: Document, chunk: Chunk) -> str:
-        parts = [
-            document.title,
-            " > ".join(chunk.headings_path),
-            chunk.chunk_text,
-        ]
+        parts = [document.title, " > ".join(chunk.headings_path), chunk.chunk_text]
+        enrichment_tokens = expand_with_synonyms(
+            [document.title, *chunk.headings_path, *chunk.keywords]
+        )
+        if enrichment_tokens:
+            parts.append(" ".join(enrichment_tokens))
         return "\n".join([p for p in parts if p])
 
 

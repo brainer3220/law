@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("pydantic")
+
 from packages.legal_tools.law_go_kr import (
     LAW_GO_KR_OC_ENV,
     LawDetailArticle,
