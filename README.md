@@ -77,6 +77,36 @@ uv run main.py pg-search "근로시간 면제" --limit 5
 Notes:
 - Instance must have ParadeDB `pg_search` extension enabled. If not, request enablement or consider PGroonga/RUM (non-BM25) alternatives.
 
+Meilisearch (optional)
+----------------------
+You can index the bundled sample documents into a running Meilisearch instance (default URL: `http://localhost:7700`).
+
+1) Start Meilisearch locally (Docker example):
+```
+docker run -it --rm -p 7700:7700 getmeili/meilisearch:v1.9.0
+```
+
+2) Load the sample legal guidance files:
+```
+uv run main.py meili-load --data-dir data/meilisearch
+```
+
+The loader now normalizes both JSON (info/taskinfo pairs) and CSV corpora like `sample_precedent.csv` or `sample_statute.csv`,
+grouping sentences by 구분/문장번호 so Meilisearch stores whole documents instead of per-line fragments.
+
+3) Query from Python:
+```python
+from packages.legal_tools.meili_search import search_meilisearch
+
+for hit in search_meilisearch("가산금 면제"):
+    print(hit.title, hit.snippet)
+```
+
+Environment variables:
+- `MEILI_URL` / `MEILI_HTTP_ADDR` — override the base URL.
+- `MEILI_MASTER_KEY` / `MEILI_API_KEY` — supply an API key when security is enabled.
+- `MEILI_INDEX` — change the target index (defaults to `legal-docs`).
+
 
 Notes
 -----
