@@ -9,7 +9,10 @@ from typing import Iterable, List, Optional
 
 try:  # pragma: no cover - optional dependency for CLI UX
     from tqdm import tqdm
+    TQDM_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback when tqdm is unavailable
+    TQDM_AVAILABLE = False
+
     def tqdm(iterable, **_kwargs):  # type: ignore
         return iterable
 
@@ -116,11 +119,20 @@ def ensure_index(uid: str) -> None:
     request_json("PATCH", f"/indexes/{uid}/settings", settings)
 
 
-def collect_documents(data_dir: Path) -> List[dict]:
+def collect_documents(data_dir: Path, *, show_progress: bool = False) -> List[dict]:
     logger = logging.getLogger(__name__)
     documents: List[dict] = []
     skipped: list[Path] = []
-    for path in iter_json_files(data_dir):
+    paths = list(iter_json_files(data_dir))
+    iterator: Iterable[Path] = paths
+    if show_progress and paths:
+        if TQDM_AVAILABLE:
+            iterator = tqdm(paths, desc="Reading documents", unit="file")
+        else:
+            logger.info(
+                "Install the 'tqdm' package to see document ingestion progress bars."
+            )
+    for path in iterator:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
@@ -169,13 +181,19 @@ def upload_documents(
     show_progress: bool = True,
 ) -> None:
     logger = logging.getLogger(__name__)
-    batches = chunked(documents, batch_size)
     total = (len(documents) + batch_size - 1) // batch_size if documents else 0
-    iterator = (
-        tqdm(batches, total=total, desc="Uploading documents", unit="batch")
-        if show_progress and total
-        else batches
-    )
+    batches = chunked(documents, batch_size)
+    iterator: Iterable[List[dict]]
+    if show_progress and total:
+        if TQDM_AVAILABLE:
+            iterator = tqdm(
+                batches, total=total, desc="Uploading documents", unit="batch"
+            )
+        else:
+            logger.info("Install the 'tqdm' package to see upload progress bars.")
+            iterator = batches
+    else:
+        iterator = batches
 
     for batch in iterator:
         for attempt in range(1, max_retries + 1):
@@ -206,12 +224,12 @@ def main(*, data_dir: Optional[str] = None, index_uid: Optional[str] = None) -> 
     uid = resolve_index_uid(index_uid)
     ensure_index(uid)
 
-    documents = collect_documents(target_dir)
+    documents = collect_documents(target_dir, show_progress=True)
     if not documents:
         print(f"No documents discovered under {target_dir}")
         return 1
 
-    upload_documents(uid, documents)
+    upload_documents(uid, documents, show_progress=True)
     print(f"Indexed {len(documents)} documents into Meilisearch index '{uid}'.")
     return 0
 
