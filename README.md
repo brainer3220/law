@@ -135,3 +135,7 @@ UV Workflow
 uv run main.py pg-load-jsonl --jsonl /path/to/casename_classification/train.jsonl
 # You can pass a directory to load all *.jsonl under it
 ```
+
+OpenSearch Stack
+----------------
+A Docker-based OpenSearch + Nori + k-NN environment for local experiments lives under `opensearch-nori-knn/`. See its [README](opensearch-nori-knn/README.md) for usage details.
