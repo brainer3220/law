@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib import error, parse, request
 
-import structlog
+try:  # pragma: no cover - optional dependency fallback
+    import structlog
+except Exception:  # pragma: no cover - fallback to stdlib logging
+    import logging
+
+    class _StructlogShim:
+        def get_logger(self, name: str):  # type: ignore[override]
+            return logging.getLogger(name)
+
+    structlog = _StructlogShim()  # type: ignore
 
 LAW_GO_KR_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 LAW_GO_KR_DETAIL_URL = "http://www.law.go.kr/DRF/lawService.do"
@@ -410,13 +419,18 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
             charset = resp.headers.get_content_charset() if resp.headers else None
             raw = resp.read()
             duration = time.perf_counter() - start_time
+            headers_obj = resp.headers if resp.headers else None
+            if headers_obj and hasattr(headers_obj, "items"):
+                header_map = dict(headers_obj.items())
+            else:
+                header_map = {}
             logger.debug(
                 "law_go_kr_response_metadata",
                 url=redacted_url,
                 status=status,
                 charset=charset,
                 content_length=len(raw),
-                headers=dict(resp.headers.items()) if resp.headers else {},
+                headers=header_map,
                 duration=duration,
             )
     except error.URLError as exc:

@@ -594,6 +594,26 @@ def build_parser() -> argparse.ArgumentParser:
     pg_load.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     pg_load.set_defaults(func=_cmd_pg_load)
 
+    def _cmd_meili_load(a: argparse.Namespace) -> None:
+        from scripts.meilisearch_load import main as meili_main  # type: ignore
+
+        rc = meili_main(data_dir=getattr(a, "data_dir", None), index_uid=getattr(a, "index", None))
+        if rc != 0:
+            raise SystemExit(rc)
+
+    meili_load = sub.add_parser("meili-load", help="Ingest local JSON into Meilisearch")
+    meili_load.add_argument(
+        "--data-dir",
+        dest="data_dir",
+        help="Path to data directory (default: ./data/meilisearch)",
+    )
+    meili_load.add_argument(
+        "--index",
+        dest="index",
+        help="Meilisearch index UID (default: legal-docs)",
+    )
+    meili_load.set_defaults(func=_cmd_meili_load)
+
     def _cmd_pg_load_jsonl(a: argparse.Namespace) -> None:
         # Load newline-delimited JSON (id, casetype, casename, facts) into legal_docs
         from scripts.pg_load_jsonl import main as load_jsonl_main  # type: ignore

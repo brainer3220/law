@@ -6,8 +6,36 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import structlog
-from pydantic import BaseModel, Field
+try:  # pragma: no cover - optional dependency fallback
+    import structlog
+except Exception:  # pragma: no cover - fallback to stdlib logging
+    import logging
+
+    class _StructlogShim:
+        def get_logger(self, name: str):  # type: ignore[override]
+            return logging.getLogger(name)
+
+    structlog = _StructlogShim()  # type: ignore
+
+try:  # pragma: no cover - optional dependency fallback
+    from pydantic import BaseModel, Field
+except Exception:  # pragma: no cover - minimal shim
+    class BaseModel:  # type: ignore
+        def __init__(self, **data):
+            for key, value in data.items():
+                setattr(self, key, value)
+
+        def model_dump(self, *_, **__):
+            return self.__dict__.copy()
+
+        @classmethod
+        def model_validate(cls, data):
+            if isinstance(data, cls):
+                return data
+            return cls(**data)
+
+    def Field(default=None, **kwargs):  # type: ignore
+        return default
 from typing_extensions import Literal
 
 from packages.legal_tools.law_go_kr import (
