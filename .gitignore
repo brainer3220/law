@@ -1,4 +1,14 @@
 data/*
+# Allow 형사법 Validation 해석례 요약 파일 추적
+!data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/
+data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/*
+!data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/
+data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/*
+!data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/02.라벨링데이터/
+data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/02.라벨링데이터/*
+!data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/02.라벨링데이터/VL_해석례_SUM/
+data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/02.라벨링데이터/VL_해석례_SUM/*
+!data/04.형사법 LLM 사전학습 및 Instruction Tuning 데이터/Validation/02.라벨링데이터/VL_해석례_SUM/HS_H_323503_SUM_15.json
 
 # UV specific
 .venv/
