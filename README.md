@@ -47,7 +47,7 @@ Notes:
 
 Supabase/Postgres (optional; BM25 FTS)
 -------------------------------------
-Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; DuckDB remains default.
+Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; Meilisearch remains default.
 
 1) Install optional dependency:
 ```

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from dataclasses import dataclass
 import logging
 import sys
 import os
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 import structlog
@@ -77,224 +76,6 @@ def load_record(path: Path) -> Optional[Record]:
         return None
 
 
-def search_records(
-    query: str,
-    limit: int = 10,
-    root: Path = DATA_DIR,
-    db_path: Optional[Path] = None,
-) -> List[Tuple[Record, List[Tuple[int, str]]]]:
-    """Fast search using a persistent DuckDB index.
-
-    Previous implementation scanned JSON via `read_json_auto` on every query,
-    which is expensive over many files. This version maintains a small on-disk
-    index of the text fields and searches it instead, only re-reading files
-    whose modification time changed.
-    """
-    raise RuntimeError("DuckDB-based search has been removed. Use `pg-search` instead.")
-
-    def ensure_index(con: "duckdb.DuckDBPyConnection") -> None:
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS records (
-                path TEXT PRIMARY KEY,
-                doc_id TEXT,
-                title TEXT,
-                response_institute TEXT,
-                response_date TEXT,
-                taskType TEXT,
-                instruction TEXT,
-                sentences_text TEXT,
-                output TEXT,
-                all_text TEXT,
-                mtime DOUBLE
-            )
-            """
-        )
-
-        # Snapshot current files and mtimes
-        fs_paths: List[Path] = list(iter_json_files(root))
-        fs_meta = {str(p): p.stat().st_mtime for p in fs_paths}
-
-        # Load DB meta
-        rows = con.execute("SELECT path, mtime FROM records").fetchall()
-        db_meta = {str(path): (mtime if isinstance(mtime, (int, float)) else 0.0) for path, mtime in rows}
-
-        # Determine changes
-        to_delete = [p for p in db_meta.keys() if p not in fs_meta]
-        to_upsert: List[str] = []
-        for p, m in fs_meta.items():
-            if p not in db_meta or abs(db_meta[p] - m) > 1e-6:
-                to_upsert.append(p)
-
-        if to_delete:
-            con.executemany("DELETE FROM records WHERE path = ?", [(p,) for p in to_delete])
-
-        if to_upsert:
-            # Build rows in Python to avoid re-parsing via DuckDB JSON each search
-            batch = []
-            for p in to_upsert:
-                rec = load_record(Path(p))
-                if not rec:
-                    continue
-                text = rec.text
-                sentences = rec.taskinfo.get("sentences", []) or []
-                sentences_text = " ".join(str(s) for s in sentences if s)
-                all_text = " ".join(
-                    s
-                    for s in [
-                        rec.doc_id,
-                        rec.title,
-                        str(rec.info.get("response_institute", "")),
-                        str(rec.info.get("response_date", "")),
-                        str(rec.info.get("taskType", "")),
-                        str(rec.taskinfo.get("instruction", "")),
-                        sentences_text,
-                        str(rec.taskinfo.get("output", "")),
-                    ]
-                    if s
-                )
-                batch.append(
-                    (
-                        str(rec.path),
-                        rec.doc_id,
-                        rec.title,
-                        str(rec.info.get("response_institute", "")),
-                        str(rec.info.get("response_date", "")),
-                        str(rec.info.get("taskType", "")),
-                        str(rec.taskinfo.get("instruction", "")),
-                        sentences_text,
-                        str(rec.taskinfo.get("output", "")),
-                        all_text.lower(),  # store lowercased for case-insensitive search
-                        fs_meta[str(rec.path)],
-                    )
-                )
-            if batch:
-                # Upsert by deleting existing rows then inserting
-                con.executemany("DELETE FROM records WHERE path = ?", [(row[0],) for row in batch])
-                con.executemany(
-                    """
-                    INSERT INTO records (
-                        path, doc_id, title, response_institute, response_date, taskType,
-                        instruction, sentences_text, output, all_text, mtime
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    batch,
-                )
-
-        # Try to enable and (re)build FTS index for Korean-friendly search
-        # We avoid INSTALL to keep offline; LOAD may work if bundled.
-        try:
-            con.execute("LOAD fts;")
-            # Build an index over key text columns.
-            # Use ignore='' and stemmer='none' to avoid stripping/English stemming (better for ko text).
-            con.execute(
-                """
-                PRAGMA create_fts_index(
-                    'records',
-                    'path',
-                    'title', 'instruction', 'sentences_text', 'output',
-                    'doc_id', 'response_institute', 'response_date', 'taskType', 'all_text',
-                    stemmer='none', stopwords='', ignore='', strip_accents=0, lower=1, overwrite=1
-                );
-                """
-            )
-        except Exception:
-            # If FTS extension is unavailable, proceed; we'll fall back to LIKE search later.
-            pass
-
-    # Open a persistent DB; create directory if needed
-    root.mkdir(parents=True, exist_ok=True)
-    dbp = db_path or (root / "records.duckdb")
-    con = duckdb.connect(str(dbp))
-    ensure_index(con)
-
-    # Attempt FTS search first using BM25 ranking. Fallback to LIKE if FTS unavailable.
-    q = (query or "").strip()
-    rows: List[Tuple[str]] = []  # type: ignore
-    used_fts = False
-    try:
-        # Using the automatically created schema from PRAGMA create_fts_index: fts_main_<table>
-        rows = con.execute(
-            """
-            SELECT path
-            FROM (
-                SELECT path, fts_main_records.match_bm25(path, ?) AS score
-                FROM records
-            ) AS sq
-            WHERE score IS NOT NULL
-            ORDER BY score DESC
-            LIMIT ?
-            """,
-            [q, int(limit)],
-        ).fetchall()
-        used_fts = True
-    except Exception:
-        # Fallback: robust LIKE-based search
-        q_lower = q.lower()
-        q_nospace = re.sub(r"\s+", "", q_lower)
-        tokens = [t for t in re.split(r"\s+", q_lower) if t]
-
-        where_clauses: List[str] = []
-        params: List[str | int] = []  # type: ignore
-
-        if tokens:
-            where_clauses.append(
-                "(" + " AND ".join(["all_text LIKE '%' || ? || '%'"] * len(tokens)) + ")"
-            )
-            params.extend(tokens)
-
-        where_clauses.append("regexp_replace(all_text, '\\s+', '', 'g') LIKE '%' || ? || '%'")
-        params.append(q_nospace)
-
-        where_clauses.append("all_text LIKE '%' || ? || '%'")
-        params.append(q_lower)
-
-        variants: List[str] = []
-        if any(k in q_lower for k in ["근로시간", "면제", "타임오프"]):
-            variants.extend(["근로시간", "면제", "타임오프", "노조 전임자"])
-        seen: set[str] = set()
-        for v in variants:
-            v = v.strip().lower()
-            if not v or v in seen:
-                continue
-            seen.add(v)
-            where_clauses.append("all_text LIKE '%' || ? || '%'")
-            params.append(v)
-
-        sql = "SELECT path FROM records WHERE " + " OR ".join(where_clauses) + " LIMIT ?"
-        params.append(int(limit))
-        rows = con.execute(sql, params).fetchall()
-
-    matches: List[Tuple[Record, List[Tuple[int, str]]]] = []
-    # Build a highlighting pattern
-    if used_fts:
-        hi_terms = [re.escape(t) for t in re.split(r"\s+", q) if t]
-        pattern = re.compile("|".join(hi_terms) if hi_terms else re.escape(q), re.IGNORECASE)
-    else:
-        # Derived from LIKE-based terms computed earlier
-        hi_terms = [re.escape(t) for t in re.split(r"\s+", q) if t]
-        pattern = re.compile("|".join(hi_terms) if hi_terms else re.escape(q), re.IGNORECASE)
-    for (path_str,) in rows:
-        filename = Path(str(path_str))
-        rec = load_record(filename)
-        if not rec:
-            continue
-        lines = rec.text.splitlines()
-        snippets: List[Tuple[int, str]] = []
-        for i, line in enumerate(lines, start=1):
-            if pattern.search(line):
-                snippets.append((i, line.strip()))
-                if len(snippets) >= 3:
-                    break
-        matches.append((rec, snippets))
-
-    return matches
-
-
-def cmd_search(args: argparse.Namespace) -> None:
-    raise SystemExit("DuckDB search is removed. Use `meili-search` instead.")
-
-
 def cmd_preview(args: argparse.Namespace) -> None:
     p = Path(args.path)
     rec = load_record(p)
@@ -357,14 +138,6 @@ def cmd_stats(args: argparse.Namespace) -> None:
     print(f"Max title length: {max_title_len}")
 
 
-# ==========================
-# RAG MVP: DuckDB + ChromaDB
-# ==========================
-
-
-    # (vector embedding logic removed)
-
-
 # =============================
 # LangGraph Agent: law ask
 # =============================
@@ -417,8 +190,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    # DuckDB search removed; prefer `pg-search`
-
     pp = sub.add_parser("preview", help="Preview a single JSON file")
     pp.add_argument("path", help="Path to JSON file")
     pp.set_defaults(func=cmd_preview)
@@ -426,9 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("stats", help="Show simple dataset statistics")
     st.set_defaults(func=cmd_stats)
 
-    # DuckDB reindex removed
-
-    # Postgres/Supabase BM25 optional commands (kept optional; default remains offline DuckDB)
+    # Postgres/Supabase BM25 optional commands
     def _pg_require() -> None:
         try:
             import psycopg  # type: ignore
@@ -685,9 +454,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit characters for printed body/snippet (0 for unlimited)",
     )
     pg_search.set_defaults(func=_cmd_pg_search)
-
-    # RAG MVP (DuckDB + ChromaDB) commands
-    # (removed) rag-index / rag-query commands to eliminate embeddings
 
     # LangGraph ask agent
     ask = sub.add_parser("ask", help="Agentic Q&A over local data (ReAct tool-use)")
