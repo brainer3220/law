@@ -1,14 +1,14 @@
 Law CLI
 =======
 
-Command-line tool to explore the legal JSON dataset in `data/` and query a Meilisearch-backed keyword index.
+Command-line tool to explore the legal JSON dataset in `data/` and query an OpenSearch-backed keyword index.
 
 Usage
 -----
 - Preview a file: `uv run main.py preview "data/.../민사법_유권해석_요약_518.json"`
 - Show stats: `uv run main.py stats`
-- Search Meilisearch index: `uv run main.py meili-search "가산금 면제" --limit 5`
-- Agentic ask (LangGraph over Meilisearch): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
+- Search OpenSearch index: `uv run main.py opensearch-search "가산금 면제" --limit 5`
+- Agentic ask (LangGraph over OpenSearch): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
 - Serve OpenAI-compatible API: `uv run main.py serve --host 127.0.0.1 --port 8080`
 
 OpenAI-Compatible API (Streaming)
@@ -47,7 +47,7 @@ Notes:
 
 Supabase/Postgres (optional; BM25 FTS)
 -------------------------------------
-Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; Meilisearch remains default.
+Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; OpenSearch remains default.
 
 1) Install optional dependency:
 ```
@@ -78,42 +78,44 @@ uv run main.py pg-search "근로시간 면제" --limit 5
 Notes:
 - Instance must have ParadeDB `pg_search` extension enabled. If not, request enablement or consider PGroonga/RUM (non-BM25) alternatives.
 
-Meilisearch search & ingestion
-------------------------------
-You can index the bundled sample documents into a running Meilisearch instance (default URL: `http://localhost:7700`) and query them via CLI or Python.
+OpenSearch search & ingestion
+-----------------------------
+You can index the bundled sample documents into a running OpenSearch cluster (default URL: `http://localhost:9200`) and query them via CLI or Python.
 
-1) Start Meilisearch locally (Docker example):
+1) Start OpenSearch locally (Docker example):
 ```
-docker run -it --rm -p 7700:7700 getmeili/meilisearch:v1.9.0
+docker run -it --rm -p 9200:9200 -p 9600:9600 \
+  -e "discovery.type=single-node" \
+  opensearchproject/opensearch:2.15.0
 ```
 
 2) Load the sample legal guidance files:
 ```
-uv run main.py meili-load --data-dir data/meilisearch
+uv run main.py opensearch-load --data-dir data/opensearch
 ```
 
 3) Query from the CLI:
 ```
-uv run main.py meili-search "가산금 면제" --limit 5
+uv run main.py opensearch-search "가산금 면제" --limit 5
 ```
 
 4) Query from Python:
 ```python
-from packages.legal_tools.meili_search import search_meilisearch
+from packages.legal_tools.opensearch_search import search_opensearch
 
-for hit in search_meilisearch("가산금 면제"):
+for hit in search_opensearch("가산금 면제"):
     print(hit.title, hit.snippet)
 ```
 
 Environment variables:
-- `MEILI_URL` / `MEILI_HTTP_ADDR` — override the base URL.
-- `MEILI_MASTER_KEY` / `MEILI_API_KEY` — supply an API key when security is enabled.
-- `MEILI_INDEX` — change the target index (defaults to `legal-docs`).
+- `LAW_OPENSEARCH_URL` / `OPENSEARCH_URL` — override the base URL.
+- `LAW_OPENSEARCH_API_KEY` — supply an API key; alternatively configure `LAW_OPENSEARCH_USERNAME` / `LAW_OPENSEARCH_PASSWORD` for basic auth.
+- `LAW_OPENSEARCH_INDEX` — change the target index (defaults to `legal-docs`).
 
 
 Notes
 -----
-- Search now uses Meilisearch. Ensure the index is populated (e.g., via `meili-load`) before running CLI or agent queries.
+- Search now uses OpenSearch. Ensure the index is populated (e.g., via `opensearch-load`) before running CLI or agent queries.
 - When introducing additional libraries later, check usage via Context7 per project guidance.
  - The `ask` command uses LangGraph with an LLM-driven controller that iteratively decides to search (keyword-only) or finish with a grounded answer. No vector embeddings are used.
 

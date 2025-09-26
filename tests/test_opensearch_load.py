@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.meilisearch_load import collect_documents, chunked
+from scripts.opensearch_load import collect_documents, chunked
 
 
 def make_sample(path: Path) -> None:

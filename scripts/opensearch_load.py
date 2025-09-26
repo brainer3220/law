@@ -6,9 +6,11 @@ import os
 import time
 from pathlib import Path
 from typing import Iterable, List, Optional
+from urllib.parse import quote
 
 try:  # pragma: no cover - optional dependency for CLI UX
     from tqdm import tqdm
+
     TQDM_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback when tqdm is unavailable
     TQDM_AVAILABLE = False
@@ -17,7 +19,7 @@ except ImportError:  # pragma: no cover - fallback when tqdm is unavailable
         return iterable
 
 from packages.env import load_env
-from packages.legal_tools.meili_client import request_json, resolve_index_uid
+from packages.legal_tools.opensearch_client import request_json, resolve_index_name
 
 load_env()
 
@@ -94,29 +96,37 @@ def build_body(data: dict) -> str:
     return "\n".join(info_pairs)
 
 
-def ensure_index(uid: str) -> None:
+def ensure_index(name: str) -> None:
     try:
-        request_json("GET", f"/indexes/{uid}")
+        request_json("GET", f"/{name}")
         return
     except RuntimeError as exc:
         if "404" not in str(exc):
             raise
-    request_json("POST", "/indexes", {"uid": uid, "primaryKey": "id"})
-    settings = {
-        "searchableAttributes": ["title", "body", "response_institute", "response_date", "task_type"],
-        "displayedAttributes": [
-            "id",
-            "doc_id",
-            "title",
-            "body",
-            "response_institute",
-            "response_date",
-            "task_type",
-            "source_path",
-        ],
-        "filterableAttributes": ["response_institute", "response_date", "task_type"],
+
+    body = {
+        "settings": {
+            "index": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+            }
+        },
+        "mappings": {
+            "dynamic": "true",
+            "properties": {
+                "id": {"type": "keyword"},
+                "doc_id": {"type": "keyword"},
+                "title": {"type": "text"},
+                "body": {"type": "text"},
+                "response_institute": {"type": "keyword"},
+                "response_date": {"type": "keyword"},
+                "task_type": {"type": "keyword"},
+                "source_path": {"type": "keyword"},
+                "meta": {"type": "object", "enabled": False},
+            },
+        },
     }
-    request_json("PATCH", f"/indexes/{uid}/settings", settings)
+    request_json("PUT", f"/{name}", body)
 
 
 def collect_documents(data_dir: Path, *, show_progress: bool = False) -> List[dict]:
@@ -172,7 +182,7 @@ def chunked(seq: List[dict], size: int) -> Iterable[List[dict]]:
 
 
 def upload_documents(
-    uid: str,
+    index_name: str,
     documents: List[dict],
     *,
     batch_size: int = 500,
@@ -198,7 +208,12 @@ def upload_documents(
     for batch in iterator:
         for attempt in range(1, max_retries + 1):
             try:
-                request_json("POST", f"/indexes/{uid}/documents", batch)
+                for doc in batch:
+                    doc_id = str(doc.get("id") or doc.get("doc_id") or "").strip()
+                    if not doc_id:
+                        raise RuntimeError("Document is missing an 'id' field")
+                    path = f"/{index_name}/_doc/{quote(doc_id, safe='')}"
+                    request_json("PUT", path, doc)
                 break
             except RuntimeError as exc:
                 if attempt == max_retries:
@@ -212,26 +227,41 @@ def upload_documents(
                 time.sleep(retry_delay)
 
 
-def main(*, data_dir: Optional[str] = None, index_uid: Optional[str] = None) -> int:
+def main(*, data_dir: Optional[str] = None, index_name: Optional[str] = None) -> int:
     if not logging.getLogger().handlers:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+        logging.basicConfig(
+            level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+        )
 
-    target_dir = Path(data_dir or os.getenv("LAW_MEILI_DATA_DIR") or "data/meilisearch")
+    target_dir = Path(
+        data_dir
+        or os.getenv("LAW_SEARCH_DATA_DIR")
+        or os.getenv("LAW_MEILI_DATA_DIR")
+        or "data/opensearch"
+    )
     if not target_dir.exists():
         print(f"Data directory not found: {target_dir}")
         return 2
 
-    uid = resolve_index_uid(index_uid)
-    ensure_index(uid)
+    name = resolve_index_name(index_name)
+    ensure_index(name)
 
     documents = collect_documents(target_dir, show_progress=True)
     if not documents:
         print(f"No documents discovered under {target_dir}")
         return 1
 
-    upload_documents(uid, documents, show_progress=True)
-    print(f"Indexed {len(documents)} documents into Meilisearch index '{uid}'.")
+    upload_documents(name, documents, show_progress=True)
+    print(f"Indexed {len(documents)} documents into OpenSearch index '{name}'.")
     return 0
+
+__all__ = [
+    "collect_documents",
+    "chunked",
+    "ensure_index",
+    "main",
+    "upload_documents",
+]
 
 
 if __name__ == "__main__":
