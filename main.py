@@ -292,7 +292,7 @@ def search_records(
 
 
 def cmd_search(args: argparse.Namespace) -> None:
-    raise SystemExit("DuckDB search is removed. Use `pg-search` with Postgres.")
+    raise SystemExit("DuckDB search is removed. Use `meili-search` instead.")
 
 
 def cmd_preview(args: argparse.Namespace) -> None:
@@ -593,6 +593,71 @@ def build_parser() -> argparse.ArgumentParser:
     pg_load = sub.add_parser("pg-load", help="Ingest local JSON into Supabase/Postgres")
     pg_load.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     pg_load.set_defaults(func=_cmd_pg_load)
+
+    def _cmd_meili_load(a: argparse.Namespace) -> None:
+        from scripts.meilisearch_load import main as meili_main  # type: ignore
+
+        rc = meili_main(data_dir=getattr(a, "data_dir", None), index_uid=getattr(a, "index", None))
+        if rc != 0:
+            raise SystemExit(rc)
+
+    def _cmd_meili_search(a: argparse.Namespace) -> None:
+        from packages.legal_tools.meili_search import search_meilisearch  # type: ignore
+
+        docs = search_meilisearch(
+            a.query,
+            limit=int(getattr(a, "limit", 10) or 10),
+            offset=int(getattr(a, "offset", 0) or 0),
+            index_uid=getattr(a, "index", None),
+        )
+        if not docs:
+            print("No matches.")
+            return
+        for i, doc in enumerate(docs, start=1):
+            snippet = doc.snippet or doc.body or ""
+            max_chars = int(getattr(a, "chars", 160) or 0)
+            if not getattr(a, "full", False):
+                if max_chars and len(snippet) > max_chars:
+                    snippet = snippet[: max_chars - 3] + "..."
+            print(f"[{i}] {doc.title} ({doc.doc_id or doc.id}) score={doc.score:.4f}")
+            if doc.source_path:
+                print(f"    {doc.source_path}")
+            if getattr(a, "full", False):
+                body = doc.body or ""
+                if max_chars and len(body) > max_chars:
+                    body = body[: max_chars - 3] + "..."
+                if body:
+                    print(f"    {body}")
+            else:
+                if snippet:
+                    print(f"    \"{snippet}\"")
+
+    meili_load = sub.add_parser("meili-load", help="Ingest local JSON into Meilisearch")
+    meili_load.add_argument(
+        "--data-dir",
+        dest="data_dir",
+        help="Path to data directory (default: ./data/meilisearch)",
+    )
+    meili_load.add_argument(
+        "--index",
+        dest="index",
+        help="Meilisearch index UID (default: legal-docs)",
+    )
+    meili_load.set_defaults(func=_cmd_meili_load)
+
+    meili_search = sub.add_parser("meili-search", help="Search Meilisearch index")
+    meili_search.add_argument("query", help="Keyword to search")
+    meili_search.add_argument("--limit", type=int, default=10)
+    meili_search.add_argument("--offset", type=int, default=0, help="Result offset for pagination")
+    meili_search.add_argument("--index", dest="index", help="Meilisearch index UID (default: env or legal-docs)")
+    meili_search.add_argument("--full", action="store_true", help="Print full body instead of snippet")
+    meili_search.add_argument(
+        "--chars",
+        type=int,
+        default=0,
+        help="Limit characters for printed body/snippet (0 for unlimited)",
+    )
+    meili_search.set_defaults(func=_cmd_meili_search)
 
     def _cmd_pg_load_jsonl(a: argparse.Namespace) -> None:
         # Load newline-delimited JSON (id, casetype, casename, facts) into legal_docs

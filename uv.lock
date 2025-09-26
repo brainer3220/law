@@ -645,6 +645,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "structlog" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -657,6 +658,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "structlog", specifier = ">=24.4" },
+    { name = "tqdm", specifier = ">=4.66" },
 ]
 
 [[package]]

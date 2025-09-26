@@ -6,8 +6,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import structlog
-from pydantic import BaseModel, Field
+try:  # pragma: no cover - optional dependency fallback
+    import structlog
+except ImportError:  # pragma: no cover - fallback to stdlib logging
+    import logging
+
+    class _StructlogShim:
+        def get_logger(self, name: str):  # type: ignore[override]
+            return logging.getLogger(name)
+
+    structlog = _StructlogShim()  # type: ignore
+
+try:  # pragma: no cover - optional dependency fallback
+    from pydantic import BaseModel, Field
+except ImportError:  # pragma: no cover - minimal shim
+    class BaseModel:  # type: ignore
+        def __init__(self, **data):
+            for key, value in data.items():
+                setattr(self, key, value)
+
+        def model_dump(self, *_, **__):
+            return self.__dict__.copy()
+
+        @classmethod
+        def model_validate(cls, data):
+            return data if isinstance(data, cls) else cls(**data)
+
+    def Field(default=None, **kwargs):  # type: ignore
+        return default
 from typing_extensions import Literal
 
 from packages.legal_tools.law_go_kr import (
@@ -24,11 +50,12 @@ from packages.legal_tools.law_go_kr import (
     search_law,
     search_law_interpretations,
 )
+from packages.legal_tools.meili_search import MeiliDoc, search_meilisearch
 
 logger = structlog.get_logger(__name__)
 _LLM_BLOCKED: bool = False
-_PG_AVAILABLE: bool = True
-_PG_ERROR: Optional[str] = None
+_MEILI_AVAILABLE: bool = True
+_MEILI_ERROR: Optional[str] = None
 
 
 def _llm_provider() -> str:
@@ -572,63 +599,56 @@ def _law_metadata_snippet(detail: LawDetailResponse) -> str:
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
-    global _PG_AVAILABLE, _PG_ERROR
-    if not _PG_AVAILABLE:
-        if _PG_ERROR:
-            logger.debug("search_keyword_skip_pg", reason=_PG_ERROR)
+    global _MEILI_AVAILABLE, _MEILI_ERROR
+    if not _MEILI_AVAILABLE:
+        if _MEILI_ERROR:
+            logger.debug("search_keyword_skip_meili", reason=_MEILI_ERROR)
         return []
 
-    try:  # pragma: no cover - optional dependency path
-        from packages.legal_tools.pg_search import search_bm25
-    except Exception as exc:  # pragma: no cover - optional dependency
-        _PG_AVAILABLE = False
-        _PG_ERROR = f"Postgres backend unavailable: {exc}"
-        logger.warning("search_keyword_pg_unavailable", error=_PG_ERROR)
-        return []
-
-    logger.info("search_keyword_start", query=query, limit=limit)
+    logger.info("search_keyword_start", query=query, limit=limit, backend="meilisearch")
     try:
-        rows = search_bm25(query, limit=max(5, limit))
+        docs: List[MeiliDoc] = search_meilisearch(query, limit=max(5, limit))
     except Exception as exc:
-        _PG_AVAILABLE = False
-        _PG_ERROR = f"Postgres search failed: {exc}"
-        logger.warning("search_keyword_pg_failed", error=_PG_ERROR)
+        _MEILI_AVAILABLE = False
+        _MEILI_ERROR = f"Meilisearch search failed: {exc}"
+        logger.warning("search_keyword_meili_failed", error=_MEILI_ERROR)
         return []
+
+    def _paginate_text(text: str, page_chars: int = 400, max_pages: int = 3) -> List[str]:
+        text = text.strip()
+        if len(text) <= page_chars:
+            return [text]
+        pages: List[str] = []
+        start = 0
+        for _ in range(max_pages):
+            if start >= len(text):
+                break
+            end = min(len(text), start + page_chars)
+            if end < len(text):
+                ws = text.rfind(" ", start, end)
+                if ws != -1 and ws > start + int(page_chars * 0.5):
+                    end = ws
+            pages.append(text[start:end].strip())
+            start = end
+        if start < len(text) and pages:
+            pages[-1] = pages[-1] + "..."
+        return pages or [text]
+
     hits: List[Hit] = []
-    for r in rows:
-        snippet = r.snippet or ""
-        if context_chars and r.body:
-            ctx = r.body or ""
+    for doc in docs:
+        snippet = doc.snippet or ""
+        if context_chars and doc.body:
+            ctx = doc.body
             if context_chars > 0 and len(ctx) > context_chars:
                 ctx = ctx[: context_chars - 3] + "..."
             snippet = (snippet + "\n" + ctx).strip()
 
-        def _paginate_text(text: str, page_chars: int = 400, max_pages: int = 3) -> List[str]:
-            text = text.strip()
-            if len(text) <= page_chars:
-                return [text]
-            pages: List[str] = []
-            start = 0
-            for _ in range(max_pages):
-                if start >= len(text):
-                    break
-                end = min(len(text), start + page_chars)
-                if end < len(text):
-                    ws = text.rfind(" ", start, end)
-                    if ws != -1 and ws > start + int(page_chars * 0.5):
-                        end = ws
-                pages.append(text[start:end].strip())
-                start = end
-            if start < len(text) and pages:
-                pages[-1] = pages[-1] + "..."
-            return pages or [text]
-
         try:
-            path = Path(r.path) if r.path else Path("")
+            path = Path(doc.source_path) if doc.source_path else Path("")
         except Exception:
             path = Path("")
         approx_chars = max(200, min(800, (context_chars or 800) // 2))
-        pages = _paginate_text(snippet, page_chars=approx_chars, max_pages=3)
+        pages = _paginate_text(snippet or doc.body or "", page_chars=approx_chars, max_pages=3)
         total = len(pages)
         for idx, page_text in enumerate(pages, start=1):
             if len(page_text) > 1200:
@@ -637,9 +657,9 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
                 Hit(
                     source="keyword",
                     path=path,
-                    doc_id=r.doc_id,
-                    title=r.title,
-                    score=r.score,
+                    doc_id=doc.doc_id or doc.id,
+                    title=doc.title,
+                    score=doc.score,
                     snippet=page_text,
                     page_index=idx,
                     page_total=total,
@@ -700,7 +720,7 @@ def _offline_summary(question: str, observations: str) -> str:
         return (
             "# 사건 정보\n(관측된 스니펫 없음 — 사건 정보 제공 불가)\n\n"
             "# 요약\n"
-            "관측된 스니펫이 제공되지 않아 근거 기반 요약을 생성할 수 없습니다. 관련 스니펫을 확보하거나 Postgres 검색 구성을 확인하세요.\n\n"
+            "관측된 스니펫이 제공되지 않아 근거 기반 요약을 생성할 수 없습니다. 관련 스니펫을 확보하거나 Meilisearch 인덱스를 확인하세요.\n\n"
             "# 법원 판단(핵심)\n"
             "인용할 스니펫이 없어 법원 판단을 제시할 수 없습니다.\n\n"
             "# 결론\n"
@@ -845,7 +865,7 @@ class LangChainToolAgent:
             "done": True,
             "intermediate_steps": list(intermediate_steps),
             **({"error": error} if error else {}),
-            **({"search_error": _PG_ERROR} if _PG_ERROR else {}),
+            **({"search_error": _MEILI_ERROR} if _MEILI_ERROR else {}),
             "llm_provider": _llm_provider(),
         }
 
@@ -853,11 +873,11 @@ class LangChainToolAgent:
         text = answer or "(LLM 응답이 비어있습니다)"
         if not text.strip():
             text = "(LLM 응답이 비어있습니다)"
-        if _PG_ERROR and "Postgres" not in text:
+        if _MEILI_ERROR and "Meilisearch" not in text:
             text = (
                 text
-                + "\n\n> 참고: Postgres 검색 백엔드를 사용할 수 없어 로컬 스니펫을 찾지 못했습니다. "
-                + _PG_ERROR
+                + "\n\n> 참고: Meilisearch 검색 백엔드를 사용할 수 없어 로컬 스니펫을 찾지 못했습니다. "
+                + _MEILI_ERROR
             )
         return text
 
@@ -882,10 +902,10 @@ class LangChainToolAgent:
             hits = _dedupe_hits(hits)
             formatted = store.add_hits(hits)
             store.record_action("keyword_search", {"query": q, "note": formatted[:200]})
-            if not _PG_AVAILABLE:
-                # Postgres backend disabled; no point continuing additional queries
-                if _PG_ERROR:
-                    store.record_action("keyword_search", {"query": q, "backend_disabled": _PG_ERROR})
+            if not _MEILI_AVAILABLE:
+                # Meilisearch backend disabled; no point continuing additional queries
+                if _MEILI_ERROR:
+                    store.record_action("keyword_search", {"query": q, "backend_disabled": _MEILI_ERROR})
                 break
 
     def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
@@ -901,7 +921,7 @@ class LangChainToolAgent:
                     """
 당신은 한국어 법률 리서치 에이전트입니다. 제공된 도구를 사용하여 질문에 대한 근거 기반 답변을 작성하세요.
 도구 목록:
-- keyword_search: Postgres BM25를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
+- keyword_search: Meilisearch 인덱스를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
 - law_statute_search: law.go.kr 법령 검색 API로 법령명·공포일자 등 메타데이터를 확인합니다.
 - law_statute_detail: law.go.kr 법령 본문 조회 API로 특정 조문 내용을 살펴봅니다.
 - law_interpretation_search: law.go.kr 법령해석례 검색 API로 질의·회답 사례를 찾습니다.
@@ -1194,7 +1214,7 @@ class LangChainToolAgent:
                 keyword_tool,
                 name="keyword_search",
                 args_schema=KeywordSearchArgs,
-                description="Postgres BM25 법률 검색. 판례나 행정해석을 찾을 때 사용",
+                description="Meilisearch 법률 검색. 판례나 행정해석을 찾을 때 사용",
             ),
             StructuredTool.from_function(
                 law_search_tool,
