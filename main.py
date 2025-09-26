@@ -363,21 +363,23 @@ def build_parser() -> argparse.ArgumentParser:
     pg_load.add_argument("--data-dir", dest="data_dir", help="Path to data directory (default: ./data)")
     pg_load.set_defaults(func=_cmd_pg_load)
 
-    def _cmd_meili_load(a: argparse.Namespace) -> None:
-        from scripts.meilisearch_load import main as meili_main  # type: ignore
+    def _cmd_opensearch_load(a: argparse.Namespace) -> None:
+        from scripts.opensearch_load import main as opensearch_main  # type: ignore
 
-        rc = meili_main(data_dir=getattr(a, "data_dir", None), index_uid=getattr(a, "index", None))
+        rc = opensearch_main(
+            data_dir=getattr(a, "data_dir", None), index_name=getattr(a, "index", None)
+        )
         if rc != 0:
             raise SystemExit(rc)
 
-    def _cmd_meili_search(a: argparse.Namespace) -> None:
-        from packages.legal_tools.meili_search import search_meilisearch  # type: ignore
+    def _cmd_opensearch_search(a: argparse.Namespace) -> None:
+        from packages.legal_tools.opensearch_search import search_opensearch  # type: ignore
 
-        docs = search_meilisearch(
+        docs = search_opensearch(
             a.query,
             limit=int(getattr(a, "limit", 10) or 10),
             offset=int(getattr(a, "offset", 0) or 0),
-            index_uid=getattr(a, "index", None),
+            index=getattr(a, "index", None),
         )
         if not docs:
             print("No matches.")
@@ -401,32 +403,40 @@ def build_parser() -> argparse.ArgumentParser:
                 if snippet:
                     print(f"    \"{snippet}\"")
 
-    meili_load = sub.add_parser("meili-load", help="Ingest local JSON into Meilisearch")
-    meili_load.add_argument(
+    opensearch_load = sub.add_parser(
+        "opensearch-load", help="Ingest local JSON into OpenSearch"
+    )
+    opensearch_load.add_argument(
         "--data-dir",
         dest="data_dir",
-        help="Path to data directory (default: ./data/meilisearch)",
+        help="Path to data directory (default: ./data/opensearch)",
     )
-    meili_load.add_argument(
+    opensearch_load.add_argument(
         "--index",
         dest="index",
-        help="Meilisearch index UID (default: legal-docs)",
+        help="OpenSearch index name (default: legal-docs)",
     )
-    meili_load.set_defaults(func=_cmd_meili_load)
+    opensearch_load.set_defaults(func=_cmd_opensearch_load)
 
-    meili_search = sub.add_parser("meili-search", help="Search Meilisearch index")
-    meili_search.add_argument("query", help="Keyword to search")
-    meili_search.add_argument("--limit", type=int, default=10)
-    meili_search.add_argument("--offset", type=int, default=0, help="Result offset for pagination")
-    meili_search.add_argument("--index", dest="index", help="Meilisearch index UID (default: env or legal-docs)")
-    meili_search.add_argument("--full", action="store_true", help="Print full body instead of snippet")
-    meili_search.add_argument(
+    opensearch_search = sub.add_parser("opensearch-search", help="Search OpenSearch index")
+    opensearch_search.add_argument("query", help="Keyword to search")
+    opensearch_search.add_argument("--limit", type=int, default=10)
+    opensearch_search.add_argument(
+        "--offset", type=int, default=0, help="Result offset for pagination"
+    )
+    opensearch_search.add_argument(
+        "--index", dest="index", help="OpenSearch index name (default: env or legal-docs)"
+    )
+    opensearch_search.add_argument(
+        "--full", action="store_true", help="Print full body instead of snippet"
+    )
+    opensearch_search.add_argument(
         "--chars",
         type=int,
         default=0,
         help="Limit characters for printed body/snippet (0 for unlimited)",
     )
-    meili_search.set_defaults(func=_cmd_meili_search)
+    opensearch_search.set_defaults(func=_cmd_opensearch_search)
 
     def _cmd_pg_load_jsonl(a: argparse.Namespace) -> None:
         # Load newline-delimited JSON (id, casetype, casename, facts) into legal_docs

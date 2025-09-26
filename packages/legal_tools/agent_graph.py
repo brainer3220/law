@@ -50,12 +50,12 @@ from packages.legal_tools.law_go_kr import (
     search_law,
     search_law_interpretations,
 )
-from packages.legal_tools.meili_search import MeiliDoc, search_meilisearch
+from packages.legal_tools.opensearch_search import OpenSearchDoc, search_opensearch
 
 logger = structlog.get_logger(__name__)
 _LLM_BLOCKED: bool = False
-_MEILI_AVAILABLE: bool = True
-_MEILI_ERROR: Optional[str] = None
+_OPENSEARCH_AVAILABLE: bool = True
+_OPENSEARCH_ERROR: Optional[str] = None
 
 
 def _llm_provider() -> str:
@@ -599,19 +599,19 @@ def _law_metadata_snippet(detail: LawDetailResponse) -> str:
 
 
 def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
-    global _MEILI_AVAILABLE, _MEILI_ERROR
-    if not _MEILI_AVAILABLE:
-        if _MEILI_ERROR:
-            logger.debug("search_keyword_skip_meili", reason=_MEILI_ERROR)
+    global _OPENSEARCH_AVAILABLE, _OPENSEARCH_ERROR
+    if not _OPENSEARCH_AVAILABLE:
+        if _OPENSEARCH_ERROR:
+            logger.debug("search_keyword_skip_opensearch", reason=_OPENSEARCH_ERROR)
         return []
 
-    logger.info("search_keyword_start", query=query, limit=limit, backend="meilisearch")
+    logger.info("search_keyword_start", query=query, limit=limit, backend="opensearch")
     try:
-        docs: List[MeiliDoc] = search_meilisearch(query, limit=max(5, limit))
+        docs: List[OpenSearchDoc] = search_opensearch(query, limit=max(5, limit))
     except Exception as exc:
-        _MEILI_AVAILABLE = False
-        _MEILI_ERROR = f"Meilisearch search failed: {exc}"
-        logger.warning("search_keyword_meili_failed", error=_MEILI_ERROR)
+        _OPENSEARCH_AVAILABLE = False
+        _OPENSEARCH_ERROR = f"OpenSearch search failed: {exc}"
+        logger.warning("search_keyword_opensearch_failed", error=_OPENSEARCH_ERROR)
         return []
 
     def _paginate_text(text: str, page_chars: int = 400, max_pages: int = 3) -> List[str]:
@@ -720,7 +720,7 @@ def _offline_summary(question: str, observations: str) -> str:
         return (
             "# 사건 정보\n(관측된 스니펫 없음 — 사건 정보 제공 불가)\n\n"
             "# 요약\n"
-            "관측된 스니펫이 제공되지 않아 근거 기반 요약을 생성할 수 없습니다. 관련 스니펫을 확보하거나 Meilisearch 인덱스를 확인하세요.\n\n"
+            "관측된 스니펫이 제공되지 않아 근거 기반 요약을 생성할 수 없습니다. 관련 스니펫을 확보하거나 OpenSearch 인덱스를 확인하세요.\n\n"
             "# 법원 판단(핵심)\n"
             "인용할 스니펫이 없어 법원 판단을 제시할 수 없습니다.\n\n"
             "# 결론\n"
@@ -865,7 +865,7 @@ class LangChainToolAgent:
             "done": True,
             "intermediate_steps": list(intermediate_steps),
             **({"error": error} if error else {}),
-            **({"search_error": _MEILI_ERROR} if _MEILI_ERROR else {}),
+            **({"search_error": _OPENSEARCH_ERROR} if _OPENSEARCH_ERROR else {}),
             "llm_provider": _llm_provider(),
         }
 
@@ -873,11 +873,11 @@ class LangChainToolAgent:
         text = answer or "(LLM 응답이 비어있습니다)"
         if not text.strip():
             text = "(LLM 응답이 비어있습니다)"
-        if _MEILI_ERROR and "Meilisearch" not in text:
+        if _OPENSEARCH_ERROR and "OpenSearch" not in text:
             text = (
                 text
-                + "\n\n> 참고: Meilisearch 검색 백엔드를 사용할 수 없어 로컬 스니펫을 찾지 못했습니다. "
-                + _MEILI_ERROR
+                + "\n\n> 참고: OpenSearch 검색 백엔드를 사용할 수 없어 로컬 스니펫을 찾지 못했습니다. "
+                + _OPENSEARCH_ERROR
             )
         return text
 
@@ -902,10 +902,13 @@ class LangChainToolAgent:
             hits = _dedupe_hits(hits)
             formatted = store.add_hits(hits)
             store.record_action("keyword_search", {"query": q, "note": formatted[:200]})
-            if not _MEILI_AVAILABLE:
-                # Meilisearch backend disabled; no point continuing additional queries
-                if _MEILI_ERROR:
-                    store.record_action("keyword_search", {"query": q, "backend_disabled": _MEILI_ERROR})
+            if not _OPENSEARCH_AVAILABLE:
+                # OpenSearch backend disabled; no point continuing additional queries
+                if _OPENSEARCH_ERROR:
+                    store.record_action(
+                        "keyword_search",
+                        {"query": q, "backend_disabled": _OPENSEARCH_ERROR},
+                    )
                 break
 
     def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
@@ -921,7 +924,7 @@ class LangChainToolAgent:
                     """
 당신은 한국어 법률 리서치 에이전트입니다. 제공된 도구를 사용하여 질문에 대한 근거 기반 답변을 작성하세요.
 도구 목록:
-- keyword_search: Meilisearch 인덱스를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
+- keyword_search: OpenSearch 인덱스를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
 - law_statute_search: law.go.kr 법령 검색 API로 법령명·공포일자 등 메타데이터를 확인합니다.
 - law_statute_detail: law.go.kr 법령 본문 조회 API로 특정 조문 내용을 살펴봅니다.
 - law_interpretation_search: law.go.kr 법령해석례 검색 API로 질의·회답 사례를 찾습니다.
@@ -1214,7 +1217,7 @@ class LangChainToolAgent:
                 keyword_tool,
                 name="keyword_search",
                 args_schema=KeywordSearchArgs,
-                description="Meilisearch 법률 검색. 판례나 행정해석을 찾을 때 사용",
+                description="OpenSearch 법률 검색. 판례나 행정해석을 찾을 때 사용",
             ),
             StructuredTool.from_function(
                 law_search_tool,
