@@ -1,13 +1,14 @@
 Law CLI
 =======
 
-Command-line tool to explore the legal JSON dataset in `data/` and query a Postgres-backed full-text index (BM25 when available).
+Command-line tool to explore the legal JSON dataset in `data/` and query a Meilisearch-backed keyword index.
 
 Usage
 -----
 - Preview a file: `uv run main.py preview "data/.../민사법_유권해석_요약_518.json"`
 - Show stats: `uv run main.py stats`
-- Agentic ask (LangGraph over Postgres): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
+- Search Meilisearch index: `uv run main.py meili-search "가산금 면제" --limit 5`
+- Agentic ask (LangGraph over Meilisearch): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
 - Serve OpenAI-compatible API: `uv run main.py serve --host 127.0.0.1 --port 8080`
 
 OpenAI-Compatible API (Streaming)
@@ -77,9 +78,9 @@ uv run main.py pg-search "근로시간 면제" --limit 5
 Notes:
 - Instance must have ParadeDB `pg_search` extension enabled. If not, request enablement or consider PGroonga/RUM (non-BM25) alternatives.
 
-Meilisearch (optional)
-----------------------
-You can index the bundled sample documents into a running Meilisearch instance (default URL: `http://localhost:7700`).
+Meilisearch search & ingestion
+------------------------------
+You can index the bundled sample documents into a running Meilisearch instance (default URL: `http://localhost:7700`) and query them via CLI or Python.
 
 1) Start Meilisearch locally (Docker example):
 ```
@@ -91,7 +92,12 @@ docker run -it --rm -p 7700:7700 getmeili/meilisearch:v1.9.0
 uv run main.py meili-load --data-dir data/meilisearch
 ```
 
-3) Query from Python:
+3) Query from the CLI:
+```
+uv run main.py meili-search "가산금 면제" --limit 5
+```
+
+4) Query from Python:
 ```python
 from packages.legal_tools.meili_search import search_meilisearch
 
@@ -107,7 +113,7 @@ Environment variables:
 
 Notes
 -----
-- Search now uses Postgres. If ParadeDB `pg_search` is enabled, queries use BM25 with snippets; otherwise, it falls back to PostgreSQL FTS.
+- Search now uses Meilisearch. Ensure the index is populated (e.g., via `meili-load`) before running CLI or agent queries.
 - When introducing additional libraries later, check usage via Context7 per project guidance.
  - The `ask` command uses LangGraph with an LLM-driven controller that iteratively decides to search (keyword-only) or finish with a grounded answer. No vector embeddings are used.
 
