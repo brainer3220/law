@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - optional dependency fallback
     import structlog
-except Exception:  # pragma: no cover - fallback to stdlib logging
+except ImportError:  # pragma: no cover - fallback to stdlib logging
     import logging
 
     class _StructlogShim:
@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover - fallback to stdlib logging
 
 try:  # pragma: no cover - optional dependency fallback
     from pydantic import BaseModel, Field
-except Exception:  # pragma: no cover - minimal shim
+except ImportError:  # pragma: no cover - minimal shim
     class BaseModel:  # type: ignore
         def __init__(self, **data):
             for key, value in data.items():
@@ -30,9 +30,7 @@ except Exception:  # pragma: no cover - minimal shim
 
         @classmethod
         def model_validate(cls, data):
-            if isinstance(data, cls):
-                return data
-            return cls(**data)
+            return data if isinstance(data, cls) else cls(**data)
 
     def Field(default=None, **kwargs):  # type: ignore
         return default

@@ -419,7 +419,7 @@ def _call_api(*, params: Dict[str, Any], base_url: str, timeout: float) -> Dict[
             charset = resp.headers.get_content_charset() if resp.headers else None
             raw = resp.read()
             duration = time.perf_counter() - start_time
-            headers_obj = resp.headers if resp.headers else None
+            headers_obj = resp.headers or None
             if headers_obj and hasattr(headers_obj, "items"):
                 header_map = dict(headers_obj.items())
             else:

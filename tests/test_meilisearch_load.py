@@ -39,7 +39,22 @@ def test_collect_documents_builds_expected_fields(tmp_path: Path) -> None:
     assert doc["response_institute"] == "고용노동부"
 
 
+def test_collect_documents_skips_invalid_json(tmp_path: Path) -> None:
+    data_dir = tmp_path / "docs"
+    data_dir.mkdir()
+    make_sample(data_dir / "sample.json")
+    (data_dir / "invalid.json").write_text("{not valid json", encoding="utf-8")
+
+    docs = collect_documents(data_dir)
+    assert len(docs) == 1
+    assert docs[0]["id"] == "DOC-1"
+
+
 def test_chunked_batches_list(tmp_path: Path) -> None:
     batches = list(chunked([{"id": str(i)} for i in range(5)], 2))
     assert len(batches) == 3
     assert [len(b) for b in batches] == [2, 2, 1]
+
+
+def test_chunked_handles_empty_list() -> None:
+    assert list(chunked([], 3)) == []

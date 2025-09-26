@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable, Union
 
 try:  # pragma: no cover - optional dependency
     from dotenv import find_dotenv, load_dotenv
-except Exception:  # pragma: no cover - fallback when python-dotenv is missing
+except ImportError:  # pragma: no cover - fallback when python-dotenv is missing
+    _dotenv_warning_emitted = False
+
+    def _warn_missing_dotenv() -> None:
+        global _dotenv_warning_emitted
+        if not _dotenv_warning_emitted:
+            logging.getLogger(__name__).warning(
+                "python-dotenv is not installed; skipping .env auto-loading."
+            )
+            _dotenv_warning_emitted = True
+
     def find_dotenv(*args, **kwargs):  # type: ignore
+        _warn_missing_dotenv()
         return ""
 
     def load_dotenv(*args, **kwargs):  # type: ignore
+        _warn_missing_dotenv()
         return False
 
 
