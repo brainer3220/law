@@ -90,9 +90,8 @@ def search_opensearch(
         if not isinstance(item, dict):
             continue
         source = item.get("_source") or {}
-        snippet = _build_highlight_snippet(item)
-        if not snippet:
-            snippet = source.get("body") or source.get("title") or ""
+        snippet = _build_highlight_snippet(item) or (source.get("body") or source.get("title") or "")
+
         score = 0.0
         if isinstance(raw_score := item.get("_score"), (int, float)):
             score = float(raw_score)
