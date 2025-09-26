@@ -90,8 +90,8 @@ def request_json(
         headers["Authorization"] = f"ApiKey {key}"
     else:
         username, password = basic_auth()
-        if username:
-            token = base64.b64encode(f"{username}:{password or ''}".encode("utf-8"))
+        if username and password:
+            token = base64.b64encode(f"{username}:{password}".encode("utf-8"))
             headers["Authorization"] = f"Basic {token.decode('ascii')}"
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = request.Request(url, data=data, method=method, headers=headers)
