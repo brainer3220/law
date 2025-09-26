@@ -57,8 +57,8 @@ def search_opensearch(
                 "type": "best_fields",
             }
         },
-        "from": max(0, int(offset)),
-        "size": max(0, int(limit)),
+        "from": max(0, offset),
+        "size": max(0, limit),
         "_source": [
             "id",
             "doc_id",
