@@ -12,15 +12,31 @@ from typing import Any, Dict, List, Optional, Tuple
 from packages.legal_tools.agent_graph import run_ask
 
 
-def _extract_question(messages: List[Dict[str, Any]]) -> str:
-    """Extract the latest user message content as the question."""
-    if not messages:
-        return ""
-    question = ""
-    for m in messages:
-        if str(m.get("role", "")).lower() == "user":
-            question = str(m.get("content", ""))
-    return question
+def _partition_history_and_question(
+    messages: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, str]], str]:
+    """Split OpenAI-style chat messages into history and the latest question."""
+
+    normalized: List[Dict[str, str]] = []
+    last_user_index: Optional[int] = None
+
+    for raw in messages:
+        role = str(raw.get("role", "")).strip().lower()
+        content = str(raw.get("content", ""))
+        if not content:
+            continue
+        if role not in {"system", "user", "assistant"}:
+            continue
+        normalized.append({"role": role, "content": content})
+        if role == "user":
+            last_user_index = len(normalized) - 1
+
+    if last_user_index is None:
+        return normalized, ""
+
+    question = normalized[last_user_index]["content"]
+    history = normalized[:last_user_index]
+    return history, question
 
 
 def _json_response(obj: Dict[str, Any]) -> bytes:
@@ -64,12 +80,18 @@ class ChatHandler(BaseHTTPRequestHandler):
         # Resolve data directory
         data_dir = Path(os.getenv("LAW_DATA_DIR") or "data")
 
-        question = _extract_question(messages)
+        history, question = _partition_history_and_question(messages)
         created = int(time.time())
         chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 
         # Run the agent (blocking). We stream the resulting answer in chunks if requested.
-        result = run_ask(question, data_dir=data_dir, top_k=top_k, max_iters=max_iters)
+        result = run_ask(
+            question,
+            data_dir=data_dir,
+            top_k=top_k,
+            max_iters=max_iters,
+            history=history,
+        )
         answer: str = (result.get("answer") or "").strip()
 
         if stream:
@@ -89,7 +111,11 @@ class ChatHandler(BaseHTTPRequestHandler):
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": len(answer), "total_tokens": len(answer)},
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": len(answer),
+                "total_tokens": len(answer),
+            },
         }
         body = _json_response(resp)
         self.send_response(HTTPStatus.OK)
@@ -98,7 +124,9 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _stream_answer(self, chat_id: str, model: str, created: int, answer: str) -> None:
+    def _stream_answer(
+        self, chat_id: str, model: str, created: int, answer: str
+    ) -> None:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -112,7 +140,9 @@ class ChatHandler(BaseHTTPRequestHandler):
             "object": "chat.completion.chunk",
             "created": created,
             "model": model,
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            "choices": [
+                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
+            ],
         }
         self._sse_send(first)
 

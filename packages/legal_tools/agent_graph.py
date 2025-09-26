@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - fallback to stdlib logging
 try:  # pragma: no cover - optional dependency fallback
     from pydantic import BaseModel, Field
 except ImportError:  # pragma: no cover - minimal shim
+
     class BaseModel:  # type: ignore
         def __init__(self, **data):
             for key, value in data.items():
@@ -34,6 +35,8 @@ except ImportError:  # pragma: no cover - minimal shim
 
     def Field(default=None, **kwargs):  # type: ignore
         return default
+
+
 from typing_extensions import Literal
 
 from packages.legal_tools.law_go_kr import (
@@ -81,7 +84,9 @@ def _llm_enabled() -> bool:
         return False
     provider = _llm_provider()
     if provider == "gemini":
-        return bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+        return bool(
+            os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        )
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
@@ -143,7 +148,11 @@ class EvidenceStore:
         snippet = re.sub(r"\s+", " ", hit.snippet.strip())
         if len(snippet) > 380:
             snippet = snippet[:377] + "..."
-        page_pin = f"p{hit.page_index}/{hit.page_total}" if (hit.page_index and hit.page_total) else None
+        page_pin = (
+            f"p{hit.page_index}/{hit.page_total}"
+            if (hit.page_index and hit.page_total)
+            else None
+        )
         line_pin = f"L{hit.line_no}" if hit.line_no else None
         pin = page_pin or line_pin or "snippet"
         return f"[{idx}] {hit.title} ({hit.doc_id}) {pin}: {snippet}"
@@ -205,17 +214,19 @@ class KeywordSearchArgs(BaseModel):
 
 class LawSearchArgs(BaseModel):
     query: str = Field(..., description='법령명 검색 질의 (예: "자동차관리법")')
-    search: Optional[int] = Field(
-        None, description="검색범위 (1: 법령명, 2: 본문검색)"
-    )
+    search: Optional[int] = Field(None, description="검색범위 (1: 법령명, 2: 본문검색)")
     display: Optional[int] = Field(None, description="표시 건수 (1-100)")
     page: Optional[int] = Field(None, description="결과 페이지 (1부터)")
     sort: Optional[str] = Field(
         None,
         description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes, efasc, efdes)",
     )
-    ef_yd: Optional[str] = Field(None, description="시행일자 범위 (예: 20090101~20090130)")
-    anc_yd: Optional[str] = Field(None, description="공포일자 범위 (예: 20090101~20090130)")
+    ef_yd: Optional[str] = Field(
+        None, description="시행일자 범위 (예: 20090101~20090130)"
+    )
+    anc_yd: Optional[str] = Field(
+        None, description="공포일자 범위 (예: 20090101~20090130)"
+    )
     anc_no: Optional[str] = Field(None, description="공포번호 범위 (예: 306~400)")
     rr_cls_cd: Optional[str] = Field(None, description="제개정 구분 코드")
     nb: Optional[int] = Field(None, description="공포번호 검색")
@@ -236,7 +247,9 @@ class LawDetailArgs(BaseModel):
     ln: Optional[int] = Field(None, description="공포번호")
     jo: Optional[int] = Field(None, description="조번호 (6자리: 조번호+조가지)")
     lang: Optional[str] = Field(None, description="언어 (KO 또는 ORI)")
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 class LawInterpretationSearchArgs(BaseModel):
@@ -248,19 +261,29 @@ class LawInterpretationSearchArgs(BaseModel):
     rpl: Optional[int] = Field(None, description="회신기관 코드")
     gana: Optional[str] = Field(None, description="사전식 검색 (ga, na 등)")
     itmno: Optional[int] = Field(None, description="안건번호 (숫자)")
-    reg_yd: Optional[str] = Field(None, description="등록일자 범위 (예: 20090101~20090130)")
-    expl_yd: Optional[str] = Field(None, description="해석일자 범위 (예: 20090101~20090130)")
+    reg_yd: Optional[str] = Field(
+        None, description="등록일자 범위 (예: 20090101~20090130)"
+    )
+    expl_yd: Optional[str] = Field(
+        None, description="해석일자 범위 (예: 20090101~20090130)"
+    )
     sort: Optional[str] = Field(
         None,
         description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes)",
     )
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 class LawInterpretationDetailArgs(BaseModel):
-    interpretation_id: Optional[str] = Field(None, description="법령해석례 일련번호 (ID)")
+    interpretation_id: Optional[str] = Field(
+        None, description="법령해석례 일련번호 (ID)"
+    )
     lm: Optional[str] = Field(None, description="법령해석례명 (LM)")
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 USE_CASES_MD: str = """
@@ -279,8 +302,12 @@ def get_lawyer_gpt_use_cases() -> str:
     return USE_CASES_MD
 
 
-def tool_keyword_search(*, query: str, k: int, data_dir: Path, context_chars: int = 0) -> List[Hit]:
-    return _keyword_search(query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
+def tool_keyword_search(
+    *, query: str, k: int, data_dir: Path, context_chars: int = 0
+) -> List[Hit]:
+    return _keyword_search(
+        query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars
+    )
 
 
 def tool_law_go_search(
@@ -514,10 +541,16 @@ def _law_interpretation_detail_snippet(detail: LawInterpretationDetail) -> str:
     elif detail.reason:
         parts.append(f"이유: {detail.reason}")
     snippet = " | ".join(parts)
-    return snippet[:1200] if len(snippet) > 1200 else snippet or "법령해석례 본문 정보가 제공되지 않았습니다."
+    return (
+        snippet[:1200]
+        if len(snippet) > 1200
+        else snippet or "법령해석례 본문 정보가 제공되지 않았습니다."
+    )
 
 
-def _law_article_to_hit(detail: LawDetailResponse, article: LawDetailArticle, base_path: Path) -> Hit:
+def _law_article_to_hit(
+    detail: LawDetailResponse, article: LawDetailArticle, base_path: Path
+) -> Hit:
     article_id = article.article_no or article.title or "article"
     try:
         path = base_path / f"article-{article_id}"
@@ -598,7 +631,9 @@ def _law_metadata_snippet(detail: LawDetailResponse) -> str:
     return " | ".join(parts)
 
 
-def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
+def _keyword_search(
+    query: str, limit: int, data_dir: Path, *, context_chars: int = 0
+) -> List[Hit]:
     global _OPENSEARCH_AVAILABLE, _OPENSEARCH_ERROR
     if not _OPENSEARCH_AVAILABLE:
         if _OPENSEARCH_ERROR:
@@ -614,7 +649,9 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
         logger.warning("search_keyword_opensearch_failed", error=_OPENSEARCH_ERROR)
         return []
 
-    def _paginate_text(text: str, page_chars: int = 400, max_pages: int = 3) -> List[str]:
+    def _paginate_text(
+        text: str, page_chars: int = 400, max_pages: int = 3
+    ) -> List[str]:
         text = text.strip()
         if len(text) <= page_chars:
             return [text]
@@ -648,7 +685,9 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
         except Exception:
             path = Path("")
         approx_chars = max(200, min(800, (context_chars or 800) // 2))
-        pages = _paginate_text(snippet or doc.body or "", page_chars=approx_chars, max_pages=3)
+        pages = _paginate_text(
+            snippet or doc.body or "", page_chars=approx_chars, max_pages=3
+        )
         total = len(pages)
         for idx, page_text in enumerate(pages, start=1):
             if len(page_text) > 1200:
@@ -780,12 +819,25 @@ class LangChainToolAgent:
         self.allow_general = bool(allow_general)
         self.context_chars = int(context_chars)
 
-    def run(self, question: str) -> Dict[str, Any]:
+    def run(
+        self,
+        question: str,
+        *,
+        history: Optional[Sequence[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         store = EvidenceStore(top_k=self.top_k, context_chars=self.context_chars)
         cleaned_question = (question or "").strip()
+        chat_history = self._normalize_history(history)
         if not cleaned_question:
             answer = "(질문이 비어있습니다)"
-            return self._finalize(cleaned_question, store, answer, intermediate_steps=[], iters=0)
+            return self._finalize(
+                cleaned_question,
+                store,
+                answer,
+                intermediate_steps=[],
+                iters=0,
+                history=chat_history,
+            )
 
         provider = _llm_provider()
         logger.info("langchain_agent_provider", provider=provider)
@@ -803,10 +855,11 @@ class LangChainToolAgent:
                 answer,
                 intermediate_steps=[],
                 iters=0,
+                history=chat_history,
             )
 
         try:
-            result = self._invoke_langchain(cleaned_question, store)
+            result = self._invoke_langchain(cleaned_question, store, chat_history)
             intermediate_steps = result.get("intermediate_steps", [])
             answer = str(result.get("output", "")).strip()
 
@@ -818,7 +871,9 @@ class LangChainToolAgent:
                 answer = _offline_summary(cleaned_question, store.observations_text())
             else:
                 if not answer or not self._has_citation(answer):
-                    answer = self._summarize_with_llm(cleaned_question, store.observations_text())
+                    answer = self._summarize_with_llm(
+                        cleaned_question, store.observations_text()
+                    )
 
             return self._finalize(
                 cleaned_question,
@@ -826,6 +881,7 @@ class LangChainToolAgent:
                 answer,
                 intermediate_steps=intermediate_steps,
                 iters=len(intermediate_steps),
+                history=chat_history,
             )
         except Exception as exc:
             logger.exception("langchain_agent_failed", fallback="offline_summary")
@@ -840,6 +896,7 @@ class LangChainToolAgent:
                 intermediate_steps=[],
                 iters=0,
                 error=str(exc),
+                history=chat_history,
             )
 
     def _finalize(
@@ -851,6 +908,7 @@ class LangChainToolAgent:
         intermediate_steps: Sequence[Any],
         iters: int,
         error: Optional[str] = None,
+        history: Optional[Sequence[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         return {
             "question": question,
@@ -867,7 +925,28 @@ class LangChainToolAgent:
             **({"error": error} if error else {}),
             **({"search_error": _OPENSEARCH_ERROR} if _OPENSEARCH_ERROR else {}),
             "llm_provider": _llm_provider(),
+            "history": [dict(item) for item in history] if history else [],
         }
+
+    def _normalize_history(
+        self, history: Optional[Sequence[Dict[str, str]]]
+    ) -> List[Dict[str, str]]:
+        if not history:
+            return []
+        normalized: List[Dict[str, str]] = []
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "")).strip().lower()
+            content = str(item.get("content", ""))
+            if not content:
+                continue
+            if role not in {"system", "user", "assistant"}:
+                continue
+            normalized.append({"role": role, "content": content})
+        if len(normalized) <= 8:
+            return normalized
+        return normalized[-8:]
 
     def _append_search_note(self, answer: str) -> str:
         text = answer or "(LLM 응답이 비어있습니다)"
@@ -911,9 +990,15 @@ class LangChainToolAgent:
                     )
                 break
 
-    def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
+    def _invoke_langchain(
+        self,
+        question: str,
+        store: EvidenceStore,
+        history: Sequence[Dict[str, str]],
+    ) -> Dict[str, Any]:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
+        from langchain.schema import AIMessage, HumanMessage, SystemMessage  # type: ignore
         from langchain.tools import StructuredTool  # type: ignore
 
         tools = self._build_tools(store)
@@ -934,6 +1019,7 @@ class LangChainToolAgent:
 불필요한 사설을 피하고, 간결한 마크다운 구조로 사건 정보·요약·법원 판단·결론을 제시하세요.
 """.strip(),
                 ),
+                MessagesPlaceholder(variable_name="chat_history"),
                 ("user", "질문: {input}"),
                 MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
@@ -964,12 +1050,26 @@ class LangChainToolAgent:
             return_intermediate_steps=True,
             verbose=False,
         )
+        chat_messages: List[Any] = []
+        for item in history:
+            role = item["role"]
+            content = item["content"]
+            if role == "system":
+                chat_messages.append(SystemMessage(content=content))
+            elif role == "assistant":
+                chat_messages.append(AIMessage(content=content))
+            else:
+                chat_messages.append(HumanMessage(content=content))
+
         inputs = {
             "input": question,
             "general_guidance": self._general_guidance(),
+            "chat_history": chat_messages,
         }
         result = executor.invoke(inputs)
-        store.record_action("agent", {"intermediate_steps": len(result.get("intermediate_steps", []))})
+        store.record_action(
+            "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+        )
         return result
 
     def _build_tools(self, store: EvidenceStore) -> List[Any]:
@@ -977,7 +1077,9 @@ class LangChainToolAgent:
 
         context_chars_default = self.context_chars or 800
 
-        def keyword_tool(query: str, k: Optional[int] = None, context_chars: Optional[int] = None) -> str:
+        def keyword_tool(
+            query: str, k: Optional[int] = None, context_chars: Optional[int] = None
+        ) -> str:
             limit = max(self.top_k, int(k) if k else self.top_k)
             limit = min(max(limit, 3), self.top_k * 3)
             ctx = int(context_chars) if context_chars else context_chars_default
@@ -991,11 +1093,15 @@ class LangChainToolAgent:
                 )
             except Exception as exc:
                 logger.exception("keyword_search_failed", query=query)
-                store.record_action("keyword_search", {"query": query, "error": str(exc)})
+                store.record_action(
+                    "keyword_search", {"query": query, "error": str(exc)}
+                )
                 return f"[검색 오류] {exc}"
             hits = _dedupe_hits(hits)
             formatted = store.add_hits(hits)
-            store.record_action("keyword_search", {"query": query, "returned": len(hits)})
+            store.record_action(
+                "keyword_search", {"query": query, "returned": len(hits)}
+            )
             return formatted
 
         def law_search_tool(
@@ -1036,11 +1142,15 @@ class LangChainToolAgent:
                 )
             except LawSearchError as exc:
                 logger.warning("law_go_kr_search_failed", error=str(exc))
-                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
+                store.record_action(
+                    "law_go_kr_search", {"query": query, "error": str(exc)}
+                )
                 return f"[법령 검색 오류] {exc}"
             except Exception as exc:
                 logger.exception("law_go_kr_search_unexpected_error", query=query)
-                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
+                store.record_action(
+                    "law_go_kr_search", {"query": query, "error": str(exc)}
+                )
                 return f"[법령 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
@@ -1146,11 +1256,17 @@ class LangChainToolAgent:
                 )
             except LawSearchError as exc:
                 logger.warning("law_go_kr_interpretation_search_failed", error=str(exc))
-                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
+                store.record_action(
+                    "law_go_kr_interpretation", {"query": query, "error": str(exc)}
+                )
                 return f"[법령해석례 검색 오류] {exc}"
             except Exception as exc:
-                logger.exception("law_go_kr_interpretation_unexpected_error", query=query)
-                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
+                logger.exception(
+                    "law_go_kr_interpretation_unexpected_error", query=query
+                )
+                store.record_action(
+                    "law_go_kr_interpretation", {"query": query, "error": str(exc)}
+                )
                 return f"[법령해석례 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
@@ -1247,9 +1363,7 @@ class LangChainToolAgent:
 
     def _general_guidance(self) -> str:
         if self.allow_general:
-            return (
-                "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
-            )
+            return "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
         return "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
 
     def _create_llm(self, *, temperature: float, timeout: float):  # noqa: ANN001 - LangChain types
@@ -1274,7 +1388,9 @@ class LangChainToolAgent:
                 try:
                     kwargs["max_output_tokens"] = int(max_output)
                 except ValueError:
-                    logger.warning("gemini_max_output_tokens_invalid", raw_value=max_output)
+                    logger.warning(
+                        "gemini_max_output_tokens_invalid", raw_value=max_output
+                    )
             logger.info("langchain_agent_gemini", model=model, temperature=temperature)
             return ChatGoogleGenerativeAI(**kwargs)
 
@@ -1372,9 +1488,16 @@ def build_legal_ask_graph(
     )
 
     class _Adapter:
-        def invoke(self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        def invoke(
+            self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None
+        ) -> Dict[str, Any]:
             question = state.get("question", "") if isinstance(state, dict) else ""
-            return agent.run(question)
+            history = []
+            if isinstance(state, dict):
+                raw_history = state.get("history")
+                if isinstance(raw_history, Sequence):
+                    history = [item for item in raw_history]
+            return agent.run(question, history=history)
 
     logger.info(
         "langchain_tool_agent_ready",
@@ -1394,6 +1517,7 @@ def run_ask(
     max_iters: int = 3,
     allow_general: bool = False,
     context_chars: int = 0,
+    history: Optional[Sequence[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     context = context_chars or 800
     agent = LangChainToolAgent(
@@ -1403,6 +1527,7 @@ def run_ask(
         allow_general=allow_general,
         context_chars=context,
     )
+    normalized_history = list(history or [])
     logger.info(
         "run_ask_start",
         question=(question or "").strip()[:80],
@@ -1410,7 +1535,8 @@ def run_ask(
         max_iters=max_iters,
         allow_general=allow_general,
         context_chars=context,
+        history_items=len(normalized_history),
     )
-    final = agent.run(question)
+    final = agent.run(question, history=normalized_history)
     logger.info("run_ask_complete", keys=sorted(final.keys()))
     return final
