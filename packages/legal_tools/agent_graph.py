@@ -1128,9 +1128,9 @@ class LangChainToolAgent:
                 result = executor.invoke(inputs, config=invoke_config)
             else:
                 result = executor.invoke(inputs)
-        store.record_action(
-            "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
-        )
+            store.record_action(
+                "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+            )
         return result
 
     def _build_tools(self, store: EvidenceStore) -> List[Any]:
@@ -1737,8 +1737,8 @@ def run_ask(
         "allow_general": allow_general,
         "context_chars": context,
     }
-    logger.info("run_ask_start", **metadata)
     with trace_run("law.run_ask", metadata=metadata):
+        logger.info("run_ask_start", extra=metadata)
         final = agent.run(question)
-    logger.info("run_ask_complete", keys=sorted(final.keys()))
+        logger.info("run_ask_complete", extra={"keys": sorted(final.keys())})
     return final

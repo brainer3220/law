@@ -5,17 +5,20 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 _DISABLED_VALUES = {"0", "false", "off", "no", "disable", "disabled"}
+_ENABLED_VALUES = {"1", "true", "on", "yes", "enable", "enabled"}
 
 _callbacks: Optional[List[Any]] = None
 _configured = False
 _trace_loaded = False
 _trace_func: Optional[Any] = None
+_configure_lock = Lock()
 
 
 def _load_trace_func() -> Optional[Any]:
@@ -42,7 +45,11 @@ def _normalize_bool(value: Optional[str]) -> Optional[bool]:
     normalized = value.strip().lower()
     if not normalized:
         return None
-    return normalized not in _DISABLED_VALUES
+    if normalized in _DISABLED_VALUES:
+        return False
+    if normalized in _ENABLED_VALUES:
+        return True
+    return False
 
 
 def _build_callbacks(project: str) -> List[Any]:
@@ -50,7 +57,9 @@ def _build_callbacks(project: str) -> List[Any]:
     try:
         from langsmith import Client  # type: ignore import
     except Exception as exc:
-        logger.debug("langsmith_import_failed", error=str(exc))
+        logger.debug(
+            "langsmith_import_failed", extra={"error": str(exc)}
+        )
         return callbacks
 
     api_key = os.getenv("LANGSMITH_API_KEY")
@@ -64,10 +73,23 @@ def _build_callbacks(project: str) -> List[Any]:
 
     try:
         client = Client(**client_kwargs)
-        client.verify_api_key()
     except Exception as exc:
-        logger.warning("langsmith_client_verification_failed", error=str(exc))
+        logger.warning(
+            "langsmith_client_init_failed", extra={"error": str(exc)}
+        )
         return callbacks
+
+    verifier = getattr(client, "verify_api_key", None)
+    if callable(verifier):
+        try:
+            verifier()
+        except Exception as exc:
+            logger.warning(
+                "langsmith_client_verification_failed", extra={"error": str(exc)}
+            )
+            return callbacks
+    else:
+        logger.debug("langsmith_client_verify_missing")
 
     try:
         from langsmith.run_helpers import get_langchain_callbacks  # type: ignore import
@@ -83,9 +105,13 @@ def _build_callbacks(project: str) -> List[Any]:
                 generated = get_langchain_callbacks(client, project)  # type: ignore[misc]
                 callbacks = list(generated) if generated is not None else []
             except Exception as exc:
-                logger.debug("langsmith_get_callbacks_failed", error=str(exc))
+                logger.debug(
+                    "langsmith_get_callbacks_failed", extra={"error": str(exc)}
+                )
         except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug("langsmith_get_callbacks_failed", error=str(exc))
+            logger.debug(
+                "langsmith_get_callbacks_failed", extra={"error": str(exc)}
+            )
 
     if callbacks:
         return callbacks
@@ -101,7 +127,9 @@ def _build_callbacks(project: str) -> List[Any]:
                 LangChainTracer,
             )
         except Exception as exc:
-            logger.debug("langsmith_tracer_import_failed", error=str(exc))
+            logger.debug(
+                "langsmith_tracer_import_failed", extra={"error": str(exc)}
+            )
             return callbacks
 
     try:
@@ -109,7 +137,9 @@ def _build_callbacks(project: str) -> List[Any]:
     except TypeError:
         tracer = LangChainTracer()  # type: ignore[call-arg]
     except Exception as exc:  # pragma: no cover - defensive guard
-        logger.debug("langsmith_tracer_init_failed", error=str(exc))
+        logger.debug(
+            "langsmith_tracer_init_failed", extra={"error": str(exc)}
+        )
         tracer = None
 
     if tracer is not None:
@@ -117,8 +147,10 @@ def _build_callbacks(project: str) -> List[Any]:
             ensure_session = getattr(tracer, "ensure_session", None)
             if callable(ensure_session):
                 ensure_session()
-        except Exception:
-            logger.debug("langsmith_tracer_ensure_session_failed")
+        except Exception as exc:
+            logger.debug(
+                "langsmith_tracer_ensure_session_failed", extra={"error": str(exc)}
+            )
         callbacks = [tracer]
     return callbacks
 
@@ -130,41 +162,48 @@ def configure_langsmith() -> Sequence[Any]:
     if _configured:
         return _callbacks or []
 
-    enabled_toggle = _normalize_bool(os.getenv("LAW_LANGSMITH_ENABLED"))
-    api_key = os.getenv("LANGSMITH_API_KEY")
-    project = os.getenv("LANGSMITH_PROJECT")
+    with _configure_lock:
+        if _configured:
+            return _callbacks or []
 
-    if enabled_toggle is False:
-        logger.info("langsmith_disabled_via_env")
-        _configured = True
-        _callbacks = []
-        return _callbacks
+        enabled_toggle = _normalize_bool(os.getenv("LAW_LANGSMITH_ENABLED"))
+        api_key = os.getenv("LANGSMITH_API_KEY")
+        project = os.getenv("LANGSMITH_PROJECT")
 
-    if not api_key or not project:
-        if enabled_toggle:
-            logger.warning("langsmith_missing_credentials")
+        if enabled_toggle is False:
+            logger.info("langsmith_disabled_via_env")
+            _configured = True
+            _callbacks = []
+            return _callbacks
+
+        if not api_key or not project:
+            if enabled_toggle:
+                logger.warning("langsmith_missing_credentials")
+            else:
+                logger.debug("langsmith_credentials_not_found")
+            _configured = True
+            _callbacks = []
+            return _callbacks
+
+        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+        os.environ.setdefault("LANGCHAIN_API_KEY", api_key)
+        os.environ.setdefault("LANGCHAIN_PROJECT", project)
+        endpoint = os.getenv("LANGSMITH_ENDPOINT")
+        if endpoint:
+            os.environ.setdefault("LANGCHAIN_ENDPOINT", endpoint)
+
+        callbacks = _build_callbacks(project)
+        if callbacks:
+            logger.info("langsmith_tracing_enabled", extra={"project": project})
         else:
-            logger.debug("langsmith_credentials_not_found")
+            logger.debug(
+                "langsmith_tracing_enabled_without_callbacks",
+                extra={"project": project},
+            )
+
+        _callbacks = callbacks
         _configured = True
-        _callbacks = []
         return _callbacks
-
-    os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
-    os.environ.setdefault("LANGCHAIN_API_KEY", api_key)
-    os.environ.setdefault("LANGCHAIN_PROJECT", project)
-    endpoint = os.getenv("LANGSMITH_ENDPOINT")
-    if endpoint:
-        os.environ.setdefault("LANGCHAIN_ENDPOINT", endpoint)
-
-    callbacks = _build_callbacks(project)
-    if callbacks:
-        logger.info("langsmith_tracing_enabled", project=project)
-    else:
-        logger.debug("langsmith_tracing_enabled_without_callbacks", project=project)
-
-    _callbacks = callbacks
-    _configured = True
-    return _callbacks
 
 
 def get_langsmith_callbacks() -> Sequence[Any]:
@@ -187,5 +226,7 @@ def trace_run(name: str, *, metadata: Optional[Dict[str, Any]] = None):
     try:
         return trace_func(name, **kwargs)
     except Exception as exc:  # pragma: no cover - defensive guard
-        logger.debug("langsmith_trace_failed", error=str(exc))
+        logger.debug(
+            "langsmith_trace_failed", extra={"error": str(exc)}
+        )
         return _noop_context()
