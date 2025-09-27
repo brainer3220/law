@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from packages.legal_tools.agent_graph import run_ask
+from packages.legal_tools.tracing import configure_langsmith, trace_run
 
 try:  # Optional dependency guard for multi-turn chat support
     from packages.legal_tools.multi_turn_chat import (
@@ -122,92 +123,110 @@ class ChatHandler(BaseHTTPRequestHandler):
         # Resolve data directory
         data_dir = Path(os.getenv("LAW_DATA_DIR") or "data")
 
+        configure_langsmith()
+
         thread_id = str(req.get("thread_id") or "").strip()
-        chat_result: Optional[ChatResponse] = None
-        checkpoint_id: Optional[str] = None
-        response_thread_id: Optional[str] = None
-        manager = _get_chat_manager() if messages else None
-        if manager is not None and messages:
-            if not thread_id:
-                thread_id = manager.new_thread_id()
-            try:
-                chat_result = manager.send_messages(
-                    thread_id=thread_id, messages=messages
-                )
-                checkpoint_id = chat_result.checkpoint_id
-                response_thread_id = chat_result.thread_id
-            except ValueError as exc:
-                self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
-                return
-            except Exception as exc:  # pragma: no cover - runtime DB/model state
-                logger.exception("chat_manager_invoke_failed", exc_info=exc)
-                chat_result = None
-                checkpoint_id = None
-                response_thread_id = None
-
-        question = _extract_question(messages)
-        created = int(time.time())
-        chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-
-        if chat_result is None or not chat_result.last_text():
-            # Run the single-turn agent as a fallback or when multi-turn is disabled.
-            result = run_ask(
-                question, data_dir=data_dir, top_k=top_k, max_iters=max_iters
-            )
-            answer: str = (result.get("answer") or "").strip()
-        else:
-            answer = chat_result.last_text()
-            checkpoint_id = checkpoint_id or chat_result.checkpoint_id
-            response_thread_id = response_thread_id or chat_result.thread_id
-
-        if chat_result is not None:
-            thread_id = chat_result.thread_id
-            response_thread_id = response_thread_id or chat_result.thread_id
-
-        if stream:
-            self._stream_answer(
-                chat_id,
-                model,
-                created,
-                answer,
-                thread_id=response_thread_id,
-                checkpoint_id=checkpoint_id,
-            )
-            return
-
-        # Non-streaming response
-        resp = {
-            "id": chat_id,
-            "object": "chat.completion",
-            "created": created,
+        metadata = {
             "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": answer},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": len(answer),
-                "total_tokens": len(answer),
-            },
+            "stream": stream,
+            "top_k": top_k,
+            "max_iters": max_iters,
+            "provided_thread_id": thread_id or None,
+            "has_messages": bool(messages),
         }
-        if response_thread_id:
-            resp["thread_id"] = response_thread_id
-        if checkpoint_id:
-            resp.setdefault("law", {})["checkpoint_id"] = checkpoint_id
-        body = _json_response(resp)
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        if response_thread_id:
-            self.send_header("X-Thread-ID", response_thread_id)
-        if checkpoint_id:
-            self.send_header("X-Checkpoint-ID", checkpoint_id)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+
+        with trace_run("law.api.chat_completions", metadata=metadata):
+            chat_result: Optional[ChatResponse] = None
+            checkpoint_id: Optional[str] = None
+            response_thread_id: Optional[str] = None
+            manager = _get_chat_manager() if messages else None
+            metadata["multi_turn_enabled"] = bool(manager)
+            if manager is not None and messages:
+                if not thread_id:
+                    thread_id = manager.new_thread_id()
+                try:
+                    chat_result = manager.send_messages(
+                        thread_id=thread_id, messages=messages
+                    )
+                    checkpoint_id = chat_result.checkpoint_id
+                    response_thread_id = chat_result.thread_id
+                except ValueError as exc:
+                    self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                    return
+                except Exception as exc:  # pragma: no cover - runtime DB/model state
+                    logger.exception("chat_manager_invoke_failed", exc_info=exc)
+                    chat_result = None
+                    checkpoint_id = None
+                    response_thread_id = None
+
+            question = _extract_question(messages)
+            created = int(time.time())
+            chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+
+            if chat_result is None or not chat_result.last_text():
+                # Run the single-turn agent as a fallback or when multi-turn is disabled.
+                result = run_ask(
+                    question, data_dir=data_dir, top_k=top_k, max_iters=max_iters
+                )
+                answer: str = (result.get("answer") or "").strip()
+                metadata["fallback_to_single_turn"] = True
+            else:
+                answer = chat_result.last_text()
+                checkpoint_id = checkpoint_id or chat_result.checkpoint_id
+                response_thread_id = response_thread_id or chat_result.thread_id
+                metadata["fallback_to_single_turn"] = False
+
+            if chat_result is not None:
+                thread_id = chat_result.thread_id
+                response_thread_id = response_thread_id or chat_result.thread_id
+
+            metadata["resolved_thread_id"] = thread_id or None
+            metadata["checkpoint_id"] = checkpoint_id
+
+            if stream:
+                self._stream_answer(
+                    chat_id,
+                    model,
+                    created,
+                    answer,
+                    thread_id=response_thread_id,
+                    checkpoint_id=checkpoint_id,
+                )
+                return
+
+            # Non-streaming response
+            resp = {
+                "id": chat_id,
+                "object": "chat.completion",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": answer},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": len(answer),
+                    "total_tokens": len(answer),
+                },
+            }
+            if response_thread_id:
+                resp["thread_id"] = response_thread_id
+            if checkpoint_id:
+                resp.setdefault("law", {})["checkpoint_id"] = checkpoint_id
+            body = _json_response(resp)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            if response_thread_id:
+                self.send_header("X-Thread-ID", response_thread_id)
+            if checkpoint_id:
+                self.send_header("X-Checkpoint-ID", checkpoint_id)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     def _stream_answer(
         self,
@@ -308,6 +327,7 @@ class ChatHandler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
+    configure_langsmith()
     server = ThreadingHTTPServer((host, port), ChatHandler)
     print(f"[law] OpenAI-compatible server listening on http://{host}:{port}")
     print("  POST /v1/chat/completions  {model, messages, stream}")

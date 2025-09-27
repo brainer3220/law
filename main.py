@@ -13,9 +13,7 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 import structlog
 
 from packages.env import load_env
-
-# Ensure `.env` files are processed before reading configuration defaults.
-load_env()
+from packages.legal_tools.tracing import configure_langsmith
 
 # Data directories
 DATA_DIR = Path("data")
@@ -573,6 +571,8 @@ def configure_logging(level_name: str) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    load_env()
+    configure_langsmith()
     parser = build_parser()
     args = parser.parse_args(argv)
     # Configure logging early

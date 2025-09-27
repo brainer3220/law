@@ -10,6 +10,8 @@ from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import MessagesState, StateGraph, START, END
 
+from packages.legal_tools.tracing import get_langsmith_callbacks, trace_run
+
 __all__ = ["PostgresChatConfig", "ChatResponse", "PostgresChatManager"]
 
 
@@ -90,11 +92,25 @@ class PostgresChatManager:
         shared = self._shared_prefix(existing_keys, incoming_keys)
         new_payloads = incoming[shared:]
         invoked = bool(new_payloads)
-        if invoked:
-            self._graph.invoke({"messages": new_payloads}, cfg)
-        updated, _, snapshot = self._load_state(cfg)
-        response = self._last_assistant(updated)
-        checkpoint_id = self._extract_checkpoint_id(snapshot)
+        callbacks = list(get_langsmith_callbacks())
+        graph_config = dict(cfg)
+        if callbacks:
+            graph_config = {**cfg, "callbacks": callbacks}
+        metadata = {
+            "thread_id": tid,
+            "incoming_count": len(incoming),
+            "new_payloads": len(new_payloads),
+            "shared_prefix": shared,
+            "invoked": invoked,
+        }
+        with trace_run("law.chat.send_messages", metadata=metadata):
+            if invoked:
+                self._graph.invoke({"messages": new_payloads}, graph_config)
+            updated, _, snapshot = self._load_state(cfg)
+            response = self._last_assistant(updated)
+            checkpoint_id = self._extract_checkpoint_id(snapshot)
+            metadata["checkpoint_id"] = checkpoint_id
+            metadata["response_available"] = bool(response)
         return ChatResponse(
             thread_id=tid,
             messages=updated,

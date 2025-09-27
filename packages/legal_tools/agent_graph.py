@@ -56,6 +56,7 @@ from packages.legal_tools.law_go_kr import (
     search_law_interpretations,
 )
 from packages.legal_tools.opensearch_search import OpenSearchDoc, search_opensearch
+from packages.legal_tools.tracing import get_langsmith_callbacks, trace_run
 
 logger = structlog.get_logger(__name__)
 _LLM_BLOCKED: bool = False
@@ -1112,10 +1113,24 @@ class LangChainToolAgent:
             "input": question,
             "general_guidance": self._general_guidance(),
         }
-        result = executor.invoke(inputs)
-        store.record_action(
-            "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
-        )
+        callbacks = list(get_langsmith_callbacks())
+        invoke_config = {"callbacks": callbacks} if callbacks else None
+        metadata = {
+            "question_preview": question[:200],
+            "top_k": self.top_k,
+            "max_iters": self.max_iters,
+            "allow_general": self.allow_general,
+            "context_chars": self.context_chars,
+            "llm_provider": _llm_provider(),
+        }
+        with trace_run("law.agent.invoke", metadata=metadata):
+            if invoke_config:
+                result = executor.invoke(inputs, config=invoke_config)
+            else:
+                result = executor.invoke(inputs)
+            store.record_action(
+                "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+            )
         return result
 
     def _build_tools(self, store: EvidenceStore) -> List[Any]:
@@ -1715,14 +1730,15 @@ def run_ask(
         allow_general=allow_general,
         context_chars=context,
     )
-    logger.info(
-        "run_ask_start",
-        question=(question or "").strip()[:80],
-        top_k=top_k,
-        max_iters=max_iters,
-        allow_general=allow_general,
-        context_chars=context,
-    )
-    final = agent.run(question)
-    logger.info("run_ask_complete", keys=sorted(final.keys()))
+    metadata = {
+        "question_preview": (question or "").strip()[:200],
+        "top_k": top_k,
+        "max_iters": max_iters,
+        "allow_general": allow_general,
+        "context_chars": context,
+    }
+    with trace_run("law.run_ask", metadata=metadata):
+        logger.info("run_ask_start", extra=metadata)
+        final = agent.run(question)
+        logger.info("run_ask_complete", extra={"keys": sorted(final.keys())})
     return final
