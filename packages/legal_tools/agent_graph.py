@@ -216,21 +216,39 @@ class Hit:
 class EvidenceStore:
     """Track tool outputs and normalize them for the agent."""
 
-    def __init__(self, *, top_k: int, context_chars: int) -> None:
+    def __init__(
+        self,
+        *,
+        top_k: int,
+        context_chars: int,
+        event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> None:
         self.top_k = max(1, int(top_k))
         self.context_chars = max(0, int(context_chars))
         self._items: List[Tuple[int, Hit]] = []
         self._seen: set[Tuple[str, str, str]] = set()
         self.queries: List[str] = []
         self.actions: List[Dict[str, Any]] = []
+        self._event_callback = event_callback
+
+    def _emit_event(self, event: str, payload: Dict[str, Any]) -> None:
+        if not self._event_callback:
+            return
+        try:
+            self._event_callback(event, payload)
+        except Exception:
+            logger.debug("evidence_store_event_emit_failed", event=event)
 
     def record_query(self, query: str) -> None:
         q = query.strip()
         if q:
             self.queries.append(q)
+            self._emit_event("query", {"query": q})
 
     def record_action(self, tool: str, payload: Dict[str, Any]) -> None:
-        self.actions.append({"tool": tool, "payload": payload})
+        action_payload = {"tool": tool, "payload": payload}
+        self.actions.append(action_payload)
+        self._emit_event("action", action_payload)
 
     def add_hits(self, hits: Sequence[Hit]) -> str:
         formatted: List[str] = []
@@ -914,15 +932,21 @@ class LangChainToolAgent:
         max_iters: int,
         allow_general: bool,
         context_chars: int,
+        event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> None:
         self.data_dir = data_dir
         self.top_k = max(1, int(top_k))
         self.max_iters = max(1, int(max_iters))
         self.allow_general = bool(allow_general)
         self.context_chars = int(context_chars)
+        self._event_callback = event_callback
 
     def run(self, question: str) -> Dict[str, Any]:
-        store = EvidenceStore(top_k=self.top_k, context_chars=self.context_chars)
+        store = EvidenceStore(
+            top_k=self.top_k,
+            context_chars=self.context_chars,
+            event_callback=self._event_callback,
+        )
         cleaned_question = (question or "").strip()
         if not cleaned_question:
             answer = "(질문이 비어있습니다)"
@@ -1721,6 +1745,7 @@ def run_ask(
     max_iters: int = 3,
     allow_general: bool = False,
     context_chars: int = 0,
+    event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     context = context_chars or 800
     agent = LangChainToolAgent(
@@ -1729,6 +1754,7 @@ def run_ask(
         max_iters=max_iters,
         allow_general=allow_general,
         context_chars=context,
+        event_callback=event_callback,
     )
     metadata = {
         "question_preview": (question or "").strip()[:200],

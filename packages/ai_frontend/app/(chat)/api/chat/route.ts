@@ -38,7 +38,7 @@ import {
   updateChatLastContextById,
 } from "@/lib/db/queries";
 import { ChatSDKError } from "@/lib/errors";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, LawToolUsage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { convertToUIMessages, generateUUID } from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
@@ -83,6 +83,105 @@ export function getStreamContext() {
 
   return globalStreamContext;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const normalizeLawToolUsage = (raw: unknown): LawToolUsage | undefined => {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+
+  const mappedActions = Array.isArray(raw.actions)
+    ? (raw.actions
+        .map((entry) => {
+          if (!isRecord(entry)) {
+            return undefined;
+          }
+          const tool = typeof entry.tool === "string" ? entry.tool : undefined;
+          if (!tool) {
+            return undefined;
+          }
+          const payload = isRecord(entry.payload)
+            ? (entry.payload as Record<string, unknown>)
+            : undefined;
+          return { tool, payload } satisfies LawToolUsage["actions"][number];
+        })
+        .filter(Boolean) as LawToolUsage["actions"])
+    : [];
+  const actions = mappedActions.length > 0 ? mappedActions : undefined;
+
+  const queriesSource = Array.isArray(raw.queries)
+    ? raw.queries
+    : Array.isArray(raw.used_queries)
+    ? raw.used_queries
+    : undefined;
+  const queriesList = queriesSource
+    ? queriesSource
+        .map((query) => String(query))
+        .map((query) => query.trim())
+        .filter((query) => query.length > 0)
+    : undefined;
+  const queries =
+    queriesList && queriesList.length > 0
+      ? Array.from(new Set(queriesList))
+      : undefined;
+
+  const iterations =
+    typeof raw.iterations === "number" ? raw.iterations : undefined;
+
+  const error =
+    typeof raw.error === "string"
+      ? raw.error
+      : raw.error != null
+      ? String(raw.error)
+      : undefined;
+
+  const mappedToolCalls = Array.isArray(raw.tool_calls)
+    ? (raw.tool_calls
+        .map((call) => {
+          if (!isRecord(call)) {
+            return undefined;
+          }
+          const id = typeof call.id === "string" ? call.id : undefined;
+          const fn = isRecord(call.function) ? call.function : undefined;
+          const name =
+            fn && typeof fn.name === "string" ? fn.name : undefined;
+          const args =
+            fn && typeof fn.arguments === "string"
+              ? fn.arguments
+              : fn && fn.arguments != null
+              ? String(fn.arguments)
+              : undefined;
+          if (!id && !name && !args) {
+            return undefined;
+          }
+          return { id, name, arguments: args } satisfies LawToolUsage["toolCalls"][number];
+        })
+        .filter(Boolean) as LawToolUsage["toolCalls"])
+    : [];
+  const toolCalls =
+    mappedToolCalls.length > 0 ? mappedToolCalls : undefined;
+
+  if (
+    !actions?.length &&
+    !queries?.length &&
+    !toolCalls?.length &&
+    iterations == null &&
+    !error
+  ) {
+    return undefined;
+  }
+
+  return {
+    actions,
+    queries,
+    iterations,
+    error,
+    toolCalls,
+  } satisfies LawToolUsage;
+};
 
 export async function POST(request: Request) {
   let requestBody: PostRequestBody;
@@ -190,6 +289,7 @@ export async function POST(request: Request) {
                   "requestSuggestions",
                 ],
           experimental_transform: smoothStream({ chunking: "word" }),
+          includeRawChunks: true,
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
@@ -202,6 +302,36 @@ export async function POST(request: Request) {
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
             functionId: "stream-text",
+          },
+          onChunk: async ({ chunk }) => {
+            if (chunk.type !== "raw") {
+              return;
+            }
+            const rawValue = chunk.rawValue;
+            if (!isRecord(rawValue)) {
+              return;
+            }
+            const lawPayload = isRecord(rawValue["law"])
+              ? (rawValue["law"] as Record<string, unknown>)
+              : undefined;
+            if (!lawPayload) {
+              return;
+            }
+            const usage = normalizeLawToolUsage(
+              lawPayload["tool_usage"] ?? lawPayload["toolUsage"],
+            );
+            if (!usage) {
+              return;
+            }
+            const chunkId =
+              typeof rawValue["id"] === "string"
+                ? (rawValue["id"] as string)
+                : undefined;
+            dataStream.write({
+              type: "data-lawToolUsage",
+              id: chunkId,
+              data: usage,
+            });
           },
           onFinish: async ({ usage }) => {
             try {
