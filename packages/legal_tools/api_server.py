@@ -49,6 +49,45 @@ def _json_response(obj: Dict[str, Any]) -> bytes:
     return json.dumps(obj, ensure_ascii=False).encode("utf-8")
 
 
+def _normalize_tool_calls(
+    tool_calls: Optional[Any],
+) -> Optional[List[Dict[str, Any]]]:
+    """Coerce LangChain tool call payloads into OpenAI-compatible dictionaries."""
+
+    if not tool_calls or not isinstance(tool_calls, list):
+        return None
+
+    normalized: List[Dict[str, Any]] = []
+    for index, call in enumerate(tool_calls):
+        if not isinstance(call, dict):
+            continue
+        fn: Dict[str, Any] = {}
+        raw_fn = call.get("function")
+        if isinstance(raw_fn, dict):
+            fn = dict(raw_fn)
+        name = str(fn.get("name") or call.get("name") or "")
+        raw_args: Any = fn.get("arguments")
+        if raw_args is None and "args" in call:
+            raw_args = call["args"]
+        if isinstance(raw_args, (dict, list)):
+            arguments = json.dumps(raw_args, ensure_ascii=False)
+        elif raw_args is None:
+            arguments = ""
+        else:
+            arguments = str(raw_args)
+        call_id = call.get("id") or call.get("tool_call_id")
+        if not call_id:
+            call_id = f"call_{index:04d}"
+        normalized.append(
+            {
+                "id": str(call_id),
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+        )
+    return normalized or None
+
+
 def _get_chat_manager() -> Optional[PostgresChatManager]:
     """Lazily initialize the Postgres-backed chat manager."""
 
@@ -187,11 +226,25 @@ class ChatHandler(BaseHTTPRequestHandler):
             tool_usage = self._collect_tool_usage(
                 agent_result=agent_result, chat_result=chat_result
             )
+            raw_tool_calls: Optional[List[Dict[str, Any]]] = None
+            raw_tool_call_chunks: Optional[List[Dict[str, Any]]] = None
+            if chat_result and chat_result.response:
+                payload = chat_result.response
+                if isinstance(payload, dict):
+                    tool_data = payload.get("tool_calls")
+                    chunk_data = payload.get("tool_call_chunks")
+                    if isinstance(tool_data, list):
+                        raw_tool_calls = tool_data
+                    if isinstance(chunk_data, list):
+                        raw_tool_call_chunks = chunk_data
+            formatted_tool_calls = _normalize_tool_calls(raw_tool_calls)
             law_payload: Dict[str, Any] = {}
             if checkpoint_id:
                 law_payload["checkpoint_id"] = checkpoint_id
             if tool_usage:
                 law_payload["tool_usage"] = tool_usage
+                if raw_tool_call_chunks:
+                    tool_usage.setdefault("tool_call_chunks", raw_tool_call_chunks)
 
             if stream:
                 self._stream_answer(
@@ -202,10 +255,17 @@ class ChatHandler(BaseHTTPRequestHandler):
                     thread_id=response_thread_id,
                     checkpoint_id=checkpoint_id,
                     law_payload=law_payload or None,
+                    tool_calls=formatted_tool_calls,
                 )
                 return
 
             # Non-streaming response
+            message: Dict[str, Any] = {
+                "role": "assistant",
+                "content": answer or None,
+            }
+            if formatted_tool_calls:
+                message["tool_calls"] = formatted_tool_calls
             resp = {
                 "id": chat_id,
                 "object": "chat.completion",
@@ -214,7 +274,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": answer},
+                        "message": message,
                         "finish_reason": "stop",
                     }
                 ],
@@ -249,6 +309,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         thread_id: Optional[str] = None,
         checkpoint_id: Optional[str] = None,
         law_payload: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
@@ -272,6 +333,32 @@ class ChatHandler(BaseHTTPRequestHandler):
             ],
         }
         self._sse_send(first)
+
+        if tool_calls:
+            chunk_calls = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": idx,
+                                    "id": call["id"],
+                                    "type": call["type"],
+                                    "function": call["function"],
+                                }
+                                for idx, call in enumerate(tool_calls)
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            self._sse_send(chunk_calls)
 
         # Stream the content in pieces
         content = answer or ""
@@ -356,6 +443,9 @@ class ChatHandler(BaseHTTPRequestHandler):
             tool_calls = chat_result.response.get("tool_calls")
             if tool_calls:
                 payload["tool_calls"] = tool_calls
+            tool_call_chunks = chat_result.response.get("tool_call_chunks")
+            if tool_call_chunks:
+                payload["tool_call_chunks"] = tool_call_chunks
 
         return payload or None
 

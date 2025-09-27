@@ -178,7 +178,13 @@ class PostgresChatManager:
         role = self._normalize_role(message.get("role") or message.get("type"))
         content = self._coerce_content(message.get("content"))
         payload: Dict[str, Any] = {"role": role, "content": content}
-        for key in ("name", "tool_calls", "tool_call_id", "function_call"):
+        for key in (
+            "name",
+            "tool_calls",
+            "tool_call_chunks",
+            "tool_call_id",
+            "function_call",
+        ):
             if key in message:
                 payload[key] = message[key]
         if "metadata" in message:
@@ -191,6 +197,14 @@ class PostgresChatManager:
             role = self._normalize_role(getattr(message, "role", None) or message.type)
             content = self._coerce_content(getattr(message, "content", ""))
             data: Dict[str, Any] = {"role": role, "content": content}
+            if getattr(message, "name", None):
+                data["name"] = getattr(message, "name")
+            if getattr(message, "tool_calls", None):
+                data["tool_calls"] = getattr(message, "tool_calls")
+            if getattr(message, "tool_call_chunks", None):
+                data["tool_call_chunks"] = getattr(message, "tool_call_chunks")
+            if getattr(message, "tool_call_id", None):
+                data["tool_call_id"] = getattr(message, "tool_call_id")
             if extra := getattr(message, "additional_kwargs", None):
                 data["additional_kwargs"] = dict(extra)
             return data
@@ -203,6 +217,7 @@ class PostgresChatManager:
                 "metadata",
                 "name",
                 "tool_calls",
+                "tool_call_chunks",
                 "tool_call_id",
             ):
                 if key in message:
