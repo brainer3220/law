@@ -171,9 +171,7 @@ def get_langsmith_callbacks() -> Sequence[Any]:
     """Return LangSmith callback handlers (empty when disabled)."""
 
     callbacks = configure_langsmith()
-    if not callbacks:
-        return []
-    return list(callbacks)
+    return [] if not callbacks else list(callbacks)
 
 
 def trace_run(name: str, *, metadata: Optional[Dict[str, Any]] = None):
