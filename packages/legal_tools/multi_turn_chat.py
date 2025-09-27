@@ -245,9 +245,7 @@ class PostgresChatManager:
             return "user"
         if value == "system":
             return "system"
-        if value == "tool":
-            return "tool"
-        return value or "assistant"
+        return "tool" if value == "tool" else value or "assistant"
 
     def _coerce_content(self, content: Any) -> str:
         if content is None:
