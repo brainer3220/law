@@ -21,7 +21,7 @@
 
 1. 저장소를 클론합니다.
    ```bash
-   git clone https://github.com/your-org/law.git
+   git clone https://github.com/brainer3220/law.git
    cd law
    ```
 2. 데이터 디렉터리를 확인합니다. 기본 경로는 `./data`입니다. 다른 위치를 쓰고 싶다면 환경 변수로 지정합니다.
