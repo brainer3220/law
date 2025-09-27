@@ -58,6 +58,12 @@ _OPENSEARCH_AVAILABLE: bool = True
 _OPENSEARCH_ERROR: Optional[str] = None
 
 
+def _debug_params(**kwargs: Any) -> Dict[str, Any]:
+    """Drop empty values to keep debug logs concise."""
+
+    return {key: value for key, value in kwargs.items() if value not in {None, ""}}
+
+
 def _llm_provider() -> str:
     provider = (os.getenv("LAW_LLM_PROVIDER") or "").strip().lower()
     if provider:
@@ -1016,6 +1022,23 @@ class LangChainToolAgent:
             oc: Optional[str] = None,
         ) -> str:
             store.record_query(query)
+            debug_params = _debug_params(
+                search=search,
+                display=display,
+                page=page,
+                sort=sort,
+                ef_yd=ef_yd,
+                anc_yd=anc_yd,
+                anc_no=anc_no,
+                rr_cls_cd=rr_cls_cd,
+                nb=nb,
+                org=org,
+                knd=knd,
+                ls_chap_no=ls_chap_no,
+                gana=gana,
+                oc=oc,
+            )
+            logger.debug("law_go_kr_search_start", query=query, params=debug_params)
             try:
                 response, hits = tool_law_go_search(
                     query=query,
@@ -1044,6 +1067,14 @@ class LangChainToolAgent:
                 return f"[법령 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            logger.debug(
+                "law_go_kr_search_success",
+                query=query,
+                total=response.total_count,
+                page=response.page,
+                returned=len(hits),
+                params=debug_params,
+            )
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_search",
@@ -1066,6 +1097,17 @@ class LangChainToolAgent:
             lang: Optional[str] = None,
             oc: Optional[str] = None,
         ) -> str:
+            debug_params = _debug_params(
+                law_id=law_id,
+                mst=mst,
+                lm=lm,
+                ld=ld,
+                ln=ln,
+                jo=jo,
+                lang=lang,
+                oc=oc,
+            )
+            logger.debug("law_go_kr_detail_start", params=debug_params)
             try:
                 response, hits = tool_law_go_detail(
                     law_id=law_id,
@@ -1103,6 +1145,13 @@ class LangChainToolAgent:
                 return f"[법령 본문 조회 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            logger.debug(
+                "law_go_kr_detail_success",
+                law_id=response.law_id,
+                title=response.title,
+                returned=len(hits),
+                params=debug_params,
+            )
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_detail",
@@ -1129,6 +1178,22 @@ class LangChainToolAgent:
             oc: Optional[str] = None,
         ) -> str:
             store.record_query(query or "")
+            debug_params = _debug_params(
+                search=search,
+                display=display,
+                page=page,
+                inq=inq,
+                rpl=rpl,
+                gana=gana,
+                itmno=itmno,
+                reg_yd=reg_yd,
+                expl_yd=expl_yd,
+                sort=sort,
+                oc=oc,
+            )
+            logger.debug(
+                "law_go_kr_interpretation_search_start", query=query, params=debug_params
+            )
             try:
                 response, hits = tool_law_go_interpretations(
                     query=query,
@@ -1154,6 +1219,14 @@ class LangChainToolAgent:
                 return f"[법령해석례 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            logger.debug(
+                "law_go_kr_interpretation_search_success",
+                query=query,
+                total=response.total_count,
+                page=response.page,
+                returned=len(hits),
+                params=debug_params,
+            )
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_interpretation",
@@ -1171,6 +1244,15 @@ class LangChainToolAgent:
             lm: Optional[str] = None,
             oc: Optional[str] = None,
         ) -> str:
+            debug_params = _debug_params(
+                interpretation_id=interpretation_id,
+                lm=lm,
+                oc=oc,
+            )
+            logger.debug(
+                "law_go_kr_interpretation_detail_start",
+                params=debug_params,
+            )
             try:
                 detail, hits = tool_law_go_interpretation_detail(
                     interpretation_id=interpretation_id,
@@ -1201,6 +1283,13 @@ class LangChainToolAgent:
                 return f"[법령해석례 본문 조회 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            logger.debug(
+                "law_go_kr_interpretation_detail_success",
+                interpretation_id=detail.serial_no,
+                title=detail.title,
+                returned=len(hits),
+                params=debug_params,
+            )
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_interpretation_detail",
