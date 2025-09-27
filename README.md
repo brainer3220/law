@@ -10,6 +10,7 @@ Usage
 - Search OpenSearch index: `uv run main.py opensearch-search "가산금 면제" --limit 5`
 - Agentic ask (LangGraph over OpenSearch): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
 - Serve OpenAI-compatible API: `uv run main.py serve --host 127.0.0.1 --port 8080`
+- Frontend chat UI (Next.js): see [`packages/ai_frontend`](packages/ai_frontend/README.md)
 
 OpenAI-Compatible API (Streaming)
 ---------------------------------
