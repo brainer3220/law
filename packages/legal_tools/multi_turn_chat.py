@@ -27,6 +27,7 @@ class PostgresChatConfig:
 
         db_uri = (
             os.getenv("LAW_CHAT_DB_URL")
+            or os.getenv("SUPABASE_DB_URL")
             or os.getenv("DATABASE_URL")
             or os.getenv("PG_DSN")
             or ""

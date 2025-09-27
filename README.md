@@ -47,7 +47,7 @@ Notes:
 
 ### Postgres-backed multi-turn chat
 
-Set `LAW_CHAT_DB_URL` (or `DATABASE_URL`/`PG_DSN`) to enable the LangGraph `PostgresSaver` checkpoint store. The server will lazily
+Set `LAW_CHAT_DB_URL` (defaults to `SUPABASE_DB_URL`, `DATABASE_URL`, or `PG_DSN` when unset) to enable the LangGraph `PostgresSaver` checkpoint store. The server will lazily
 initialize a persistent chat graph, run `.setup()` on first use, and emit `X-Thread-ID` / `X-Checkpoint-ID` headers so callers can
 resume conversations.
 
