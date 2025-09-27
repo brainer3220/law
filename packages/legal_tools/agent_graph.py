@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - optional dependency fallback
     import structlog
@@ -20,6 +22,7 @@ except ImportError:  # pragma: no cover - fallback to stdlib logging
 try:  # pragma: no cover - optional dependency fallback
     from pydantic import BaseModel, Field
 except ImportError:  # pragma: no cover - minimal shim
+
     class BaseModel:  # type: ignore
         def __init__(self, **data):
             for key, value in data.items():
@@ -34,6 +37,8 @@ except ImportError:  # pragma: no cover - minimal shim
 
     def Field(default=None, **kwargs):  # type: ignore
         return default
+
+
 from typing_extensions import Literal
 
 from packages.legal_tools.law_go_kr import (
@@ -56,6 +61,105 @@ logger = structlog.get_logger(__name__)
 _LLM_BLOCKED: bool = False
 _OPENSEARCH_AVAILABLE: bool = True
 _OPENSEARCH_ERROR: Optional[str] = None
+
+
+_SENSITIVE_DEBUG_KEYWORDS: Tuple[str, ...] = (
+    "token",
+    "secret",
+    "apikey",
+    "api_key",
+    "password",
+    "authorization",
+    "auth",
+    "credential",
+)
+
+
+def _is_empty_debug_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    return False
+
+
+def _sanitize_debug_value(key: str, value: Any) -> Any:
+    lowered = key.lower()
+    if any(keyword in lowered for keyword in _SENSITIVE_DEBUG_KEYWORDS):
+        return "***redacted***"
+    return value
+
+
+def _sanitize_debug_payload(
+    payload: Dict[str, Any], *, allow_empty_keys: Tuple[str, ...] = ()
+) -> Dict[str, Any]:
+    sanitized: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if key not in allow_empty_keys and _is_empty_debug_value(value):
+            continue
+        sanitized[key] = _sanitize_debug_value(key, value)
+    return sanitized
+
+
+def _debug_params(**kwargs: Any) -> Dict[str, Any]:
+    """Drop empty values and redact sensitive tokens to keep debug logs concise."""
+
+    return _sanitize_debug_payload(dict(kwargs))
+
+
+def _emit_debug_event(
+    event: str,
+    payload: Dict[str, Any],
+    *,
+    allow_empty_keys: Tuple[str, ...] = (),
+) -> None:
+    sanitized = _sanitize_debug_payload(dict(payload), allow_empty_keys=allow_empty_keys)
+
+    debug_enabled = False
+    checker = getattr(logger, "isEnabledFor", None)
+    if callable(checker):  # structlog stdlib loggers expose this
+        try:
+            debug_enabled = bool(checker(logging.DEBUG))
+        except Exception:
+            debug_enabled = False
+    else:
+        underlying = getattr(logger, "logger", None)
+        if underlying is not None and hasattr(underlying, "isEnabledFor"):
+            debug_enabled = underlying.isEnabledFor(logging.DEBUG)
+        else:
+            debug_enabled = logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
+    if debug_enabled:
+        logger.debug(event, **sanitized)
+    else:
+        logger.info(event, debug_event=True, **sanitized)
+
+
+@contextmanager
+def _log_tool_call(
+    start_event: str,
+    *,
+    start_payload: Dict[str, Any],
+    success_event: str,
+    success_payload: Callable[..., Dict[str, Any]],
+):
+    _emit_debug_event(
+        start_event,
+        dict(start_payload),
+        allow_empty_keys=("query",),
+    )
+
+    def _log_success(*args: Any, **kwargs: Any) -> None:
+        payload = success_payload(*args, **kwargs)
+        _emit_debug_event(
+            success_event,
+            dict(payload),
+            allow_empty_keys=("query",),
+        )
+
+    yield _log_success
 
 
 def _llm_provider() -> str:
@@ -81,7 +185,9 @@ def _llm_enabled() -> bool:
         return False
     provider = _llm_provider()
     if provider == "gemini":
-        return bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+        return bool(
+            os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        )
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
@@ -143,7 +249,11 @@ class EvidenceStore:
         snippet = re.sub(r"\s+", " ", hit.snippet.strip())
         if len(snippet) > 380:
             snippet = snippet[:377] + "..."
-        page_pin = f"p{hit.page_index}/{hit.page_total}" if (hit.page_index and hit.page_total) else None
+        page_pin = (
+            f"p{hit.page_index}/{hit.page_total}"
+            if (hit.page_index and hit.page_total)
+            else None
+        )
         line_pin = f"L{hit.line_no}" if hit.line_no else None
         pin = page_pin or line_pin or "snippet"
         return f"[{idx}] {hit.title} ({hit.doc_id}) {pin}: {snippet}"
@@ -205,17 +315,19 @@ class KeywordSearchArgs(BaseModel):
 
 class LawSearchArgs(BaseModel):
     query: str = Field(..., description='법령명 검색 질의 (예: "자동차관리법")')
-    search: Optional[int] = Field(
-        None, description="검색범위 (1: 법령명, 2: 본문검색)"
-    )
+    search: Optional[int] = Field(None, description="검색범위 (1: 법령명, 2: 본문검색)")
     display: Optional[int] = Field(None, description="표시 건수 (1-100)")
     page: Optional[int] = Field(None, description="결과 페이지 (1부터)")
     sort: Optional[str] = Field(
         None,
         description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes, efasc, efdes)",
     )
-    ef_yd: Optional[str] = Field(None, description="시행일자 범위 (예: 20090101~20090130)")
-    anc_yd: Optional[str] = Field(None, description="공포일자 범위 (예: 20090101~20090130)")
+    ef_yd: Optional[str] = Field(
+        None, description="시행일자 범위 (예: 20090101~20090130)"
+    )
+    anc_yd: Optional[str] = Field(
+        None, description="공포일자 범위 (예: 20090101~20090130)"
+    )
     anc_no: Optional[str] = Field(None, description="공포번호 범위 (예: 306~400)")
     rr_cls_cd: Optional[str] = Field(None, description="제개정 구분 코드")
     nb: Optional[int] = Field(None, description="공포번호 검색")
@@ -236,7 +348,9 @@ class LawDetailArgs(BaseModel):
     ln: Optional[int] = Field(None, description="공포번호")
     jo: Optional[int] = Field(None, description="조번호 (6자리: 조번호+조가지)")
     lang: Optional[str] = Field(None, description="언어 (KO 또는 ORI)")
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 class LawInterpretationSearchArgs(BaseModel):
@@ -248,19 +362,29 @@ class LawInterpretationSearchArgs(BaseModel):
     rpl: Optional[int] = Field(None, description="회신기관 코드")
     gana: Optional[str] = Field(None, description="사전식 검색 (ga, na 등)")
     itmno: Optional[int] = Field(None, description="안건번호 (숫자)")
-    reg_yd: Optional[str] = Field(None, description="등록일자 범위 (예: 20090101~20090130)")
-    expl_yd: Optional[str] = Field(None, description="해석일자 범위 (예: 20090101~20090130)")
+    reg_yd: Optional[str] = Field(
+        None, description="등록일자 범위 (예: 20090101~20090130)"
+    )
+    expl_yd: Optional[str] = Field(
+        None, description="해석일자 범위 (예: 20090101~20090130)"
+    )
     sort: Optional[str] = Field(
         None,
         description="정렬 옵션 (lasc, ldes, dasc, ddes, nasc, ndes)",
     )
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 class LawInterpretationDetailArgs(BaseModel):
-    interpretation_id: Optional[str] = Field(None, description="법령해석례 일련번호 (ID)")
+    interpretation_id: Optional[str] = Field(
+        None, description="법령해석례 일련번호 (ID)"
+    )
     lm: Optional[str] = Field(None, description="법령해석례명 (LM)")
-    oc: Optional[str] = Field(None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)")
+    oc: Optional[str] = Field(
+        None, description="law.go.kr OC 값 (기본값: 환경 변수 LAW_GO_KR_OC)"
+    )
 
 
 USE_CASES_MD: str = """
@@ -279,8 +403,12 @@ def get_lawyer_gpt_use_cases() -> str:
     return USE_CASES_MD
 
 
-def tool_keyword_search(*, query: str, k: int, data_dir: Path, context_chars: int = 0) -> List[Hit]:
-    return _keyword_search(query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars)
+def tool_keyword_search(
+    *, query: str, k: int, data_dir: Path, context_chars: int = 0
+) -> List[Hit]:
+    return _keyword_search(
+        query, limit=max(5, k), data_dir=data_dir, context_chars=context_chars
+    )
 
 
 def tool_law_go_search(
@@ -514,10 +642,16 @@ def _law_interpretation_detail_snippet(detail: LawInterpretationDetail) -> str:
     elif detail.reason:
         parts.append(f"이유: {detail.reason}")
     snippet = " | ".join(parts)
-    return snippet[:1200] if len(snippet) > 1200 else snippet or "법령해석례 본문 정보가 제공되지 않았습니다."
+    return (
+        snippet[:1200]
+        if len(snippet) > 1200
+        else snippet or "법령해석례 본문 정보가 제공되지 않았습니다."
+    )
 
 
-def _law_article_to_hit(detail: LawDetailResponse, article: LawDetailArticle, base_path: Path) -> Hit:
+def _law_article_to_hit(
+    detail: LawDetailResponse, article: LawDetailArticle, base_path: Path
+) -> Hit:
     article_id = article.article_no or article.title or "article"
     try:
         path = base_path / f"article-{article_id}"
@@ -598,7 +732,9 @@ def _law_metadata_snippet(detail: LawDetailResponse) -> str:
     return " | ".join(parts)
 
 
-def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: int = 0) -> List[Hit]:
+def _keyword_search(
+    query: str, limit: int, data_dir: Path, *, context_chars: int = 0
+) -> List[Hit]:
     global _OPENSEARCH_AVAILABLE, _OPENSEARCH_ERROR
     if not _OPENSEARCH_AVAILABLE:
         if _OPENSEARCH_ERROR:
@@ -614,7 +750,9 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
         logger.warning("search_keyword_opensearch_failed", error=_OPENSEARCH_ERROR)
         return []
 
-    def _paginate_text(text: str, page_chars: int = 400, max_pages: int = 3) -> List[str]:
+    def _paginate_text(
+        text: str, page_chars: int = 400, max_pages: int = 3
+    ) -> List[str]:
         text = text.strip()
         if len(text) <= page_chars:
             return [text]
@@ -648,7 +786,9 @@ def _keyword_search(query: str, limit: int, data_dir: Path, *, context_chars: in
         except Exception:
             path = Path("")
         approx_chars = max(200, min(800, (context_chars or 800) // 2))
-        pages = _paginate_text(snippet or doc.body or "", page_chars=approx_chars, max_pages=3)
+        pages = _paginate_text(
+            snippet or doc.body or "", page_chars=approx_chars, max_pages=3
+        )
         total = len(pages)
         for idx, page_text in enumerate(pages, start=1):
             if len(page_text) > 1200:
@@ -785,7 +925,9 @@ class LangChainToolAgent:
         cleaned_question = (question or "").strip()
         if not cleaned_question:
             answer = "(질문이 비어있습니다)"
-            return self._finalize(cleaned_question, store, answer, intermediate_steps=[], iters=0)
+            return self._finalize(
+                cleaned_question, store, answer, intermediate_steps=[], iters=0
+            )
 
         provider = _llm_provider()
         logger.info("langchain_agent_provider", provider=provider)
@@ -818,7 +960,9 @@ class LangChainToolAgent:
                 answer = _offline_summary(cleaned_question, store.observations_text())
             else:
                 if not answer or not self._has_citation(answer):
-                    answer = self._summarize_with_llm(cleaned_question, store.observations_text())
+                    answer = self._summarize_with_llm(
+                        cleaned_question, store.observations_text()
+                    )
 
             return self._finalize(
                 cleaned_question,
@@ -969,7 +1113,9 @@ class LangChainToolAgent:
             "general_guidance": self._general_guidance(),
         }
         result = executor.invoke(inputs)
-        store.record_action("agent", {"intermediate_steps": len(result.get("intermediate_steps", []))})
+        store.record_action(
+            "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+        )
         return result
 
     def _build_tools(self, store: EvidenceStore) -> List[Any]:
@@ -977,7 +1123,9 @@ class LangChainToolAgent:
 
         context_chars_default = self.context_chars or 800
 
-        def keyword_tool(query: str, k: Optional[int] = None, context_chars: Optional[int] = None) -> str:
+        def keyword_tool(
+            query: str, k: Optional[int] = None, context_chars: Optional[int] = None
+        ) -> str:
             limit = max(self.top_k, int(k) if k else self.top_k)
             limit = min(max(limit, 3), self.top_k * 3)
             ctx = int(context_chars) if context_chars else context_chars_default
@@ -991,11 +1139,15 @@ class LangChainToolAgent:
                 )
             except Exception as exc:
                 logger.exception("keyword_search_failed", query=query)
-                store.record_action("keyword_search", {"query": query, "error": str(exc)})
+                store.record_action(
+                    "keyword_search", {"query": query, "error": str(exc)}
+                )
                 return f"[검색 오류] {exc}"
             hits = _dedupe_hits(hits)
             formatted = store.add_hits(hits)
-            store.record_action("keyword_search", {"query": query, "returned": len(hits)})
+            store.record_action(
+                "keyword_search", {"query": query, "returned": len(hits)}
+            )
             return formatted
 
         def law_search_tool(
@@ -1016,34 +1168,81 @@ class LangChainToolAgent:
             oc: Optional[str] = None,
         ) -> str:
             store.record_query(query)
-            try:
-                response, hits = tool_law_go_search(
-                    query=query,
-                    search=search,
-                    display=display,
-                    page=page,
-                    sort=sort,
-                    ef_yd=ef_yd,
-                    anc_yd=anc_yd,
-                    anc_no=anc_no,
-                    rr_cls_cd=rr_cls_cd,
-                    nb=nb,
-                    org=org,
-                    knd=knd,
-                    ls_chap_no=ls_chap_no,
-                    gana=gana,
-                    oc=oc,
-                )
-            except LawSearchError as exc:
-                logger.warning("law_go_kr_search_failed", error=str(exc))
-                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
-                return f"[법령 검색 오류] {exc}"
-            except Exception as exc:
-                logger.exception("law_go_kr_search_unexpected_error", query=query)
-                store.record_action("law_go_kr_search", {"query": query, "error": str(exc)})
-                return f"[법령 검색 오류] {exc}"
+            debug_params = _debug_params(
+                search=search,
+                display=display,
+                page=page,
+                sort=sort,
+                ef_yd=ef_yd,
+                anc_yd=anc_yd,
+                anc_no=anc_no,
+                rr_cls_cd=rr_cls_cd,
+                nb=nb,
+                org=org,
+                knd=knd,
+                ls_chap_no=ls_chap_no,
+                gana=gana,
+                oc=oc,
+            )
+            with _log_tool_call(
+                "law_go_kr_search_start",
+                start_payload={"query": query, "params": debug_params},
+                success_event="law_go_kr_search_success",
+                success_payload=lambda response, hits: {
+                    "query": query,
+                    "total": response.total_count,
+                    "page": response.page,
+                    "returned": len(hits),
+                    "params": debug_params,
+                },
+            ) as log_success:
+                try:
+                    response, hits = tool_law_go_search(
+                        query=query,
+                        search=search,
+                        display=display,
+                        page=page,
+                        sort=sort,
+                        ef_yd=ef_yd,
+                        anc_yd=anc_yd,
+                        anc_no=anc_no,
+                        rr_cls_cd=rr_cls_cd,
+                        nb=nb,
+                        org=org,
+                        knd=knd,
+                        ls_chap_no=ls_chap_no,
+                        gana=gana,
+                        oc=oc,
+                    )
+                except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.warning(
+                        "law_go_kr_search_failed", error=str(exc), **failure_context
+                    )
+                    store.record_action(
+                        "law_go_kr_search", {"query": query, "error": str(exc)}
+                    )
+                    return f"[법령 검색 오류] {exc}"
+                except Exception as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.exception(
+                        "law_go_kr_search_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_search", {"query": query, "error": str(exc)}
+                    )
+                    return f"[법령 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            log_success(response, hits)
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_search",
@@ -1066,43 +1265,77 @@ class LangChainToolAgent:
             lang: Optional[str] = None,
             oc: Optional[str] = None,
         ) -> str:
-            try:
-                response, hits = tool_law_go_detail(
-                    law_id=law_id,
-                    mst=mst,
-                    lm=lm,
-                    ld=ld,
-                    ln=ln,
-                    jo=jo,
-                    lang=lang,
-                    oc=oc,
-                )
-            except LawSearchError as exc:
-                logger.warning("law_go_kr_detail_failed", error=str(exc))
-                store.record_action(
-                    "law_go_kr_detail",
-                    {
-                        "law_id": law_id,
-                        "mst": mst,
-                        "lm": lm,
-                        "error": str(exc),
-                    },
-                )
-                return f"[법령 본문 조회 오류] {exc}"
-            except Exception as exc:
-                logger.exception("law_go_kr_detail_unexpected_error")
-                store.record_action(
-                    "law_go_kr_detail",
-                    {
-                        "law_id": law_id,
-                        "mst": mst,
-                        "lm": lm,
-                        "error": str(exc),
-                    },
-                )
-                return f"[법령 본문 조회 오류] {exc}"
+            debug_params = _debug_params(
+                law_id=law_id,
+                mst=mst,
+                lm=lm,
+                ld=ld,
+                ln=ln,
+                jo=jo,
+                lang=lang,
+                oc=oc,
+            )
+            with _log_tool_call(
+                "law_go_kr_detail_start",
+                start_payload={"params": debug_params},
+                success_event="law_go_kr_detail_success",
+                success_payload=lambda response, hits: {
+                    "law_id": response.law_id,
+                    "title": response.title,
+                    "returned": len(hits),
+                    "params": debug_params,
+                },
+            ) as log_success:
+                try:
+                    response, hits = tool_law_go_detail(
+                        law_id=law_id,
+                        mst=mst,
+                        lm=lm,
+                        ld=ld,
+                        ln=ln,
+                        jo=jo,
+                        lang=lang,
+                        oc=oc,
+                    )
+                except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.warning(
+                        "law_go_kr_detail_failed", error=str(exc), **failure_context
+                    )
+                    store.record_action(
+                        "law_go_kr_detail",
+                        {
+                            "law_id": law_id,
+                            "mst": mst,
+                            "lm": lm,
+                            "error": str(exc),
+                        },
+                    )
+                    return f"[법령 본문 조회 오류] {exc}"
+                except Exception as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.exception(
+                        "law_go_kr_detail_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_detail",
+                        {
+                            "law_id": law_id,
+                            "mst": mst,
+                            "lm": lm,
+                            "error": str(exc),
+                        },
+                    )
+                    return f"[법령 본문 조회 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            log_success(response, hits)
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_detail",
@@ -1129,31 +1362,77 @@ class LangChainToolAgent:
             oc: Optional[str] = None,
         ) -> str:
             store.record_query(query or "")
-            try:
-                response, hits = tool_law_go_interpretations(
-                    query=query,
-                    search=search,
-                    display=display,
-                    page=page,
-                    inq=inq,
-                    rpl=rpl,
-                    gana=gana,
-                    itmno=itmno,
-                    reg_yd=reg_yd,
-                    expl_yd=expl_yd,
-                    sort=sort,
-                    oc=oc,
-                )
-            except LawSearchError as exc:
-                logger.warning("law_go_kr_interpretation_search_failed", error=str(exc))
-                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
-                return f"[법령해석례 검색 오류] {exc}"
-            except Exception as exc:
-                logger.exception("law_go_kr_interpretation_unexpected_error", query=query)
-                store.record_action("law_go_kr_interpretation", {"query": query, "error": str(exc)})
-                return f"[법령해석례 검색 오류] {exc}"
+            debug_params = _debug_params(
+                search=search,
+                display=display,
+                page=page,
+                inq=inq,
+                rpl=rpl,
+                gana=gana,
+                itmno=itmno,
+                reg_yd=reg_yd,
+                expl_yd=expl_yd,
+                sort=sort,
+                oc=oc,
+            )
+            with _log_tool_call(
+                "law_go_kr_interpretation_search_start",
+                start_payload={"query": query, "params": debug_params},
+                success_event="law_go_kr_interpretation_search_success",
+                success_payload=lambda response, hits: {
+                    "query": query,
+                    "total": response.total_count,
+                    "page": response.page,
+                    "returned": len(hits),
+                    "params": debug_params,
+                },
+            ) as log_success:
+                try:
+                    response, hits = tool_law_go_interpretations(
+                        query=query,
+                        search=search,
+                        display=display,
+                        page=page,
+                        inq=inq,
+                        rpl=rpl,
+                        gana=gana,
+                        itmno=itmno,
+                        reg_yd=reg_yd,
+                        expl_yd=expl_yd,
+                        sort=sort,
+                        oc=oc,
+                    )
+                except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.warning(
+                        "law_go_kr_interpretation_search_failed",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_interpretation", {"query": query, "error": str(exc)}
+                    )
+                    return f"[법령해석례 검색 오류] {exc}"
+                except Exception as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.exception(
+                        "law_go_kr_interpretation_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_interpretation", {"query": query, "error": str(exc)}
+                    )
+                    return f"[법령해석례 검색 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            log_success(response, hits)
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_interpretation",
@@ -1171,36 +1450,67 @@ class LangChainToolAgent:
             lm: Optional[str] = None,
             oc: Optional[str] = None,
         ) -> str:
-            try:
-                detail, hits = tool_law_go_interpretation_detail(
-                    interpretation_id=interpretation_id,
-                    lm=lm,
-                    oc=oc,
-                )
-            except LawSearchError as exc:
-                logger.warning("law_go_kr_interpretation_detail_failed", error=str(exc))
-                store.record_action(
-                    "law_go_kr_interpretation_detail",
-                    {
-                        "interpretation_id": interpretation_id,
-                        "lm": lm,
-                        "error": str(exc),
-                    },
-                )
-                return f"[법령해석례 본문 조회 오류] {exc}"
-            except Exception as exc:
-                logger.exception("law_go_kr_interpretation_detail_unexpected_error")
-                store.record_action(
-                    "law_go_kr_interpretation_detail",
-                    {
-                        "interpretation_id": interpretation_id,
-                        "lm": lm,
-                        "error": str(exc),
-                    },
-                )
-                return f"[법령해석례 본문 조회 오류] {exc}"
+            debug_params = _debug_params(
+                interpretation_id=interpretation_id,
+                lm=lm,
+                oc=oc,
+            )
+            with _log_tool_call(
+                "law_go_kr_interpretation_detail_start",
+                start_payload={"params": debug_params},
+                success_event="law_go_kr_interpretation_detail_success",
+                success_payload=lambda detail, hits: {
+                    "interpretation_id": detail.serial_no,
+                    "title": detail.title,
+                    "returned": len(hits),
+                    "params": debug_params,
+                },
+            ) as log_success:
+                try:
+                    detail, hits = tool_law_go_interpretation_detail(
+                        interpretation_id=interpretation_id,
+                        lm=lm,
+                        oc=oc,
+                    )
+                except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.warning(
+                        "law_go_kr_interpretation_detail_failed",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_interpretation_detail",
+                        {
+                            "interpretation_id": interpretation_id,
+                            "lm": lm,
+                            "error": str(exc),
+                        },
+                    )
+                    return f"[법령해석례 본문 조회 오류] {exc}"
+                except Exception as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.exception(
+                        "law_go_kr_interpretation_detail_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
+                    store.record_action(
+                        "law_go_kr_interpretation_detail",
+                        {
+                            "interpretation_id": interpretation_id,
+                            "lm": lm,
+                            "error": str(exc),
+                        },
+                    )
+                    return f"[법령해석례 본문 조회 오류] {exc}"
 
             hits = _dedupe_hits(hits)
+            log_success(detail, hits)
             formatted = store.add_hits(hits)
             store.record_action(
                 "law_go_kr_interpretation_detail",
@@ -1247,9 +1557,7 @@ class LangChainToolAgent:
 
     def _general_guidance(self) -> str:
         if self.allow_general:
-            return (
-                "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
-            )
+            return "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
         return "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
 
     def _create_llm(self, *, temperature: float, timeout: float):  # noqa: ANN001 - LangChain types
@@ -1274,7 +1582,9 @@ class LangChainToolAgent:
                 try:
                     kwargs["max_output_tokens"] = int(max_output)
                 except ValueError:
-                    logger.warning("gemini_max_output_tokens_invalid", raw_value=max_output)
+                    logger.warning(
+                        "gemini_max_output_tokens_invalid", raw_value=max_output
+                    )
             logger.info("langchain_agent_gemini", model=model, temperature=temperature)
             return ChatGoogleGenerativeAI(**kwargs)
 
@@ -1372,7 +1682,9 @@ def build_legal_ask_graph(
     )
 
     class _Adapter:
-        def invoke(self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        def invoke(
+            self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None
+        ) -> Dict[str, Any]:
             question = state.get("question", "") if isinstance(state, dict) else ""
             return agent.run(question)
 
