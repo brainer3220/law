@@ -91,6 +91,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+# Python virtual environment libraries
 lib/
 lib64/
 parts/
@@ -102,6 +103,10 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Allow the Next.js frontend to commit its TypeScript sources under lib/
+!/packages/ai_frontend/lib/
+!/packages/ai_frontend/lib/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
