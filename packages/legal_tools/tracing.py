@@ -42,9 +42,7 @@ def _normalize_bool(value: Optional[str]) -> Optional[bool]:
     normalized = value.strip().lower()
     if not normalized:
         return None
-    if normalized in _DISABLED_VALUES:
-        return False
-    return True
+    return normalized not in _DISABLED_VALUES
 
 
 def _build_callbacks(project: str) -> List[Any]:
