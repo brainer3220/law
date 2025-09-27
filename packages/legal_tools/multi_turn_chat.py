@@ -230,8 +230,8 @@ class PostgresChatManager:
             raise ValueError("thread_id must be a non-empty string.")
         if len(tid) > 200:
             raise ValueError("thread_id is too long (max 200 characters).")
-        if any(ch.isspace() for ch in tid):
-            raise ValueError("thread_id cannot contain whitespace characters.")
+        if ' ' in tid:
+            raise ValueError("thread_id cannot contain space characters.")
         return tid
 
     def _normalize_role(self, role: Optional[str]) -> str:
