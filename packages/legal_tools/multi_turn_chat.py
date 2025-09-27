@@ -176,8 +176,7 @@ class PostgresChatManager:
             role = self._normalize_role(getattr(message, "role", None) or message.type)
             content = self._coerce_content(getattr(message, "content", ""))
             data: Dict[str, Any] = {"role": role, "content": content}
-            extra = getattr(message, "additional_kwargs", None)
-            if extra:
+            if extra := getattr(message, "additional_kwargs", None):
                 data["additional_kwargs"] = dict(extra)
             return data
         if isinstance(message, dict):
