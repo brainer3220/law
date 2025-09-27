@@ -193,40 +193,73 @@ class PostgresChatManager:
         return payload
 
     def _message_to_dict(self, message: Any) -> Dict[str, Any]:
-        if isinstance(message, BaseMessage):
-            role = self._normalize_role(getattr(message, "role", None) or message.type)
-            content = self._coerce_content(getattr(message, "content", ""))
-            data: Dict[str, Any] = {"role": role, "content": content}
-            if getattr(message, "name", None):
-                data["name"] = getattr(message, "name")
-            if getattr(message, "tool_calls", None):
-                data["tool_calls"] = getattr(message, "tool_calls")
-            if getattr(message, "tool_call_chunks", None):
-                data["tool_call_chunks"] = getattr(message, "tool_call_chunks")
-            if getattr(message, "tool_call_id", None):
-                data["tool_call_id"] = getattr(message, "tool_call_id")
-            if extra := getattr(message, "additional_kwargs", None):
-                data["additional_kwargs"] = dict(extra)
-            return data
+        if isinstance(message, BaseMessage) or self._looks_like_message_object(message):
+            return self._message_from_object(message)
         if isinstance(message, dict):
-            role = self._normalize_role(message.get("role") or message.get("type"))
-            content = self._coerce_content(message.get("content"))
-            data = {"role": role, "content": content}
-            for key in (
+            return self._message_from_mapping(message)
+        return {
+            "role": "assistant",
+            "content": self._coerce_content(message),
+        }
+
+    def _message_from_object(self, message: Any) -> Dict[str, Any]:
+        role_attr = getattr(message, "role", None) or getattr(message, "type", None)
+        role = self._normalize_role(role_attr)
+        content = self._coerce_content(getattr(message, "content", ""))
+        data: Dict[str, Any] = {"role": role, "content": content}
+        self._copy_optional_fields(
+            data,
+            message,
+            (
+                "name",
+                "tool_calls",
+                "tool_call_chunks",
+                "tool_call_id",
+            ),
+            getter=lambda src, key: getattr(src, key, None),
+        )
+        extras = getattr(message, "additional_kwargs", None)
+        if extras:
+            data["additional_kwargs"] = dict(extras)
+        return data
+
+    def _message_from_mapping(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        role = self._normalize_role(message.get("role") or message.get("type"))
+        content = self._coerce_content(message.get("content"))
+        data: Dict[str, Any] = {"role": role, "content": content}
+        self._copy_optional_fields(
+            data,
+            message,
+            (
                 "additional_kwargs",
                 "metadata",
                 "name",
                 "tool_calls",
                 "tool_call_chunks",
                 "tool_call_id",
-            ):
-                if key in message:
-                    data[key] = message[key]
-            return data
-        return {
-            "role": "assistant",
-            "content": self._coerce_content(message),
-        }
+            ),
+            getter=lambda src, key: src.get(key),
+        )
+        return data
+
+    @staticmethod
+    def _looks_like_message_object(message: Any) -> bool:
+        return hasattr(message, "content") and (
+            hasattr(message, "role") or hasattr(message, "type")
+        )
+
+    @staticmethod
+    def _copy_optional_fields(
+        target: Dict[str, Any],
+        source: Any,
+        keys: Iterable[str],
+        *,
+        getter,
+    ) -> None:
+        for key in keys:
+            value = getter(source, key)
+            if value is not None:
+                target[key] = value
 
     def _compare_key(self, message: Dict[str, Any]) -> Tuple[str, str]:
         role = self._normalize_role(message.get("role"))

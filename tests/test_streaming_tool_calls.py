@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
+from typing import Any, Dict
+
 import pytest
 
 pytest.importorskip("langchain")
@@ -10,6 +14,14 @@ from packages.legal_tools.multi_turn_chat import PostgresChatManager
 
 def _make_manager() -> PostgresChatManager:
     return PostgresChatManager.__new__(PostgresChatManager)
+
+
+@dataclass
+class FakeToolCall:
+    name: str
+    args: Dict[str, Any]
+    id: str = ""
+    tool_call_id: str = ""
 
 
 def test_normalize_tool_calls_converts_args_to_strings() -> None:
@@ -35,6 +47,30 @@ def test_normalize_tool_calls_converts_args_to_strings() -> None:
             "function": {"name": "add", "arguments": "{\"a\": 11}"},
         },
     ]
+
+
+def test_normalize_tool_calls_accepts_tool_call_objects() -> None:
+    tool_calls = [FakeToolCall(name="lookup", args={"q": "law"})]
+
+    normalized = _normalize_tool_calls(tool_calls)
+
+    assert len(normalized) == 1
+    call = normalized[0]
+    assert call["function"]["name"] == "lookup"
+    assert json.loads(call["function"]["arguments"]) == {"q": "law"}
+    assert call["id"].startswith("call_0000_")
+
+
+def test_normalize_tool_calls_handles_empty_iterables() -> None:
+    assert _normalize_tool_calls([]) == []
+    assert _normalize_tool_calls(None) == []
+
+
+def test_normalize_tool_calls_skips_malformed_entries(caplog: pytest.LogCaptureFixture) -> None:
+    normalized = _normalize_tool_calls([object()])
+
+    assert normalized == []
+    assert any("Malformed tool call" in message for message in caplog.text.splitlines())
 
 
 def test_prepare_incoming_message_preserves_tool_call_chunks() -> None:
@@ -70,3 +106,28 @@ def test_message_to_dict_retains_tool_call_chunks() -> None:
 
     assert as_dict["tool_calls"] == message["tool_calls"]
     assert as_dict["tool_call_chunks"] == message["tool_call_chunks"]
+
+
+def test_message_to_dict_handles_message_objects() -> None:
+    manager = _make_manager()
+
+    class DummyMessage:
+        def __init__(self) -> None:
+            self.type = "assistant"
+            self.role = "assistant"
+            self.content = "object-result"
+            self.tool_calls = [{"name": "Add"}]
+            self.tool_call_chunks = [{"index": 2, "args": "{\"c\": 3}"}]
+            self.tool_call_id = "call_object"
+            self.additional_kwargs = {"foo": "bar"}
+
+    message = DummyMessage()
+
+    as_dict = manager._message_to_dict(message)
+
+    assert as_dict["role"] == "assistant"
+    assert as_dict["content"] == "object-result"
+    assert as_dict["tool_calls"] == message.tool_calls
+    assert as_dict["tool_call_chunks"] == message.tool_call_chunks
+    assert as_dict["tool_call_id"] == message.tool_call_id
+    assert as_dict["additional_kwargs"] == message.additional_kwargs
