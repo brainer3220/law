@@ -24,6 +24,7 @@ import { MessageEditor } from "./message-editor";
 import { MessageReasoning } from "./message-reasoning";
 import { PreviewAttachment } from "./preview-attachment";
 import { Weather } from "./weather";
+import { LawToolUsageCard } from "./law-tool-usage";
 
 const PurePreviewMessage = ({
   chatId,
@@ -163,6 +164,10 @@ const PurePreviewMessage = ({
                   </div>
                 );
               }
+            }
+
+            if (type === "data-lawToolUsage") {
+              return <LawToolUsageCard key={key} usage={part.data} />;
             }
 
             if (type === "tool-getWeather") {

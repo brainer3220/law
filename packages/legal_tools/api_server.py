@@ -290,6 +290,24 @@ class ChatHandler(BaseHTTPRequestHandler):
             }
             self._sse_send(chunk)
 
+        tool_usage = None
+        if law_payload:
+            tool_usage = law_payload.get("tool_usage")
+            law_payload.setdefault("event", "tool_usage")
+
+        if tool_usage:
+            usage_chunk = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": None},
+                ],
+                "law": {"tool_usage": tool_usage, "event": "tool_usage"},
+            }
+            self._sse_send(usage_chunk)
+
         # Final empty delta with finish_reason=stop
         final = {
             "id": chat_id,

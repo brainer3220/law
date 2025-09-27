@@ -43,6 +43,7 @@ export type CustomUIDataTypes = {
   clear: null;
   finish: null;
   usage: AppUsage;
+  lawToolUsage: LawToolUsage;
 };
 
 export type ChatMessage = UIMessage<
@@ -55,4 +56,23 @@ export type Attachment = {
   name: string;
   url: string;
   contentType: string;
+};
+
+export type LawToolAction = {
+  tool: string;
+  payload?: Record<string, unknown>;
+};
+
+export type LawToolCall = {
+  id?: string;
+  name?: string;
+  arguments?: string;
+};
+
+export type LawToolUsage = {
+  actions?: LawToolAction[];
+  queries?: string[];
+  iterations?: number;
+  error?: string;
+  toolCalls?: LawToolCall[];
 };

@@ -100,6 +100,44 @@ export function Chat({
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
       if (dataPart.type === "data-usage") {
         setUsage(dataPart.data);
+        return;
+      }
+
+      if (dataPart.type === "data-lawToolUsage") {
+        const partId = dataPart.id ?? "law-tool-usage";
+        setMessages((previousMessages) => {
+          const nextMessages = [...previousMessages];
+
+          for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
+            const message = nextMessages[index];
+            if (message.role !== "assistant") {
+              continue;
+            }
+
+            const filteredParts = message.parts.filter((part) => {
+              if (part.type !== "data-lawToolUsage") {
+                return true;
+              }
+              return part.id !== partId;
+            });
+
+            nextMessages[index] = {
+              ...message,
+              parts: [
+                ...filteredParts,
+                {
+                  type: "data-lawToolUsage",
+                  id: partId,
+                  data: dataPart.data,
+                },
+              ],
+            };
+
+            break;
+          }
+
+          return nextMessages;
+        });
       }
     },
     onFinish: () => {
