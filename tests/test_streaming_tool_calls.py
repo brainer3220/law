@@ -9,7 +9,11 @@ import pytest
 
 pytest.importorskip("langchain")
 
-from packages.legal_tools.api_server import ChatHandler, _normalize_tool_calls
+from packages.legal_tools.api_server import (
+    ChatHandler,
+    _normalize_tool_call_chunk,
+    _normalize_tool_calls,
+)
 from packages.legal_tools.multi_turn_chat import PostgresChatManager
 
 
@@ -165,10 +169,23 @@ def test_stream_answer_emits_tool_call_chunk_events() -> None:
     ]
     tool_call_chunks = [
         {
-            "index": 0,
-            "id": "call_1",
-            "type": "function",
-            "function": {"name": "multiply", "arguments": "{\"a\": 1"},
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "multiply",
+                                    "arguments": "{\"a\": 1",
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
         }
     ]
 
@@ -212,3 +229,30 @@ def test_stream_answer_emits_tool_call_chunk_events() -> None:
         if calls and "function" in calls[0]
     ]
     assert "{\"a\": 1" in chunk_arguments
+
+
+def test_normalize_tool_call_chunk_flattens_delta_shapes() -> None:
+    chunk = {
+        "choices": [
+            {
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call_42",
+                            "type": "function",
+                            "function": {"name": "lookup", "arguments": {"q": "law"}},
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    normalized = _normalize_tool_call_chunk(chunk)
+
+    assert len(normalized) == 1
+    call = normalized[0]
+    assert call["id"] == "call_42"
+    assert call["function"]["name"] == "lookup"
+    assert call["function"]["arguments"] == "{\"q\": \"law\"}"

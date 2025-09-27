@@ -132,26 +132,45 @@ def _normalize_tool_call_chunk(chunk: Any) -> List[Dict[str, Any]]:
                 fn_data["arguments"] = json.dumps(args, ensure_ascii=False)
             elif args is None:
                 fn_data["arguments"] = ""
+            fn_name = fn_data.get("name")
+            if fn_name is not None:
+                fn_data["name"] = str(fn_name)
             data["function"] = fn_data
         return data
 
-    if chunk is None:
-        return []
+    def _collect(value: Any) -> List[Dict[str, Any]]:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            if "tool_calls" in value:
+                tool_calls = value.get("tool_calls")
+                if isinstance(tool_calls, Iterable) and not isinstance(
+                    tool_calls, (str, bytes)
+                ):
+                    items = [_coerce(item) for item in tool_calls]
+                    return [item for item in items if item]
+            if "delta" in value:
+                return _collect(value.get("delta"))
+            if "choices" in value:
+                choices = value.get("choices")
+                collected: List[Dict[str, Any]] = []
+                if isinstance(choices, Iterable) and not isinstance(
+                    choices, (str, bytes)
+                ):
+                    for choice in choices:
+                        collected.extend(_collect(choice))
+                return collected
+            call = _coerce(value)
+            return [call] if call else []
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            aggregated: List[Dict[str, Any]] = []
+            for item in value:
+                aggregated.extend(_collect(item))
+            return aggregated
+        call = _coerce(value)
+        return [call] if call else []
 
-    if isinstance(chunk, dict) and "tool_calls" in chunk:
-        candidates = chunk.get("tool_calls")
-        if isinstance(candidates, Iterable) and not isinstance(
-            candidates, (str, bytes)
-        ):
-            normalized = [_coerce(entry) for entry in candidates]
-            return [item for item in normalized if item]
-
-    if isinstance(chunk, Iterable) and not isinstance(chunk, (str, bytes, dict)):
-        normalized = [_coerce(entry) for entry in chunk]
-        return [item for item in normalized if item]
-
-    single = _coerce(chunk)
-    return [single] if single else []
+    return _collect(chunk)
 
 
 def _serialize_tool_function(raw_fn: Any) -> Dict[str, Any]:
