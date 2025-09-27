@@ -163,12 +163,13 @@ class ChatHandler(BaseHTTPRequestHandler):
             created = int(time.time())
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 
+            agent_result: Optional[Dict[str, Any]] = None
             if chat_result is None or not chat_result.last_text():
                 # Run the single-turn agent as a fallback or when multi-turn is disabled.
-                result = run_ask(
+                agent_result = run_ask(
                     question, data_dir=data_dir, top_k=top_k, max_iters=max_iters
                 )
-                answer: str = (result.get("answer") or "").strip()
+                answer: str = (agent_result.get("answer") or "").strip()
                 metadata["fallback_to_single_turn"] = True
             else:
                 answer = chat_result.last_text()
@@ -183,6 +184,15 @@ class ChatHandler(BaseHTTPRequestHandler):
             metadata["resolved_thread_id"] = thread_id or None
             metadata["checkpoint_id"] = checkpoint_id
 
+            tool_usage = self._collect_tool_usage(
+                agent_result=agent_result, chat_result=chat_result
+            )
+            law_payload: Dict[str, Any] = {}
+            if checkpoint_id:
+                law_payload["checkpoint_id"] = checkpoint_id
+            if tool_usage:
+                law_payload["tool_usage"] = tool_usage
+
             if stream:
                 self._stream_answer(
                     chat_id,
@@ -191,6 +201,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                     answer,
                     thread_id=response_thread_id,
                     checkpoint_id=checkpoint_id,
+                    law_payload=law_payload or None,
                 )
                 return
 
@@ -215,8 +226,8 @@ class ChatHandler(BaseHTTPRequestHandler):
             }
             if response_thread_id:
                 resp["thread_id"] = response_thread_id
-            if checkpoint_id:
-                resp.setdefault("law", {})["checkpoint_id"] = checkpoint_id
+            if law_payload:
+                resp["law"] = law_payload
             body = _json_response(resp)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -237,6 +248,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         *,
         thread_id: Optional[str] = None,
         checkpoint_id: Optional[str] = None,
+        law_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
@@ -288,6 +300,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                 {"index": 0, "delta": {}, "finish_reason": "stop"},
             ],
         }
+        if law_payload:
+            final["law"] = law_payload
         self._sse_send(final)
         # End of stream marker
         self.wfile.write(b"data: [DONE]\n\n")
@@ -315,6 +329,35 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _collect_tool_usage(
+        self,
+        *,
+        agent_result: Optional[Dict[str, Any]],
+        chat_result: Optional[ChatResponse],
+    ) -> Optional[Dict[str, Any]]:
+        payload: Dict[str, Any] = {}
+
+        if agent_result:
+            actions = agent_result.get("actions") or []
+            if actions:
+                payload["actions"] = actions
+            queries = agent_result.get("queries") or agent_result.get("used_queries")
+            if queries:
+                payload["queries"] = queries
+            iters = agent_result.get("iters")
+            if isinstance(iters, int):
+                payload["iterations"] = iters
+            error = agent_result.get("error")
+            if error:
+                payload["error"] = str(error)
+
+        if chat_result and chat_result.response:
+            tool_calls = chat_result.response.get("tool_calls")
+            if tool_calls:
+                payload["tool_calls"] = tool_calls
+
+        return payload or None
 
     def _sse_send(self, obj: Dict[str, Any]) -> None:
         data = json.dumps(obj, ensure_ascii=False)
