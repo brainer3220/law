@@ -36,15 +36,27 @@
 
 ## Model Providers
 
-This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. The default configuration includes [xAI](https://x.ai) models (`grok-2-vision-1212`, `grok-3-mini`) routed through the gateway.
+This template targets the local OpenAI-compatible gateway served by `uv run main.py serve --host 127.0.0.1 --port 8080`. By default the frontend sends requests to `http://127.0.0.1:8080/v1`. Override or secure the endpoint with the following environment variables:
 
-### AI Gateway Authentication
+- `OPENAI_COMPATIBLE_BASE_URL` – optional base URL override when the gateway is hosted elsewhere.
+- `OPENAI_COMPATIBLE_API_KEY` – optional bearer token if the gateway enforces authentication.
+- `OPENAI_COMPATIBLE_MODEL` (plus the `*_REASONING`, `*_TITLE`, `*_ARTIFACT` variants) – optional model IDs forwarded in the `model` field.
 
-**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
+You can still swap in any other provider supported by the [AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers) by editing `lib/ai/providers.ts`.
 
-**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
+### Manual Gateway Check
 
-With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
+Once the backend gateway is running you can issue a quick curl to confirm streaming responses:
+
+```bash
+curl -s http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-5-mini-2025-08-07",
+    "messages": [{"role":"user","content":"근로시간 면제업무 관련 판례 알려줘"}],
+    "stream": true
+  }'
+```
 
 ## Deploy Your Own
 
@@ -67,4 +79,4 @@ pnpm install
 pnpm dev
 ```
 
-Your app template should now be running on [localhost:3000](http://localhost:3000).
+The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
