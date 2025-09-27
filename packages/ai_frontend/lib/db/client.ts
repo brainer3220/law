@@ -9,7 +9,9 @@ const ensureServerEnvironment = () => {
   }
 };
 
-let client: Sql<Record<string, unknown>> | undefined;
+type PostgresRow = Record<string, unknown>;
+
+let client: Sql<PostgresRow> | undefined;
 let db: ReturnType<typeof drizzle> | undefined;
 
 export const getPostgresClient = () => {
@@ -30,7 +32,7 @@ export const getDb = () => {
   return db;
 };
 
-export const createScopedDb = (options?: Options) => {
+export const createScopedDb = (options?: Options<PostgresRow>) => {
   ensureServerEnvironment();
   const scopedClient = postgres(getPostgresUrl(), options);
   return { db: drizzle(scopedClient), client: scopedClient };
