@@ -218,10 +218,14 @@ class PostgresChatManager:
     def _last_assistant(
         self, messages: Iterable[Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:
-        for msg in reversed(list(messages)):
-            if self._normalize_role(msg.get("role")) == "assistant":
-                return msg
-        return None
+        return next(
+            (
+                msg
+                for msg in reversed(list(messages))
+                if self._normalize_role(msg.get("role")) == "assistant"
+            ),
+            None,
+        )
 
     def _normalize_thread_id(self, thread_id: str) -> str:
         tid = str(thread_id or "").strip()
