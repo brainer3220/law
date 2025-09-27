@@ -160,6 +160,20 @@ LLM Setup
 - Optional: `OPENAI_TEMPERATURE` (omit or set a number). If unset, provider default is used.
  - The HTTP server does not contact external models directly; it wraps the local agent which may use your configured LLM.
 
+LangSmith tracing
+-----------------
+The CLI and HTTP server can emit LangSmith traces for every `ask` call and chat completion. Provide the following environment
+variables before running `uv run main.py ...` or `law ...`:
+
+- `LANGSMITH_API_KEY` — API key for your LangSmith workspace.
+- `LANGSMITH_PROJECT` — Project name used to group runs.
+- `LANGSMITH_ENDPOINT` — Optional; override the default `https://api.smith.langchain.com` endpoint.
+- `LAW_LANGSMITH_ENABLED=0` — Optional toggle to disable tracing even when credentials exist.
+
+When credentials are detected the app automatically sets `LANGCHAIN_TRACING_V2=true` and shares callback handlers with the
+LangChain agent, multi-turn LangGraph, and HTTP server endpoints. The CLI, streaming API, and background Postgres chat manager
+all report run metadata (top-k, iteration limits, thread IDs, checkpoint IDs) to the configured LangSmith project.
+
 UV Workflow
 -----------
 - Create a venv and sync: `uv venv && uv sync`
