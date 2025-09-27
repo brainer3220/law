@@ -45,6 +45,39 @@ Notes:
 - Set `LAW_DATA_DIR` to point to your data folder if not `./data`.
 - The server runs the same LangGraph agent as the CLI and streams the final answer in chunks.
 
+### Postgres-backed multi-turn chat
+
+Set `LAW_CHAT_DB_URL` (defaults to `SUPABASE_DB_URL`, `DATABASE_URL`, or `PG_DSN` when unset) to enable the LangGraph `PostgresSaver` checkpoint store. The server will lazily
+initialize a persistent chat graph, run `.setup()` on first use, and emit `X-Thread-ID` / `X-Checkpoint-ID` headers so callers can
+resume conversations.
+
+```
+export LAW_CHAT_DB_URL="postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+export OPENAI_API_KEY=...
+
+# first call creates a new thread (thread id returned in headers / body)
+curl -i http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "openai:gpt-4o-mini",
+    "messages": [{"role":"user","content":"안녕! 넌 누구야?"}]
+  }'
+
+# reuse the thread for the follow-up turn
+curl -i http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "thread_id": "thread-abc123",  # use the id from the previous response/header
+    "messages": [{"role":"user","content":"내가 방금 뭐라고 했지?"}]
+  }'
+
+# inspect checkpoints (latest first)
+curl -s http://127.0.0.1:8080/threads/thread-abc123/history | jq
+```
+
+Each turn is saved as a checkpoint keyed by `thread_id`, enabling replay, branching, or offline inspection via the HTTP history
+endpoint.
+
 Supabase/Postgres (optional; BM25 FTS)
 -------------------------------------
 Enable PostgreSQL-backed full-text search using ParadeDB BM25. This is optional; OpenSearch remains default.
