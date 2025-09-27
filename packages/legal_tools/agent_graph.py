@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,6 +109,34 @@ def _debug_params(**kwargs: Any) -> Dict[str, Any]:
     return _sanitize_debug_payload(dict(kwargs))
 
 
+def _emit_debug_event(
+    event: str,
+    payload: Dict[str, Any],
+    *,
+    allow_empty_keys: Tuple[str, ...] = (),
+) -> None:
+    sanitized = _sanitize_debug_payload(dict(payload), allow_empty_keys=allow_empty_keys)
+
+    debug_enabled = False
+    checker = getattr(logger, "isEnabledFor", None)
+    if callable(checker):  # structlog stdlib loggers expose this
+        try:
+            debug_enabled = bool(checker(logging.DEBUG))
+        except Exception:
+            debug_enabled = False
+    else:
+        underlying = getattr(logger, "logger", None)
+        if underlying is not None and hasattr(underlying, "isEnabledFor"):
+            debug_enabled = underlying.isEnabledFor(logging.DEBUG)
+        else:
+            debug_enabled = logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
+    if debug_enabled:
+        logger.debug(event, **sanitized)
+    else:
+        logger.info(event, debug_event=True, **sanitized)
+
+
 @contextmanager
 def _log_tool_call(
     start_event: str,
@@ -116,17 +145,19 @@ def _log_tool_call(
     success_event: str,
     success_payload: Callable[..., Dict[str, Any]],
 ):
-    sanitized_start = _sanitize_debug_payload(
-        dict(start_payload), allow_empty_keys=("query",)
+    _emit_debug_event(
+        start_event,
+        dict(start_payload),
+        allow_empty_keys=("query",),
     )
-    logger.debug(start_event, **sanitized_start)
 
     def _log_success(*args: Any, **kwargs: Any) -> None:
         payload = success_payload(*args, **kwargs)
-        sanitized_payload = _sanitize_debug_payload(
-            dict(payload), allow_empty_keys=("query",)
+        _emit_debug_event(
+            success_event,
+            dict(payload),
+            allow_empty_keys=("query",),
         )
-        logger.debug(success_event, **sanitized_payload)
 
     yield _log_success
 
@@ -1184,13 +1215,27 @@ class LangChainToolAgent:
                         oc=oc,
                     )
                 except LawSearchError as exc:
-                    logger.warning("law_go_kr_search_failed", error=str(exc))
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.warning(
+                        "law_go_kr_search_failed", error=str(exc), **failure_context
+                    )
                     store.record_action(
                         "law_go_kr_search", {"query": query, "error": str(exc)}
                     )
                     return f"[법령 검색 오류] {exc}"
                 except Exception as exc:
-                    logger.exception("law_go_kr_search_unexpected_error", query=query)
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
+                    logger.exception(
+                        "law_go_kr_search_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
                     store.record_action(
                         "law_go_kr_search", {"query": query, "error": str(exc)}
                     )
@@ -1253,7 +1298,12 @@ class LangChainToolAgent:
                         oc=oc,
                     )
                 except LawSearchError as exc:
-                    logger.warning("law_go_kr_detail_failed", error=str(exc))
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.warning(
+                        "law_go_kr_detail_failed", error=str(exc), **failure_context
+                    )
                     store.record_action(
                         "law_go_kr_detail",
                         {
@@ -1265,7 +1315,14 @@ class LangChainToolAgent:
                     )
                     return f"[법령 본문 조회 오류] {exc}"
                 except Exception as exc:
-                    logger.exception("law_go_kr_detail_unexpected_error")
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.exception(
+                        "law_go_kr_detail_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
                     store.record_action(
                         "law_go_kr_detail",
                         {
@@ -1346,16 +1403,28 @@ class LangChainToolAgent:
                         oc=oc,
                     )
                 except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
                     logger.warning(
-                        "law_go_kr_interpretation_search_failed", error=str(exc)
+                        "law_go_kr_interpretation_search_failed",
+                        error=str(exc),
+                        **failure_context,
                     )
                     store.record_action(
                         "law_go_kr_interpretation", {"query": query, "error": str(exc)}
                     )
                     return f"[법령해석례 검색 오류] {exc}"
                 except Exception as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"query": query, "params": debug_params},
+                        allow_empty_keys=("query",),
+                    )
                     logger.exception(
-                        "law_go_kr_interpretation_unexpected_error", query=query
+                        "law_go_kr_interpretation_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
                     )
                     store.record_action(
                         "law_go_kr_interpretation", {"query": query, "error": str(exc)}
@@ -1404,8 +1473,13 @@ class LangChainToolAgent:
                         oc=oc,
                     )
                 except LawSearchError as exc:
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
                     logger.warning(
-                        "law_go_kr_interpretation_detail_failed", error=str(exc)
+                        "law_go_kr_interpretation_detail_failed",
+                        error=str(exc),
+                        **failure_context,
                     )
                     store.record_action(
                         "law_go_kr_interpretation_detail",
@@ -1417,7 +1491,14 @@ class LangChainToolAgent:
                     )
                     return f"[법령해석례 본문 조회 오류] {exc}"
                 except Exception as exc:
-                    logger.exception("law_go_kr_interpretation_detail_unexpected_error")
+                    failure_context = _sanitize_debug_payload(
+                        {"params": debug_params},
+                    )
+                    logger.exception(
+                        "law_go_kr_interpretation_detail_unexpected_error",
+                        error=str(exc),
+                        **failure_context,
+                    )
                     store.record_action(
                         "law_go_kr_interpretation_detail",
                         {
