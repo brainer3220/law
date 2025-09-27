@@ -50,6 +50,11 @@ def test_prepare_incoming_message_preserves_tool_call_chunks() -> None:
 
     assert prepared["tool_calls"] == message["tool_calls"]
     assert prepared["tool_call_chunks"] == message["tool_call_chunks"]
+    assert prepared["role"] == message["role"]
+    assert prepared["content"] == message["content"]
+    # Ensure no unexpected fields are present or missing
+    expected_keys = set(message.keys())
+    assert set(prepared.keys()) == expected_keys
 
 
 def test_message_to_dict_retains_tool_call_chunks() -> None:
