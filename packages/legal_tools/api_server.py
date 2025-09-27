@@ -242,8 +242,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                 law_payload["checkpoint_id"] = checkpoint_id
             if tool_usage:
                 law_payload["tool_usage"] = tool_usage
-                if raw_tool_call_chunks:
-                    tool_usage.setdefault("tool_call_chunks", raw_tool_call_chunks)
+            if raw_tool_call_chunks:
+                law_payload["tool_call_chunks"] = raw_tool_call_chunks
 
             if stream:
                 self._stream_answer(
