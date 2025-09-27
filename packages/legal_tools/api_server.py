@@ -125,6 +125,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         thread_id = str(req.get("thread_id") or "").strip()
         chat_result: Optional[ChatResponse] = None
         checkpoint_id: Optional[str] = None
+        response_thread_id: Optional[str] = None
         manager = _get_chat_manager() if messages else None
         if manager is not None and messages:
             if not thread_id:
@@ -134,12 +135,15 @@ class ChatHandler(BaseHTTPRequestHandler):
                     thread_id=thread_id, messages=messages
                 )
                 checkpoint_id = chat_result.checkpoint_id
+                response_thread_id = chat_result.thread_id
             except ValueError as exc:
                 self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
                 return
             except Exception as exc:  # pragma: no cover - runtime DB/model state
                 logger.exception("chat_manager_invoke_failed", exc_info=exc)
                 chat_result = None
+                checkpoint_id = None
+                response_thread_id = None
 
         question = _extract_question(messages)
         created = int(time.time())
@@ -154,9 +158,11 @@ class ChatHandler(BaseHTTPRequestHandler):
         else:
             answer = chat_result.last_text()
             checkpoint_id = checkpoint_id or chat_result.checkpoint_id
+            response_thread_id = response_thread_id or chat_result.thread_id
 
         if chat_result is not None:
             thread_id = chat_result.thread_id
+            response_thread_id = response_thread_id or chat_result.thread_id
 
         if stream:
             self._stream_answer(
@@ -164,7 +170,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 model,
                 created,
                 answer,
-                thread_id=thread_id or None,
+                thread_id=response_thread_id,
                 checkpoint_id=checkpoint_id,
             )
             return
@@ -188,15 +194,15 @@ class ChatHandler(BaseHTTPRequestHandler):
                 "total_tokens": len(answer),
             },
         }
-        if thread_id:
-            resp["thread_id"] = thread_id
+        if response_thread_id:
+            resp["thread_id"] = response_thread_id
         if checkpoint_id:
             resp.setdefault("law", {})["checkpoint_id"] = checkpoint_id
         body = _json_response(resp)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        if thread_id:
-            self.send_header("X-Thread-ID", thread_id)
+        if response_thread_id:
+            self.send_header("X-Thread-ID", response_thread_id)
         if checkpoint_id:
             self.send_header("X-Checkpoint-ID", checkpoint_id)
         self.send_header("Content-Length", str(len(body)))
