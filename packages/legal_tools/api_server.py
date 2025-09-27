@@ -75,9 +75,8 @@ def _normalize_tool_calls(
             arguments = ""
         else:
             arguments = str(raw_args)
-        call_id = call.get("id") or call.get("tool_call_id")
-        if not call_id:
-            call_id = f"call_{index:04d}"
+        call_id = call.get("id") or call.get("tool_call_id") or f"call_{index:04d}"
+
         normalized.append(
             {
                 "id": str(call_id),
