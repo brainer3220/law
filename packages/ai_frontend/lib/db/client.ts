@@ -30,7 +30,7 @@ export const getDb = () => {
   return db;
 };
 
-export const createScopedDb = (options?: Options<Record<string, unknown>>) => {
+export const createScopedDb = (options?: Options) => {
   ensureServerEnvironment();
   const scopedClient = postgres(getPostgresUrl(), options);
   return { db: drizzle(scopedClient), client: scopedClient };
