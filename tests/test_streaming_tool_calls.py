@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 from dataclasses import dataclass
 from typing import Any, Dict
 
@@ -8,7 +9,7 @@ import pytest
 
 pytest.importorskip("langchain")
 
-from packages.legal_tools.api_server import _normalize_tool_calls
+from packages.legal_tools.api_server import ChatHandler, _normalize_tool_calls
 from packages.legal_tools.multi_turn_chat import PostgresChatManager
 
 
@@ -131,3 +132,83 @@ def test_message_to_dict_handles_message_objects() -> None:
     assert as_dict["tool_call_chunks"] == message.tool_call_chunks
     assert as_dict["tool_call_id"] == message.tool_call_id
     assert as_dict["additional_kwargs"] == message.additional_kwargs
+
+
+def test_stream_answer_emits_tool_call_chunk_events() -> None:
+    class DummyHandler:
+        def __init__(self) -> None:
+            self.wfile = io.BytesIO()
+            self.responses = []
+            self.headers = []
+            self.ended = False
+
+        def send_response(self, code: int) -> None:
+            self.responses.append(code)
+
+        def send_header(self, key: str, value: str) -> None:
+            self.headers.append((key, value))
+
+        def end_headers(self) -> None:
+            self.ended = True
+
+        def _sse_send(self, obj: Dict[str, Any]) -> None:
+            payload = json.dumps(obj, ensure_ascii=False)
+            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+
+    handler = DummyHandler()
+    tool_calls = [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": "{\"a\": 1, \"b\": 2}"},
+        }
+    ]
+    tool_call_chunks = [
+        {
+            "index": 0,
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": "{\"a\": 1"},
+        }
+    ]
+
+    ChatHandler._stream_answer(  # type: ignore[arg-type]
+        handler,
+        chat_id="chat-123",
+        model="test-model",
+        created=1,
+        answer="final result",
+        tool_calls=tool_calls,
+        tool_call_chunks=tool_call_chunks,
+    )
+
+    raw = handler.wfile.getvalue().decode("utf-8")
+    blocks = [block for block in raw.split("\n\n") if block]
+    payloads = []
+    done_seen = False
+    for block in blocks:
+        assert block.startswith("data: ")
+        data = block[len("data: ") :]
+        if data == "[DONE]":
+            done_seen = True
+            continue
+        payloads.append(json.loads(data))
+
+    assert done_seen, "Streaming response must terminate with [DONE] marker"
+
+    tool_call_deltas = []
+    for payload in payloads:
+        choices = payload.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta") or {}
+        if "tool_calls" in delta:
+            tool_call_deltas.append(delta["tool_calls"])
+
+    assert len(tool_call_deltas) >= 2
+    chunk_arguments = [
+        calls[0]["function"]["arguments"]
+        for calls in tool_call_deltas
+        if calls and "function" in calls[0]
+    ]
+    assert "{\"a\": 1" in chunk_arguments

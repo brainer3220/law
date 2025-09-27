@@ -112,6 +112,48 @@ def _normalize_tool_calls(
     return normalized
 
 
+def _normalize_tool_call_chunk(chunk: Any) -> List[Dict[str, Any]]:
+    """Normalize a raw tool call chunk payload into OpenAI delta format."""
+
+    def _coerce(entry: Any) -> Optional[Dict[str, Any]]:
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            data = dict(entry)
+        else:
+            data = _serialize_tool_call_object(entry) or {}
+        if not data:
+            return None
+        fn = data.get("function")
+        if isinstance(fn, dict):
+            fn_data = dict(fn)
+            args = fn_data.get("arguments")
+            if isinstance(args, (dict, list)):
+                fn_data["arguments"] = json.dumps(args, ensure_ascii=False)
+            elif args is None:
+                fn_data["arguments"] = ""
+            data["function"] = fn_data
+        return data
+
+    if chunk is None:
+        return []
+
+    if isinstance(chunk, dict) and "tool_calls" in chunk:
+        candidates = chunk.get("tool_calls")
+        if isinstance(candidates, Iterable) and not isinstance(
+            candidates, (str, bytes)
+        ):
+            normalized = [_coerce(entry) for entry in candidates]
+            return [item for item in normalized if item]
+
+    if isinstance(chunk, Iterable) and not isinstance(chunk, (str, bytes, dict)):
+        normalized = [_coerce(entry) for entry in chunk]
+        return [item for item in normalized if item]
+
+    single = _coerce(chunk)
+    return [single] if single else []
+
+
 def _serialize_tool_function(raw_fn: Any) -> Dict[str, Any]:
     if isinstance(raw_fn, dict):
         return dict(raw_fn)
@@ -348,6 +390,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                     checkpoint_id=checkpoint_id,
                     law_payload=law_payload or None,
                     tool_calls=formatted_tool_calls,
+                    tool_call_chunks=raw_tool_call_chunks,
                 )
                 return
 
@@ -402,6 +445,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         checkpoint_id: Optional[str] = None,
         law_payload: Optional[Dict[str, Any]] = None,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_call_chunks: Optional[List[Any]] = None,
     ) -> None:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
@@ -434,6 +478,27 @@ class ChatHandler(BaseHTTPRequestHandler):
             "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
         }
         self._sse_send(first)
+
+        # Emit intermediate tool call chunks prior to the textual content
+        if tool_call_chunks:
+            for raw_chunk in tool_call_chunks:
+                normalized_chunks = _normalize_tool_call_chunk(raw_chunk)
+                if not normalized_chunks:
+                    continue
+                chunk_payload = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"tool_calls": normalized_chunks},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                self._sse_send(chunk_payload)
 
         # Stream the content in pieces
         content = answer or ""
