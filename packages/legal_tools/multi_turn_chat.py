@@ -55,9 +55,7 @@ class ChatResponse:
         if not self.response:
             return ""
         content = self.response.get("content")
-        if isinstance(content, str):
-            return content
-        return str(content or "")
+        return content if isinstance(content, str) else str(content or "")
 
 
 class PostgresChatManager:
