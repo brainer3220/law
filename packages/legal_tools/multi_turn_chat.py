@@ -255,13 +255,14 @@ class PostgresChatManager:
         if isinstance(content, list):
             parts: List[str] = []
             for item in content:
-                if isinstance(item, dict):
-                    if "text" in item:
-                        parts.append(str(item["text"]))
-                    elif item.get("type") == "text":
-                        parts.append(str(item.get("text", "")))
-                    else:
-                        parts.append(str(item))
+                if isinstance(item, dict) and "text" in item:
+                    parts.append(str(item["text"]))
+                elif (
+                    isinstance(item, dict)
+                    and "text" not in item
+                    and item.get("type") == "text"
+                ):
+                    parts.append(str(item.get("text", "")))
                 else:
                     parts.append(str(item))
             return "".join(parts)
