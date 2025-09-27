@@ -57,9 +57,16 @@ def _normalize_tool_calls(
     if not tool_calls or not isinstance(tool_calls, list):
         return None
 
+    import logging
+    logger = logging.getLogger(__name__)
+
     normalized: List[Dict[str, Any]] = []
     for index, call in enumerate(tool_calls):
         if not isinstance(call, dict):
+            logger.warning(
+                "Malformed tool call at index %d: expected dict, got %s (%r)",
+                index, type(call).__name__, call
+            )
             continue
         fn: Dict[str, Any] = {}
         raw_fn = call.get("function")
