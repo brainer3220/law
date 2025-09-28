@@ -1,6 +1,8 @@
 import type { NextAuthConfig } from "next-auth";
+import { getAuthSecret } from "@/lib/auth";
 
 export const authConfig = {
+  secret: getAuthSecret(),
   pages: {
     signIn: "/login",
     newUser: "/",
