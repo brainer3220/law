@@ -80,3 +80,5 @@ pnpm dev
 ```
 
 The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
+
+> ⚠️ The chat UI now requires an authenticated session. After launching the dev server, visit [`/register`](http://localhost:3000/register) to create an account before opening the chat interface. Any API requests made without a session cookie will return a `401 Unauthorized` response or redirect you back to the login page.
