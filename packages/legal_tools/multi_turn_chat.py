@@ -178,7 +178,9 @@ class PostgresChatManager:
         def _content_from_chunk(chunk: AIMessageChunk) -> str:
             try:
                 return self._coerce_content(chunk.content)
-            except Exception:
+            except (AttributeError, TypeError) as exc:
+                import logging
+                logging.error("Error in _coerce_content: %s", exc, exc_info=True)
                 return str(chunk.content or "")
 
         def _emit_events() -> Iterator[Dict[str, Any]]:
