@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-import json
 import io
+import json
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import pytest
 
 pytest.importorskip("langchain")
+pytest.importorskip("langchain_core")
 
 from packages.legal_tools.api_server import (
     ChatHandler,
     _normalize_tool_call_chunk,
     _normalize_tool_calls,
 )
-from packages.legal_tools.multi_turn_chat import PostgresChatManager
+from packages.legal_tools.multi_turn_chat import PostgresChatConfig, PostgresChatManager
+
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 
 def _make_manager() -> PostgresChatManager:
@@ -27,6 +30,99 @@ class FakeToolCall:
     args: Dict[str, Any]
     id: str = ""
     tool_call_id: str = ""
+
+
+@dataclass
+class _FakeSnapshot:
+    values: Dict[str, Any]
+    config: Dict[str, Any]
+
+
+class _FakeGraph:
+    def __init__(self, manager: PostgresChatManager) -> None:
+        self.manager = manager
+        self.messages: List[Any] = []
+        self.counter = 0
+
+    def get_state(self, cfg: Dict[str, Any]) -> Optional[_FakeSnapshot]:
+        if not self.messages:
+            return None
+        return _FakeSnapshot(
+            values={"messages": list(self.messages)},
+            config={"configurable": {"checkpoint_id": f"ckpt-{self.counter}"}},
+        )
+
+    def invoke(self, payload: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> None:
+        new_messages = payload.get("messages") or []
+        if new_messages:
+            self.messages.extend(new_messages)
+        response = self.manager._call_model({"messages": list(self.messages)}, config)
+        for message in response.get("messages", []):
+            self.messages.append(message)
+        self.counter += 1
+
+
+class FakeStreamingChatModel:
+    def stream(self, messages: List[Dict[str, Any]], config: Optional[Dict[str, Any]] = None):
+        del config, messages
+        yield AIMessageChunk(
+            content="",
+            tool_call_chunks=[
+                {"index": 0, "id": "call_1", "name": "multiply", "args": "{\"a\": 1"}
+            ],
+        )
+        yield AIMessageChunk(
+            content="",
+            tool_call_chunks=[
+                {"index": 0, "id": "call_1", "name": None, "args": ", \"b\": 2}"}
+            ],
+        )
+        yield AIMessageChunk(
+            content="final result",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "tool_call",
+                    "name": "multiply",
+                    "args": {"a": 1, "b": 2},
+                }
+            ],
+        )
+
+    def invoke(self, messages: List[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> AIMessage:
+        del config, messages
+        return AIMessage(
+            content="final result",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "tool_call",
+                    "name": "multiply",
+                    "args": {"a": 1, "b": 2},
+                }
+            ],
+        )
+
+
+class _DummyHandler:
+    def __init__(self) -> None:
+        self.wfile = io.BytesIO()
+        self.responses: List[int] = []
+        self.headers: List[tuple[str, str]] = []
+        self.ended = False
+
+    def send_response(self, code: int) -> None:
+        self.responses.append(code)
+
+    def send_header(self, key: str, value: str) -> None:
+        self.headers.append((key, value))
+
+    def end_headers(self) -> None:
+        self.ended = True
+
+    def _sse_send(self, obj: Dict[str, Any]) -> None:
+        payload = json.dumps(obj, ensure_ascii=False)
+        self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
 
 
 def test_normalize_tool_calls_converts_args_to_strings() -> None:
@@ -138,28 +234,63 @@ def test_message_to_dict_handles_message_objects() -> None:
     assert as_dict["additional_kwargs"] == message.additional_kwargs
 
 
+def test_send_messages_captures_streaming_tool_call_chunks() -> None:
+    manager = _make_manager()
+    manager.config = PostgresChatConfig(db_uri="postgresql://localhost/test")
+    manager._model = FakeStreamingChatModel()
+    manager._graph = _FakeGraph(manager)
+    manager._checkpointer = None
+    manager._checkpointer_cm = None
+
+    chat_result = manager.send_messages(
+        thread_id="stream-1",
+        messages=[{"role": "user", "content": "hello"}],
+    )
+
+    assert chat_result.response is not None
+    tool_call_chunks = chat_result.response.get("tool_call_chunks")
+    assert isinstance(tool_call_chunks, list)
+    assert len(tool_call_chunks) == 2
+    first_delta = tool_call_chunks[0]["tool_calls"][0]
+    assert first_delta["function"]["arguments"].startswith("{\"a\": 1")
+    second_delta = tool_call_chunks[1]["tool_calls"][0]
+    assert "\"b\": 2" in second_delta["function"]["arguments"]
+
+    handler = _DummyHandler()
+    ChatHandler._stream_answer(  # type: ignore[arg-type]
+        handler,
+        chat_id="chat-456",
+        model="fake-model",
+        created=1,
+        answer=chat_result.response.get("content", ""),
+        tool_calls=[],
+        tool_call_chunks=tool_call_chunks,
+    )
+
+    raw = handler.wfile.getvalue().decode("utf-8")
+    blocks = [block for block in raw.split("\n\n") if block]
+    deltas: List[Dict[str, Any]] = []
+    done_seen = False
+    for block in blocks:
+        if block == "data: [DONE]":
+            done_seen = True
+            continue
+        assert block.startswith("data: ")
+        payload = json.loads(block[len("data: ") :])
+        choices = payload.get("choices") or []
+        if choices:
+            delta = choices[0].get("delta") or {}
+            if "tool_calls" in delta:
+                deltas.append(delta)
+
+    assert done_seen
+    assert len(deltas) >= 2
+    assert any("\"a\": 1" in chunk["tool_calls"][0]["function"]["arguments"] for chunk in deltas)
+    assert any("\"b\": 2" in chunk["tool_calls"][0]["function"]["arguments"] for chunk in deltas)
+
+
 def test_stream_answer_emits_tool_call_chunk_events() -> None:
-    class DummyHandler:
-        def __init__(self) -> None:
-            self.wfile = io.BytesIO()
-            self.responses = []
-            self.headers = []
-            self.ended = False
-
-        def send_response(self, code: int) -> None:
-            self.responses.append(code)
-
-        def send_header(self, key: str, value: str) -> None:
-            self.headers.append((key, value))
-
-        def end_headers(self) -> None:
-            self.ended = True
-
-        def _sse_send(self, obj: Dict[str, Any]) -> None:
-            payload = json.dumps(obj, ensure_ascii=False)
-            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
-
-    handler = DummyHandler()
+    handler = _DummyHandler()
     tool_calls = [
         {
             "id": "call_1",
