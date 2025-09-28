@@ -8,6 +8,17 @@ export class AuthPage {
     this.page = page;
   }
 
+  async expectRedirectToLogin(redirectUrl = "/") {
+    const encodedRedirect = encodeURIComponent(redirectUrl);
+    const loginUrlRegex = new RegExp(
+      `/login\\?redirectUrl=${encodedRedirect.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}$`
+    );
+
+    await this.page.waitForURL(loginUrlRegex);
+    await expect(this.page).toHaveURL(loginUrlRegex);
+    await expect(this.page.getByRole("heading")).toContainText("Sign In");
+  }
+
   async gotoLogin() {
     await this.page.goto("/login");
     await expect(this.page.getByRole("heading")).toContainText("Sign In");
