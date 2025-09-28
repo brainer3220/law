@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -67,14 +68,25 @@ class PostgresChatManager:
     def __init__(self, *, config: PostgresChatConfig):
         self.config = config
         self._model = init_chat_model(config.model_id)
-        self._checkpointer = PostgresSaver.from_conn_string(config.db_uri)
-        if config.auto_setup:
-            self._checkpointer.setup()
-        builder = StateGraph(MessagesState)
-        builder.add_node("chat_model", self._call_model)
-        builder.add_edge(START, "chat_model")
-        builder.add_edge("chat_model", END)
-        self._graph = builder.compile(checkpointer=self._checkpointer)
+        self._checkpointer_cm: Optional[AbstractContextManager[PostgresSaver]] = None
+        self._checkpointer: Optional[PostgresSaver] = None
+        self._graph: Any = None
+        try:
+            self._checkpointer_cm = PostgresSaver.from_conn_string(config.db_uri)
+            self._checkpointer = self._checkpointer_cm.__enter__()
+            if config.auto_setup and self._checkpointer is not None:
+                self._checkpointer.setup()
+            builder = StateGraph(MessagesState)
+            builder.add_node("chat_model", self._call_model)
+            builder.add_edge(START, "chat_model")
+            builder.add_edge("chat_model", END)
+            self._graph = builder.compile(checkpointer=self._checkpointer)
+        except Exception:
+            try:
+                self.close()
+            except Exception:
+                pass
+            raise
 
     # ----------------------------- public API -----------------------------
     def send_messages(
@@ -105,7 +117,7 @@ class PostgresChatManager:
         }
         with trace_run("law.chat.send_messages", metadata=metadata):
             if invoked:
-                self._graph.invoke({"messages": new_payloads}, graph_config)
+                self._ensure_graph().invoke({"messages": new_payloads}, graph_config)
             updated, _, snapshot = self._load_state(cfg)
             response = self._last_assistant(updated)
             checkpoint_id = self._extract_checkpoint_id(snapshot)
@@ -131,7 +143,7 @@ class PostgresChatManager:
 
         cfg = {"configurable": {"thread_id": self._normalize_thread_id(thread_id)}}
         history = []
-        for snap in self._graph.get_state_history(cfg):
+        for snap in self._ensure_graph().get_state_history(cfg):
             messages = [
                 self._message_to_dict(m) for m in snap.values.get("messages", [])
             ]
@@ -149,7 +161,34 @@ class PostgresChatManager:
         token = uuid.uuid4().hex
         return f"{prefix}-{token}"
 
+    def close(self) -> None:
+        """Release the underlying Postgres connection."""
+
+        cm = self._checkpointer_cm
+        entered = self._checkpointer is not None
+        self._checkpointer_cm = None
+        self._checkpointer = None
+        if cm is not None and entered:
+            cm.__exit__(None, None, None)
+
+    def __enter__(self) -> "PostgresChatManager":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     # --------------------------- internal helpers -------------------------
+    def _ensure_graph(self) -> Any:
+        if self._graph is None:
+            raise RuntimeError("Chat graph is not initialized.")
+        return self._graph
+
     def _call_model(
         self, state: MessagesState, config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -159,7 +198,7 @@ class PostgresChatManager:
     def _load_state(
         self, cfg: Dict[str, Any]
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]], Optional[Any]]:
-        snapshot = self._graph.get_state(cfg)
+        snapshot = self._ensure_graph().get_state(cfg)
         if snapshot is None:
             return [], [], None
         raw = snapshot.values.get("messages", [])
