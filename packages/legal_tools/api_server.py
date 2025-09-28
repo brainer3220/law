@@ -8,7 +8,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from packages.legal_tools.agent_graph import run_ask
@@ -334,37 +334,61 @@ class ChatHandler(BaseHTTPRequestHandler):
             chat_result: Optional[ChatResponse] = None
             checkpoint_id: Optional[str] = None
             response_thread_id: Optional[str] = None
+            stream_iterator: Optional[Iterator[Dict[str, Any]]] = None
             manager = _get_chat_manager() if messages else None
             metadata["multi_turn_enabled"] = bool(manager)
             if manager is not None and messages:
                 if not thread_id:
                     thread_id = manager.new_thread_id()
-                try:
-                    chat_result = manager.send_messages(
-                        thread_id=thread_id, messages=messages
-                    )
-                    checkpoint_id = chat_result.checkpoint_id
-                    response_thread_id = chat_result.thread_id
-                except ValueError as exc:
-                    self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
-                    return
-                except Exception as exc:  # pragma: no cover - runtime DB/model state
-                    logger.exception("chat_manager_invoke_failed", exc_info=exc)
-                    chat_result = None
-                    checkpoint_id = None
-                    response_thread_id = None
+                if stream:
+                    stream_method = getattr(manager, "stream_messages", None)
+                    if callable(stream_method):
+                        try:
+                            stream_iterator = stream_method(
+                                thread_id=thread_id, messages=messages
+                            )
+                        except ValueError as exc:
+                            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                            return
+                        except Exception as exc:  # pragma: no cover - runtime DB/model state
+                            logger.exception("chat_manager_stream_failed", exc_info=exc)
+                            metadata["stream_generator_error"] = str(exc)
+                            stream_iterator = None
+                    else:
+                        metadata["stream_generator_error"] = "unavailable"
+                if stream_iterator is None:
+                    try:
+                        chat_result = manager.send_messages(
+                            thread_id=thread_id, messages=messages
+                        )
+                        checkpoint_id = chat_result.checkpoint_id
+                        response_thread_id = chat_result.thread_id
+                    except ValueError as exc:
+                        self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    except Exception as exc:  # pragma: no cover - runtime DB/model state
+                        logger.exception("chat_manager_invoke_failed", exc_info=exc)
+                        chat_result = None
+                        checkpoint_id = None
+                        response_thread_id = None
+                else:
+                    response_thread_id = thread_id
 
             question = _extract_question(messages)
             created = int(time.time())
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 
             agent_result: Optional[Dict[str, Any]] = None
-            if chat_result is None or not chat_result.last_text():
+            using_stream_iterator = bool(stream and stream_iterator is not None)
+            answer: str = ""
+            if using_stream_iterator:
+                metadata["fallback_to_single_turn"] = False
+            elif chat_result is None or not chat_result.last_text():
                 # Run the single-turn agent as a fallback or when multi-turn is disabled.
                 agent_result = run_ask(
                     question, data_dir=data_dir, top_k=top_k, max_iters=max_iters
                 )
-                answer: str = (agent_result.get("answer") or "").strip()
+                answer = (agent_result.get("answer") or "").strip()
                 metadata["fallback_to_single_turn"] = True
             else:
                 answer = chat_result.last_text()
@@ -378,6 +402,31 @@ class ChatHandler(BaseHTTPRequestHandler):
 
             metadata["resolved_thread_id"] = thread_id or None
             metadata["checkpoint_id"] = checkpoint_id
+
+            if stream and stream_iterator is not None:
+                final_chat = self._stream_answer(
+                    chat_id,
+                    model,
+                    created,
+                    thread_id=response_thread_id,
+                    checkpoint_id=checkpoint_id,
+                    law_payload=None,
+                    tool_calls=None,
+                    tool_call_chunks=None,
+                    fallback_answer="",
+                    event_iterator=stream_iterator,
+                    agent_result=None,
+                    chat_result=None,
+                )
+                if final_chat is not None:
+                    checkpoint_id = checkpoint_id or final_chat.checkpoint_id
+                    metadata["checkpoint_id"] = checkpoint_id
+                    metadata["resolved_thread_id"] = (
+                        final_chat.thread_id or thread_id or response_thread_id or None
+                    )
+                else:
+                    metadata["resolved_thread_id"] = response_thread_id or thread_id or None
+                return
 
             tool_usage = self._collect_tool_usage(
                 agent_result=agent_result, chat_result=chat_result
@@ -400,17 +449,28 @@ class ChatHandler(BaseHTTPRequestHandler):
                 law_payload["tool_call_chunks"] = raw_tool_call_chunks
 
             if stream:
-                self._stream_answer(
+                final_chat = self._stream_answer(
                     chat_id,
                     model,
                     created,
-                    answer,
                     thread_id=response_thread_id,
                     checkpoint_id=checkpoint_id,
                     law_payload=law_payload or None,
                     tool_calls=formatted_tool_calls,
                     tool_call_chunks=raw_tool_call_chunks,
+                    fallback_answer=answer,
+                    event_iterator=None,
+                    agent_result=agent_result,
+                    chat_result=chat_result,
                 )
+                if final_chat is not None:
+                    checkpoint_id = checkpoint_id or final_chat.checkpoint_id
+                    metadata["checkpoint_id"] = checkpoint_id
+                    metadata["resolved_thread_id"] = (
+                        final_chat.thread_id or response_thread_id or thread_id or None
+                    )
+                else:
+                    metadata["resolved_thread_id"] = response_thread_id or thread_id or None
                 return
 
             # Non-streaming response
@@ -458,14 +518,17 @@ class ChatHandler(BaseHTTPRequestHandler):
         chat_id: str,
         model: str,
         created: int,
-        answer: str,
         *,
         thread_id: Optional[str] = None,
         checkpoint_id: Optional[str] = None,
         law_payload: Optional[Dict[str, Any]] = None,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
         tool_call_chunks: Optional[List[Any]] = None,
-    ) -> None:
+        fallback_answer: str = "",
+        event_iterator: Optional[Iterator[Dict[str, Any]]] = None,
+        agent_result: Optional[Dict[str, Any]] = None,
+        chat_result: Optional[ChatResponse] = None,
+    ) -> Optional[ChatResponse]:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -498,13 +561,105 @@ class ChatHandler(BaseHTTPRequestHandler):
         }
         self._sse_send(first)
 
-        # Emit intermediate tool call chunks prior to the textual content
+        final_response: Optional[ChatResponse] = chat_result
+        collected_tool_call_chunks: List[Any] = []
         if tool_call_chunks:
-            for raw_chunk in tool_call_chunks:
-                normalized_chunks = _normalize_tool_call_chunk(raw_chunk)
-                if not normalized_chunks:
+            collected_tool_call_chunks.extend(tool_call_chunks)
+
+        if event_iterator is not None:
+            iterator = iter(event_iterator)
+            while True:
+                try:
+                    event = next(iterator)
+                except StopIteration as stop:
+                    value = getattr(stop, "value", None)
+                    if isinstance(value, ChatResponse):
+                        final_response = value
+                    break
+                except Exception as exc:  # pragma: no cover - streaming failure
+                    logger.exception("stream_iterator_failed", exc_info=exc)
+                    break
+
+                if isinstance(event, dict):
+                    event_type = event.get("type")
+                    payload = event.get("payload")
+                else:
+                    event_type = None
+                    payload = event
+
+                if event_type == "content_delta":
+                    text_delta = "" if payload is None else str(payload)
+                    if not text_delta:
+                        continue
+                    chunk = {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": text_delta},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    self._sse_send(chunk)
+                elif event_type == "tool_call_chunk":
+                    if payload is None:
+                        continue
+                    collected_tool_call_chunks.append(payload)
+                    normalized_chunks = _normalize_tool_call_chunk(payload)
+                    if not normalized_chunks:
+                        continue
+                    chunk_payload = {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"tool_calls": normalized_chunks},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    self._sse_send(chunk_payload)
+                else:
+                    # Ignore unrecognized events
                     continue
-                chunk_payload = {
+        else:
+            # Emit intermediate tool call chunks prior to the textual content
+            if tool_call_chunks:
+                for raw_chunk in tool_call_chunks:
+                    normalized_chunks = _normalize_tool_call_chunk(raw_chunk)
+                    if not normalized_chunks:
+                        continue
+                    chunk_payload = {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"tool_calls": normalized_chunks},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    self._sse_send(chunk_payload)
+
+            # Stream the content in pieces
+            content = fallback_answer or ""
+            # Chunk by ~80 characters to simulate token stream
+            step = 80
+            for i in range(0, len(content), step):
+                piece = content[i : i + step]
+                if not piece:
+                    continue
+                chunk = {
                     "id": chat_id,
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
@@ -512,32 +667,38 @@ class ChatHandler(BaseHTTPRequestHandler):
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"tool_calls": normalized_chunks},
+                            "delta": {"content": piece},
                             "finish_reason": None,
                         }
                     ],
                 }
-                self._sse_send(chunk_payload)
+                self._sse_send(chunk)
 
-        # Stream the content in pieces
-        content = answer or ""
-        # Chunk by ~80 characters to simulate token stream
-        step = 80
-        for i in range(0, len(content), step):
-            piece = content[i : i + step]
-            chunk = {
-                "id": chat_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {"index": 0, "delta": {"content": piece}, "finish_reason": None},
-                ],
-            }
-            self._sse_send(chunk)
+        combined_law_payload: Dict[str, Any] = dict(law_payload or {})
+        final_tool_usage = self._collect_tool_usage(
+            agent_result=agent_result, chat_result=final_response
+        )
+        if final_tool_usage:
+            combined_law_payload["tool_usage"] = final_tool_usage
+
+        if final_response is not None:
+            checkpoint_id = checkpoint_id or final_response.checkpoint_id
+            raw_tool_calls, response_tool_chunks = _extract_tool_payloads(
+                final_response.response
+            )
+            if raw_tool_calls:
+                combined_law_payload["tool_calls"] = raw_tool_calls
+            if response_tool_chunks:
+                combined_law_payload["tool_call_chunks"] = response_tool_chunks
+        if collected_tool_call_chunks and "tool_call_chunks" not in combined_law_payload:
+            combined_law_payload["tool_call_chunks"] = collected_tool_call_chunks
+        if checkpoint_id and "checkpoint_id" not in combined_law_payload:
+            combined_law_payload["checkpoint_id"] = checkpoint_id
+
+        final_payload = combined_law_payload or None
 
         # Final empty delta with finish_reason=stop
-        final = {
+        final_chunk = {
             "id": chat_id,
             "object": "chat.completion.chunk",
             "created": int(time.time()),
@@ -546,15 +707,17 @@ class ChatHandler(BaseHTTPRequestHandler):
                 {"index": 0, "delta": {}, "finish_reason": "stop"},
             ],
         }
-        if law_payload:
-            final["law"] = law_payload
-        self._sse_send(final)
+        if final_payload:
+            final_chunk["law"] = final_payload
+        self._sse_send(final_chunk)
         # End of stream marker
         self.wfile.write(b"data: [DONE]\n\n")
         try:
             self.wfile.flush()
         except Exception:
             pass
+
+        return final_response
 
     def _handle_thread_history(self, thread_id: str) -> None:
         manager = _get_chat_manager()
