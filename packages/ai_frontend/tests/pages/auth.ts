@@ -52,10 +52,10 @@ export class AuthPage {
     const authMenuItem = this.page.getByTestId("user-nav-item-auth");
     await expect(authMenuItem).toContainText("Sign out");
 
-    await authMenuItem.click();
-
-    const userEmail = this.page.getByTestId("user-email");
-    await expect(userEmail).toContainText("Guest");
+    await Promise.all([
+      this.page.waitForURL(/\/login/),
+      authMenuItem.click(),
+    ]);
   }
 
   async expectToastToContain(text: string) {

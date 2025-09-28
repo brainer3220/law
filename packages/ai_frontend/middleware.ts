@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { guestRegex, isDevelopmentEnvironment } from "./lib/constants";
+import { isDevelopmentEnvironment } from "./lib/constants";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -23,17 +23,25 @@ export async function middleware(request: NextRequest) {
     secureCookie: !isDevelopmentEnvironment,
   });
 
+  const authRoutes = ["/login", "/register"];
+
   if (!token) {
-    const redirectUrl = encodeURIComponent(request.url);
+    if (authRoutes.includes(pathname)) {
+      return NextResponse.next();
+    }
+
+    const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+    const safeRedirect = redirectPath || "/";
 
     return NextResponse.redirect(
-      new URL(`/api/auth/guest?redirectUrl=${redirectUrl}`, request.url)
+      new URL(
+        `/login?redirectUrl=${encodeURIComponent(safeRedirect)}`,
+        request.url
+      )
     );
   }
 
-  const isGuest = guestRegex.test(token?.email ?? "");
-
-  if (token && !isGuest && ["/login", "/register"].includes(pathname)) {
+  if (authRoutes.includes(pathname)) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 

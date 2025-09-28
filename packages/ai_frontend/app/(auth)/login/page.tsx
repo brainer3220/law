@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useActionState, useEffect, useState } from "react";
 
@@ -12,6 +12,10 @@ import { type LoginActionState, login } from "../actions";
 
 export default function Page() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get("redirectUrl");
+  const nextPath =
+    redirectParam && redirectParam.startsWith("/") ? redirectParam : "/";
 
   const [email, setEmail] = useState("");
   const [isSuccessful, setIsSuccessful] = useState(false);
@@ -39,10 +43,9 @@ export default function Page() {
     } else if (state.status === "success") {
       setIsSuccessful(true);
       updateSession();
-      router.refresh();
+      router.push(nextPath);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, router.refresh, updateSession]);
+  }, [state.status, nextPath, router, updateSession]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get("email") as string);
