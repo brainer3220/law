@@ -25,10 +25,17 @@ export const login = async (
       password: formData.get("password"),
     });
 
+    const redirectUrl = formData.get("redirectUrl");
+    const callbackUrl =
+      typeof redirectUrl === "string" && redirectUrl.startsWith("/")
+        ? redirectUrl
+        : undefined;
+
     await signIn("credentials", {
       email: validatedData.email,
       password: validatedData.password,
       redirect: false,
+      ...(callbackUrl ? { callbackUrl } : {}),
     });
 
     return { status: "success" };
@@ -67,10 +74,18 @@ export const register = async (
       return { status: "user_exists" } as RegisterActionState;
     }
     await createUser(validatedData.email, validatedData.password);
+
+    const redirectUrl = formData.get("redirectUrl");
+    const callbackUrl =
+      typeof redirectUrl === "string" && redirectUrl.startsWith("/")
+        ? redirectUrl
+        : undefined;
+
     await signIn("credentials", {
       email: validatedData.email,
       password: validatedData.password,
       redirect: false,
+      ...(callbackUrl ? { callbackUrl } : {}),
     });
 
     return { status: "success" };

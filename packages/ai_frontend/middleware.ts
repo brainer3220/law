@@ -30,6 +30,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
     const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     const safeRedirect = redirectPath || "/";
 
