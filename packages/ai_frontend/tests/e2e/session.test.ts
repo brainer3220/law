@@ -19,13 +19,32 @@ test.describe
       );
     });
 
-    test("Allow navigating to /login when unauthenticated", async ({ page }) => {
+    test("Redirect guest endpoint to login when unauthenticated", async ({
+      page,
+    }) => {
+      const response = await page.goto("/api/auth/guest");
+
+      if (!response) {
+        throw new Error("Failed to load guest endpoint");
+      }
+
+      await page.waitForURL("/login?redirectUrl=%2F");
+      await expect(page).toHaveURL(
+        "http://localhost:3000/login?redirectUrl=%2F"
+      );
+    });
+
+    test("Allow navigating to /login when unauthenticated", async ({
+      page,
+    }) => {
       await page.goto("/login");
       await page.waitForURL("/login");
       await expect(page).toHaveURL("/login");
     });
 
-    test("Allow navigating to /register when unauthenticated", async ({ page }) => {
+    test("Allow navigating to /register when unauthenticated", async ({
+      page,
+    }) => {
       await page.goto("/register");
       await page.waitForURL("/register");
       await expect(page).toHaveURL("/register");
@@ -73,7 +92,7 @@ test.describe
       await authPage.logout(testUser.email, testUser.password);
     });
 
-    test("Legacy guest endpoint preserves authenticated session", async ({
+    test("Guest endpoint keeps authenticated session active", async ({
       page,
     }) => {
       await authPage.login(testUser.email, testUser.password);
