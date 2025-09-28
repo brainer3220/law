@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { entitlementsByUserType } from "@/lib/ai/entitlements";
+import { getEntitlementsForUserType } from "@/lib/ai/entitlements";
 import { chatModels } from "@/lib/ai/models";
 import { cn } from "@/lib/utils";
 import { CheckCircleFillIcon, ChevronDownIcon } from "./icons";
@@ -28,7 +28,7 @@ export function ModelSelector({
     useOptimistic(selectedModelId);
 
   const userType = session.user.type;
-  const { availableChatModelIds } = entitlementsByUserType[userType];
+  const { availableChatModelIds } = getEntitlementsForUserType(userType);
 
   const availableChatModels = chatModels.filter((chatModel) =>
     availableChatModelIds.includes(chatModel.id)
