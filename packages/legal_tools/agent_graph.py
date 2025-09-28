@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import logging
+import queue
+import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 try:  # pragma: no cover - optional dependency fallback
     import structlog
@@ -41,8 +55,19 @@ except ImportError:  # pragma: no cover - minimal shim
 
 from typing_extensions import Literal
 
+try:  # pragma: no cover - optional dependency fallback
+    from langchain_core.callbacks import BaseCallbackHandler  # type: ignore
+except Exception:  # pragma: no cover - keeps module importable without LangChain
+
+    class BaseCallbackHandler:  # type: ignore[override]
+        """Fallback base class when LangChain callbacks are unavailable."""
+
+        pass
+
+
 from packages.legal_tools.law_go_kr import (
     LawDetailArticle,
+    LawDetailParagraph,
     LawDetailResponse,
     LawInterpretationDetail,
     LawInterpretationResponse,
@@ -110,13 +135,168 @@ def _debug_params(**kwargs: Any) -> Dict[str, Any]:
     return _sanitize_debug_payload(dict(kwargs))
 
 
+@dataclass
+class AgentStreamResult:
+    iterator: Iterator[Dict[str, Any]]
+    result: Callable[[], Dict[str, Any]]
+
+
+def _iter_text_chunks(text: str, chunk_size: int = 80) -> Iterator[str]:
+    if chunk_size <= 0:
+        chunk_size = 80
+    start = 0
+    while start < len(text):
+        yield text[start : start + chunk_size]
+        start += chunk_size
+
+
+def _wrap_stream_generator(
+    generator_factory: Callable[[], Iterator[Dict[str, Any]]],
+) -> AgentStreamResult:
+    done = threading.Event()
+    holder: Dict[str, Any] = {}
+
+    def _iterator() -> Iterator[Dict[str, Any]]:
+        try:
+            final = yield from generator_factory()
+        except Exception as exc:
+            holder["error"] = exc
+            done.set()
+            raise
+        holder["result"] = final
+        done.set()
+        return final
+
+    iterator = _iterator()
+
+    def _result() -> Dict[str, Any]:
+        done.wait()
+        if "error" in holder and "result" not in holder:
+            raise holder["error"]
+        return holder.get("result") or {}
+
+    return AgentStreamResult(iterator=iterator, result=_result)
+
+
+class _LangChainStreamCallback(BaseCallbackHandler):
+    """Collect LangChain streaming events and forward them to an event queue."""
+
+    def __init__(
+        self,
+        event_queue: "queue.Queue[Any]",
+        *,
+        buffer_tokens: bool,
+    ) -> None:
+        self._queue = event_queue
+        self._buffer_tokens = buffer_tokens
+        self._buffer: List[str] = []
+        self._collected: List[str] = []
+        self._tool_call_ids: Dict[int, str] = {}
+
+    def on_llm_new_token(  # type: ignore[override]
+        self,
+        token: str,
+        *,
+        chunk: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> None:
+        if chunk is not None:
+            message = getattr(chunk, "message", None)
+            tool_chunks = getattr(message, "tool_call_chunks", None)
+            if tool_chunks:
+                for entry in tool_chunks:
+                    payload = self._normalize_tool_chunk(entry)
+                    if payload:
+                        self._queue.put({"type": "tool_call_chunk", "payload": payload})
+
+        if not token:
+            return
+
+        self._collected.append(token)
+        if self._buffer_tokens:
+            self._buffer.append(token)
+        else:
+            self._queue.put({"type": "content_delta", "payload": token})
+
+    def flush_buffer(self) -> Iterator[Dict[str, Any]]:
+        if not self._buffer:
+            return iter(())
+        buffered = list(self._buffer)
+        self._buffer.clear()
+        return ({"type": "content_delta", "payload": part} for part in buffered if part)
+
+    def clear_buffer(self) -> None:
+        self._buffer.clear()
+
+    @property
+    def text(self) -> str:
+        return "".join(self._collected)
+
+    def reset_text(self) -> None:
+        self._collected.clear()
+
+    def _normalize_tool_chunk(self, entry: Any) -> Optional[Dict[str, Any]]:
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            data = dict(entry)
+        else:
+            data = {}
+            for key in ("name", "args", "id", "index"):
+                if hasattr(entry, key):
+                    data[key] = getattr(entry, key)
+        raw_index = data.get("index")
+        try:
+            index = int(raw_index) if raw_index is not None else 0
+        except Exception:
+            index = 0
+        call_id = data.get("id") or self._tool_call_ids.get(index)
+        if call_id is None:
+            call_id = f"call_{index:04d}_{uuid.uuid4().hex[:8]}"
+        call_id = str(call_id)
+        self._tool_call_ids[index] = call_id
+
+        name = str(data.get("name") or "")
+        args = data.get("args")
+        if isinstance(args, (dict, list)):
+            arguments = json.dumps(args, ensure_ascii=False)
+        elif args is None:
+            arguments = ""
+        else:
+            arguments = str(args)
+
+        return {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": index,
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": arguments,
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ]
+        }
+
+
 def _emit_debug_event(
     event: str,
     payload: Dict[str, Any],
     *,
     allow_empty_keys: Tuple[str, ...] = (),
 ) -> None:
-    sanitized = _sanitize_debug_payload(dict(payload), allow_empty_keys=allow_empty_keys)
+    sanitized = _sanitize_debug_payload(
+        dict(payload), allow_empty_keys=allow_empty_keys
+    )
 
     debug_enabled = False
     checker = getattr(logger, "isEnabledFor", None)
@@ -987,6 +1167,164 @@ class LangChainToolAgent:
                 error=str(exc),
             )
 
+    def stream(self, question: str) -> AgentStreamResult:
+        store = EvidenceStore(top_k=self.top_k, context_chars=self.context_chars)
+        cleaned_question = (question or "").strip()
+
+        def _generator() -> Iterator[Dict[str, Any]]:
+            if not cleaned_question:
+                text = "(질문이 비어있습니다)"
+                for chunk in _iter_text_chunks(text):
+                    yield {"type": "content_delta", "payload": chunk}
+                return self._finalize(
+                    cleaned_question, store, text, intermediate_steps=[], iters=0
+                )
+
+            provider = _llm_provider()
+            logger.info("langchain_agent_provider", provider=provider)
+            if not _llm_enabled():
+                logger.info(
+                    "langchain_agent_provider_unavailable",
+                    provider=provider,
+                    fallback="deterministic",
+                )
+                self._bootstrap_offline(cleaned_question, store)
+                summary = _offline_summary(cleaned_question, store.observations_text())
+                for chunk in _iter_text_chunks(summary):
+                    yield {"type": "content_delta", "payload": chunk}
+                return self._finalize(
+                    cleaned_question,
+                    store,
+                    summary,
+                    intermediate_steps=[],
+                    iters=0,
+                )
+
+            event_queue: "queue.Queue[Any]" = queue.Queue()
+            agent_sentinel = object()
+            agent_handler = _LangChainStreamCallback(event_queue, buffer_tokens=True)
+            agent_state: Dict[str, Any] = {}
+
+            def _agent_worker() -> None:
+                try:
+                    agent_state["result"] = self._invoke_langchain(
+                        cleaned_question,
+                        store,
+                        streaming=True,
+                        extra_callbacks=[agent_handler],
+                    )
+                except Exception as exc:
+                    agent_state["error"] = exc
+                finally:
+                    event_queue.put(agent_sentinel)
+
+            worker = threading.Thread(target=_agent_worker, daemon=True)
+            worker.start()
+            while True:
+                item = event_queue.get()
+                if item is agent_sentinel:
+                    break
+                yield item
+            worker.join()
+
+            if "error" in agent_state:
+                exc = agent_state["error"]
+                logger.exception("langchain_agent_failed", fallback="offline_summary")
+                _block_llm(exc if isinstance(exc, Exception) else Exception(str(exc)))
+                if store.total_hits() == 0:
+                    self._bootstrap_offline(cleaned_question, store)
+                fallback = _offline_summary(cleaned_question, store.observations_text())
+                for chunk in _iter_text_chunks(fallback):
+                    yield {"type": "content_delta", "payload": chunk}
+                return self._finalize(
+                    cleaned_question,
+                    store,
+                    fallback,
+                    intermediate_steps=[],
+                    iters=0,
+                    error=str(exc),
+                )
+
+            result = agent_state.get("result") or {}
+            intermediate_steps = result.get("intermediate_steps", [])
+            answer = str(result.get("output", "")).strip()
+
+            if store.total_hits() == 0:
+                logger.info("langchain_agent_bootstrap_seed_queries")
+                self._bootstrap_offline(cleaned_question, store)
+                store.record_action("fallback", {"reason": "no_hits_after_agent"})
+
+            final_answer: str
+            if store.total_hits() == 0:
+                agent_handler.clear_buffer()
+                agent_handler.reset_text()
+                final_answer = _offline_summary(
+                    cleaned_question, store.observations_text()
+                )
+                for chunk in _iter_text_chunks(final_answer):
+                    yield {"type": "content_delta", "payload": chunk}
+            elif answer and self._has_citation(answer):
+                for event in agent_handler.flush_buffer():
+                    yield event
+                final_answer = answer or agent_handler.text or answer
+            else:
+                agent_handler.clear_buffer()
+                agent_handler.reset_text()
+                summary_sentinel = object()
+                summary_state: Dict[str, Any] = {}
+                summary_handler = _LangChainStreamCallback(
+                    event_queue, buffer_tokens=False
+                )
+
+                def _summary_worker() -> None:
+                    try:
+                        summary_text = self._summarize_with_llm(
+                            cleaned_question,
+                            store.observations_text(),
+                            stream=True,
+                            stream_handler=summary_handler,
+                        )
+                        summary_state["summary"] = summary_text
+                    except Exception as exc:  # pragma: no cover - defensive
+                        summary_state["error"] = exc
+                    finally:
+                        event_queue.put(summary_sentinel)
+
+                summary_thread = threading.Thread(target=_summary_worker, daemon=True)
+                summary_thread.start()
+                while True:
+                    item = event_queue.get()
+                    if item is summary_sentinel:
+                        break
+                    yield item
+                summary_thread.join()
+
+                if "error" in summary_state:
+                    exc = summary_state["error"]
+                    logger.warning(
+                        "langchain_agent_summarize_stream_failed", error=str(exc)
+                    )
+                    final_answer = _offline_summary(
+                        cleaned_question, store.observations_text()
+                    )
+                    for chunk in _iter_text_chunks(final_answer):
+                        yield {"type": "content_delta", "payload": chunk}
+                else:
+                    final_answer = (
+                        summary_state.get("summary") or summary_handler.text or ""
+                    )
+
+            final = self._finalize(
+                cleaned_question,
+                store,
+                final_answer,
+                intermediate_steps=intermediate_steps,
+                iters=len(intermediate_steps),
+            )
+            return final
+
+        return _wrap_stream_generator(_generator)
+
     def _finalize(
         self,
         question: str,
@@ -1056,10 +1394,16 @@ class LangChainToolAgent:
                     )
                 break
 
-    def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
+    def _invoke_langchain(
+        self,
+        question: str,
+        store: EvidenceStore,
+        *,
+        streaming: bool = False,
+        extra_callbacks: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
-        from langchain.tools import StructuredTool  # type: ignore
 
         tools = self._build_tools(store)
         prompt = ChatPromptTemplate.from_messages(
@@ -1098,7 +1442,9 @@ class LangChainToolAgent:
         except Exception:
             timeout = 30.0
 
-        llm = self._create_llm(temperature=temperature, timeout=timeout)
+        llm = self._create_llm(
+            temperature=temperature, timeout=timeout, streaming=streaming
+        )
 
         agent = create_tool_calling_agent(llm, tools, prompt)
         executor = AgentExecutor(
@@ -1114,6 +1460,8 @@ class LangChainToolAgent:
             "general_guidance": self._general_guidance(),
         }
         callbacks = list(get_langsmith_callbacks())
+        if extra_callbacks:
+            callbacks.extend(extra_callbacks)
         invoke_config = {"callbacks": callbacks} if callbacks else None
         metadata = {
             "question_preview": question[:200],
@@ -1129,7 +1477,8 @@ class LangChainToolAgent:
             else:
                 result = executor.invoke(inputs)
             store.record_action(
-                "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+                "agent",
+                {"intermediate_steps": len(result.get("intermediate_steps", []))},
             )
         return result
 
@@ -1575,7 +1924,9 @@ class LangChainToolAgent:
             return "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
         return "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
 
-    def _create_llm(self, *, temperature: float, timeout: float):  # noqa: ANN001 - LangChain types
+    def _create_llm(
+        self, *, temperature: float, timeout: float, streaming: bool = False
+    ):  # noqa: ANN001 - LangChain types
         provider = _llm_provider()
         if provider == "gemini":
             try:
@@ -1589,7 +1940,7 @@ class LangChainToolAgent:
             kwargs: Dict[str, Any] = {
                 "model": model,
                 "temperature": temperature,
-                "streaming": False,
+                "streaming": streaming,
                 "convert_system_message_to_human": True,
             }
             max_output = os.getenv("GEMINI_MAX_OUTPUT_TOKENS")
@@ -1617,13 +1968,20 @@ class LangChainToolAgent:
             max_retries=1,
             timeout=timeout,
             base_url=os.getenv("OPENAI_BASE_URL"),
-            streaming=False,
-            model_kwargs={"stream": False},
+            streaming=streaming,
+            model_kwargs={"stream": streaming},
         )
         logger.info("langchain_agent_openai", model=model, temperature=temperature)
         return llm
 
-    def _summarize_with_llm(self, question: str, observations: str) -> str:
+    def _summarize_with_llm(
+        self,
+        question: str,
+        observations: str,
+        *,
+        stream: bool = False,
+        stream_handler: Optional[_LangChainStreamCallback] = None,
+    ) -> str:
         if not observations.strip():
             return _offline_summary(question, observations)
         if not _llm_enabled():
@@ -1632,6 +1990,7 @@ class LangChainToolAgent:
             llm = self._create_llm(
                 temperature=0.0,
                 timeout=30.0,
+                streaming=stream,
             )
         except Exception as exc:  # pragma: no cover - optional dependency path
             logger.warning("langchain_agent_summarize_fallback", error=str(exc))
@@ -1659,14 +2018,20 @@ class LangChainToolAgent:
         )
 
         chain = prompt | llm  # type: ignore
+        callbacks = list(get_langsmith_callbacks())
+        if stream_handler is not None:
+            callbacks.append(stream_handler)
+        config = {"callbacks": callbacks} if callbacks else None
         try:
-            output = chain.invoke(
-                {
-                    "question": question,
-                    "observations": observations,
-                    "guidance": self._general_guidance(),
-                }
-            )
+            payload = {
+                "question": question,
+                "observations": observations,
+                "guidance": self._general_guidance(),
+            }
+            if config:
+                output = chain.invoke(payload, config=config)
+            else:
+                output = chain.invoke(payload)
         except Exception as exc:  # pragma: no cover - runtime failure
             logger.warning("langchain_agent_summarize_invoke_failed", error=str(exc))
             _block_llm(exc)
@@ -1742,3 +2107,31 @@ def run_ask(
         final = agent.run(question)
         logger.info("run_ask_complete", extra={"keys": sorted(final.keys())})
     return final
+
+
+def stream_ask(
+    question: str,
+    *,
+    data_dir: Path,
+    top_k: int = 5,
+    max_iters: int = 3,
+    allow_general: bool = False,
+    context_chars: int = 0,
+) -> AgentStreamResult:
+    context = context_chars or 800
+    agent = LangChainToolAgent(
+        data_dir=data_dir,
+        top_k=top_k,
+        max_iters=max_iters,
+        allow_general=allow_general,
+        context_chars=context,
+    )
+    metadata = {
+        "question_preview": (question or "").strip()[:200],
+        "top_k": top_k,
+        "max_iters": max_iters,
+        "allow_general": allow_general,
+        "context_chars": context,
+    }
+    logger.info("stream_ask_start", extra=metadata)
+    return agent.stream(question)

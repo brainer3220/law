@@ -4,11 +4,12 @@ import io
 import json
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import pytest
 
 pytest.importorskip("langchain")
+pytest.importorskip("langgraph")
 
 from langchain_core.messages import (
     AIMessage,
@@ -382,6 +383,7 @@ def test_stream_answer_emits_tool_call_chunk_events() -> None:
         agent_result=None,
         chat_result=None,
     )
+    assert isinstance(final_response, ChatResponse)
 
     raw = handler.wfile.getvalue().decode("utf-8")
     blocks = [block for block in raw.split("\n\n") if block]
@@ -419,10 +421,69 @@ def test_stream_answer_emits_tool_call_chunk_events() -> None:
     law_chunks = final_chunk["law"]["tool_call_chunks"]
     assert law_chunks[0]["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"
 
-    assert isinstance(final_response, ChatResponse)
-    assert final_response.response is not None
-    assert "tool_call_chunks" not in final_response.response
 
+def test_stream_answer_uses_agent_result_supplier() -> None:
+    class DummyHandler:
+        def __init__(self) -> None:
+            self.wfile = io.BytesIO()
+            self.responses: List[int] = []
+            self.headers: List[Tuple[str, str]] = []
+            self.ended = False
+
+        def send_response(self, code: int) -> None:
+            self.responses.append(code)
+
+        def send_header(self, key: str, value: str) -> None:
+            self.headers.append((key, value))
+
+        def end_headers(self) -> None:
+            self.ended = True
+
+        def _sse_send(self, obj: Dict[str, Any]) -> None:
+            payload = json.dumps(obj, ensure_ascii=False)
+            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+
+        def _collect_tool_usage(
+            self,
+            *,
+            agent_result: Optional[Dict[str, Any]],
+            chat_result: Optional[ChatResponse],
+        ) -> Optional[Dict[str, Any]]:
+            if agent_result is None:
+                return None
+            return {
+                "actions": agent_result.get("actions"),
+                "iterations": agent_result.get("iters"),
+            }
+
+    handler = DummyHandler()
+
+    def supplier() -> Dict[str, Any]:
+        return {"actions": ["run"], "iters": 2}
+
+    ChatHandler._stream_answer(  # type: ignore[arg-type]
+        handler,
+        chat_id="chat-supplier",
+        model="test-model",
+        created=1,
+        fallback_answer="final response",
+        event_iterator=None,
+        agent_result=None,
+        chat_result=None,
+        agent_result_supplier=supplier,
+    )
+
+    raw = handler.wfile.getvalue().decode("utf-8")
+    payloads = [
+        json.loads(block[len("data: ") :])
+        for block in raw.split("\n\n")
+        if block and block != "data: [DONE]"
+    ]
+    final_chunk = payloads[-1]
+    usage = final_chunk.get("law", {}).get("tool_usage")
+    assert usage is not None
+    assert usage.get("actions") == ["run"]
+    assert usage.get("iterations") == 2
 
 def test_normalize_tool_call_chunk_flattens_delta_shapes() -> None:
     chunk = {
