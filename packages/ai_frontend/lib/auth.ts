@@ -5,10 +5,21 @@ function isProduction() {
 }
 
 export function getAuthSecret(): string {
-  const envSecret = process.env.AUTH_SECRET?.trim();
+  const rawEnvSecret = process.env.AUTH_SECRET;
 
-  if (envSecret && envSecret.length > 0) {
-    return envSecret;
+  if (rawEnvSecret !== undefined) {
+    if (
+      rawEnvSecret.length > 0 &&
+      (rawEnvSecret !== rawEnvSecret.trim())
+    ) {
+      console.warn(
+        "AUTH_SECRET environment variable contains leading or trailing whitespace. This may indicate a configuration error."
+      );
+    }
+    const envSecret = rawEnvSecret.trim();
+    if (envSecret.length > 0) {
+      return envSecret;
+    }
   }
 
   if (isProduction()) {
