@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from contextlib import AbstractContextManager
@@ -7,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, BaseMessageChunk
+from langchain_core.messages.utils import message_chunk_to_message
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import MessagesState, StateGraph, START, END
 
@@ -192,8 +194,100 @@ class PostgresChatManager:
     def _call_model(
         self, state: MessagesState, config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        response = self._model.invoke(state["messages"])
-        return {"messages": [response]}
+        stream_fn = getattr(self._model, "stream", None)
+        if not callable(stream_fn):
+            response = self._model.invoke(state["messages"], config=config)
+            return {"messages": [response]}
+
+        aggregated_chunk: Optional[BaseMessageChunk] = None
+        final_message: Optional[BaseMessage] = None
+        chunk_events: List[Dict[str, Any]] = []
+
+        for chunk in stream_fn(state["messages"], config=config):
+            if chunk is None:
+                continue
+            if isinstance(chunk, BaseMessageChunk):
+                event = self._tool_call_chunk_event(chunk)
+                if event:
+                    chunk_events.append(event)
+                aggregated_chunk = (
+                    chunk
+                    if aggregated_chunk is None
+                    else aggregated_chunk + chunk  # type: ignore[operator]
+                )
+            elif isinstance(chunk, BaseMessage):
+                event = self._tool_call_chunk_event(chunk)
+                if event:
+                    chunk_events.append(event)
+                final_message = chunk
+
+        if aggregated_chunk is not None:
+            final_message = message_chunk_to_message(aggregated_chunk)
+
+        if final_message is None:
+            final_message = self._model.invoke(state["messages"], config=config)
+
+        if chunk_events:
+            setattr(final_message, "tool_call_chunks", chunk_events)
+
+        return {"messages": [final_message]}
+
+    def _tool_call_chunk_event(self, chunk: Any) -> Optional[Dict[str, Any]]:
+        raw_chunks = getattr(chunk, "tool_call_chunks", None)
+        if not raw_chunks:
+            return None
+
+        events: List[Dict[str, Any]] = []
+        for entry in raw_chunks:
+            if entry is None:
+                continue
+            if isinstance(entry, dict):
+                data = dict(entry)
+            else:
+                data = {}
+                for key in ("name", "args", "id", "index", "tool_call_id", "function"):
+                    if hasattr(entry, key):
+                        data[key] = getattr(entry, key)
+
+            fn_payload = data.get("function")
+            fn_name = None
+            fn_args: Any = None
+            if isinstance(fn_payload, dict):
+                fn_name = fn_payload.get("name")
+                fn_args = fn_payload.get("arguments")
+            if fn_name is None:
+                fn_name = data.get("name")
+            if fn_args is None and "args" in data:
+                fn_args = data.get("args")
+
+            if isinstance(fn_args, (dict, list)):
+                arguments: Any = json.dumps(fn_args, ensure_ascii=False)
+            elif fn_args is None:
+                arguments = ""
+            else:
+                arguments = str(fn_args)
+
+            call_payload: Dict[str, Any] = {
+                "type": "function",
+                "function": {
+                    "name": str(fn_name) if fn_name is not None else "",
+                    "arguments": arguments,
+                },
+            }
+
+            call_id = data.get("id") or data.get("tool_call_id")
+            if call_id is not None:
+                call_payload["id"] = str(call_id)
+
+            if data.get("index") is not None:
+                try:
+                    call_payload["index"] = int(data["index"])
+                except Exception:
+                    call_payload["index"] = data["index"]
+
+            events.append(call_payload)
+
+        return {"tool_calls": events} if events else None
 
     def _load_state(
         self, cfg: Dict[str, Any]
