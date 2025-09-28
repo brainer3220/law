@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useActionState, useEffect, useState } from "react";
+import { Suspense, useActionState, useEffect, useState } from "react";
 
 import { AuthForm } from "@/components/auth-form";
 import { SubmitButton } from "@/components/submit-button";
 import { toast } from "@/components/toast";
 import { type LoginActionState, login } from "../actions";
 
-export default function Page() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirectUrl");
@@ -80,5 +80,28 @@ export default function Page() {
         </AuthForm>
       </div>
     </div>
+  );
+}
+
+function LoginPageFallback() {
+  return (
+    <div className="flex h-dvh w-screen items-start justify-center bg-background pt-12 md:items-center md:pt-0">
+      <div className="flex w-full max-w-md flex-col gap-12 overflow-hidden rounded-2xl">
+        <div className="flex flex-col items-center justify-center gap-2 px-4 text-center sm:px-16">
+          <h3 className="font-semibold text-xl dark:text-zinc-50">Sign In</h3>
+          <p className="text-gray-500 text-sm dark:text-zinc-400">
+            Loading sign-in details...
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<LoginPageFallback />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }
