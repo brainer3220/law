@@ -1,25 +1,27 @@
 import type { UserType } from "@/app/(auth)/auth";
 import type { ChatModel } from "./models";
 
-type Entitlements = {
+export type Entitlements = {
   maxMessagesPerDay: number;
   availableChatModelIds: ChatModel["id"][];
 };
 
-export const entitlementsByUserType: Record<UserType, Entitlements> = {
-  /*
-   * For users with an account
-   */
-  regular: {
-    maxMessagesPerDay: 100,
-    availableChatModelIds: ["chat-model", "chat-model-reasoning"],
-  },
+const REGULAR_ENTITLEMENTS: Entitlements = {
+  maxMessagesPerDay: 100,
+  availableChatModelIds: ["chat-model", "chat-model-reasoning"],
+};
 
-  /*
-   * For users with an account and a paid membership
-   */
-  premium: {
-    maxMessagesPerDay: 1000,
-    availableChatModelIds: ["chat-model", "chat-model-reasoning"],
-  },
+const PREMIUM_ENTITLEMENTS: Entitlements = {
+  maxMessagesPerDay: 1000,
+  availableChatModelIds: ["chat-model", "chat-model-reasoning"],
+};
+
+export const getEntitlementsForUserType = (
+  userType: UserType
+): Entitlements => {
+  if (userType === "premium") {
+    return PREMIUM_ENTITLEMENTS;
+  }
+
+  return REGULAR_ENTITLEMENTS;
 };

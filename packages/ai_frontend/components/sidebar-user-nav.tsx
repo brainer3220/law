@@ -2,7 +2,6 @@
 
 import { ChevronUp } from "lucide-react";
 import Image from "next/image";
-import type { User } from "next-auth";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
 import {
@@ -20,10 +19,11 @@ import {
 import { LoaderIcon } from "./icons";
 import { toast } from "./toast";
 
-export function SidebarUserNav({ user }: { user: User }) {
+export function SidebarUserNav() {
   const { data, status } = useSession();
   const { setTheme, resolvedTheme } = useTheme();
-  const displayEmail = data?.user?.email ?? user.email ?? "Account";
+  const email = data?.user?.email;
+  const displayEmail = email ?? "Account";
 
   return (
     <SidebarMenu>
@@ -48,10 +48,10 @@ export function SidebarUserNav({ user }: { user: User }) {
                 data-testid="user-nav-button"
               >
                 <Image
-                  alt={user.email ?? "User Avatar"}
+                  alt={email ?? "User Avatar"}
                   className="rounded-full"
                   height={24}
-                  src={`https://avatar.vercel.sh/${user.email}`}
+                  src={`https://avatar.vercel.sh/${email ?? "user"}`}
                   width={24}
                 />
                 <span className="truncate" data-testid="user-email">
