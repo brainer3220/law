@@ -8,7 +8,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from packages.legal_tools.agent_graph import run_ask
@@ -47,6 +47,201 @@ def _extract_question(messages: List[Dict[str, Any]]) -> str:
 
 def _json_response(obj: Dict[str, Any]) -> bytes:
     return json.dumps(obj, ensure_ascii=False).encode("utf-8")
+
+
+def _normalize_tool_calls(
+    tool_calls: Optional[Any],
+) -> List[Dict[str, Any]]:
+    """Coerce LangChain tool call payloads into OpenAI-compatible dictionaries."""
+
+    if not tool_calls:
+        return []
+
+    if isinstance(tool_calls, Iterable) and not isinstance(tool_calls, (str, bytes)):
+        candidates = list(tool_calls)
+    else:
+        logger.warning(
+            "tool_call_payload_not_iterable", payload_type=type(tool_calls).__name__
+        )
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for index, raw_call in enumerate(candidates):
+        call: Optional[Dict[str, Any]]
+        if isinstance(raw_call, dict):
+            call = dict(raw_call)
+        else:
+            call = _serialize_tool_call_object(raw_call)
+        if not call:
+            logger.warning(
+                "Malformed tool call at index %d: expected dict, got %s (%r)",
+                index,
+                type(raw_call).__name__,
+                raw_call,
+            )
+            continue
+        fn: Dict[str, Any] = {}
+        raw_fn = call.get("function")
+        if isinstance(raw_fn, dict):
+            fn = dict(raw_fn)
+        elif raw_fn is not None:
+            fn = _serialize_tool_function(raw_fn)
+        name = str(fn.get("name") or call.get("name") or "")
+        raw_args: Any = fn.get("arguments")
+        if raw_args is None and "args" in call:
+            raw_args = call["args"]
+        if isinstance(raw_args, (dict, list)):
+            arguments = json.dumps(raw_args, ensure_ascii=False)
+        elif raw_args is None:
+            arguments = ""
+        else:
+            arguments = str(raw_args)
+        call_id = (
+            call.get("id")
+            or call.get("tool_call_id")
+            or f"call_{index:04d}_{uuid.uuid4().hex[:8]}"
+        )
+
+        normalized.append(
+            {
+                "id": str(call_id),
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+        )
+    return normalized
+
+
+def _normalize_tool_call_chunk(chunk: Any) -> List[Dict[str, Any]]:
+    """Normalize a raw tool call chunk payload into OpenAI delta format."""
+
+    def _coerce(entry: Any) -> Optional[Dict[str, Any]]:
+        if entry is None:
+            return None
+        if isinstance(entry, dict):
+            data = dict(entry)
+        else:
+            data = _serialize_tool_call_object(entry) or {}
+        if not data:
+            return None
+        fn = data.get("function")
+        if isinstance(fn, dict):
+            fn_data = dict(fn)
+            args = fn_data.get("arguments")
+            if isinstance(args, (dict, list)):
+                fn_data["arguments"] = json.dumps(args, ensure_ascii=False)
+            elif args is None:
+                fn_data["arguments"] = ""
+            fn_name = fn_data.get("name")
+            if fn_name is not None:
+                fn_data["name"] = str(fn_name)
+            data["function"] = fn_data
+        return data
+
+    def _collect(value: Any) -> List[Dict[str, Any]]:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            if "tool_calls" in value:
+                tool_calls = value.get("tool_calls")
+                if isinstance(tool_calls, Iterable) and not isinstance(
+                    tool_calls, (str, bytes)
+                ):
+                    items = [_coerce(item) for item in tool_calls]
+                    return [item for item in items if item]
+            if "delta" in value:
+                return _collect(value.get("delta"))
+            if "choices" in value:
+                choices = value.get("choices")
+                collected: List[Dict[str, Any]] = []
+                if isinstance(choices, Iterable) and not isinstance(
+                    choices, (str, bytes)
+                ):
+                    for choice in choices:
+                        collected.extend(_collect(choice))
+                return collected
+            call = _coerce(value)
+            return [call] if call else []
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            aggregated: List[Dict[str, Any]] = []
+            for item in value:
+                aggregated.extend(_collect(item))
+            return aggregated
+        call = _coerce(value)
+        return [call] if call else []
+
+    return _collect(chunk)
+
+
+def _serialize_tool_function(raw_fn: Any) -> Dict[str, Any]:
+    if isinstance(raw_fn, dict):
+        return dict(raw_fn)
+    fn: Dict[str, Any] = {}
+    for key in ("name", "arguments", "args"):
+        if hasattr(raw_fn, key):
+            value = getattr(raw_fn, key)
+            if key == "args" and "arguments" not in fn:
+                fn["arguments"] = value
+            else:
+                fn[key] = value
+    if "arguments" not in fn and hasattr(raw_fn, "kwargs"):
+        fn["arguments"] = getattr(raw_fn, "kwargs")
+    return fn
+
+
+def _serialize_tool_call_object(call: Any) -> Optional[Dict[str, Any]]:
+    if call is None:
+        return None
+    data: Dict[str, Any] = {}
+    for key in ("id", "tool_call_id", "name", "args", "function"):
+        if hasattr(call, key):
+            value = getattr(call, key)
+            if key == "function" and value is not None:
+                data[key] = _serialize_tool_function(value)
+            else:
+                data[key] = value
+    if hasattr(call, "arguments") and "args" not in data:
+        data["args"] = getattr(call, "arguments")
+    if not data:
+        return None
+    return data
+
+
+def _extract_tool_payloads(
+    payload: Optional[Any],
+) -> Tuple[List[Any], List[Any]]:
+    tool_calls: List[Any] = []
+    tool_call_chunks: List[Any] = []
+    if not payload:
+        return tool_calls, tool_call_chunks
+
+    if isinstance(payload, dict):
+        candidate_calls = payload.get("tool_calls")
+        candidate_chunks = payload.get("tool_call_chunks")
+    else:
+        candidate_calls = getattr(payload, "tool_calls", None)
+        candidate_chunks = getattr(payload, "tool_call_chunks", None)
+
+    if isinstance(candidate_calls, Iterable) and not isinstance(
+        candidate_calls, (str, bytes)
+    ):
+        tool_calls = list(candidate_calls)
+    elif candidate_calls:
+        logger.warning(
+            "unexpected_tool_calls_payload", payload_type=type(candidate_calls).__name__
+        )
+
+    if isinstance(candidate_chunks, Iterable) and not isinstance(
+        candidate_chunks, (str, bytes)
+    ):
+        tool_call_chunks = list(candidate_chunks)
+    elif candidate_chunks:
+        logger.warning(
+            "unexpected_tool_call_chunks_payload",
+            payload_type=type(candidate_chunks).__name__,
+        )
+
+    return tool_calls, tool_call_chunks
 
 
 def _get_chat_manager() -> Optional[PostgresChatManager]:
@@ -187,11 +382,22 @@ class ChatHandler(BaseHTTPRequestHandler):
             tool_usage = self._collect_tool_usage(
                 agent_result=agent_result, chat_result=chat_result
             )
+            response_payload: Optional[Any] = (
+                chat_result.response if chat_result else None
+            )
+            raw_tool_calls, raw_tool_call_chunks = _extract_tool_payloads(
+                response_payload
+            )
+            formatted_tool_calls = _normalize_tool_calls(raw_tool_calls)
             law_payload: Dict[str, Any] = {}
             if checkpoint_id:
                 law_payload["checkpoint_id"] = checkpoint_id
             if tool_usage:
                 law_payload["tool_usage"] = tool_usage
+            if raw_tool_calls:
+                law_payload["tool_calls"] = raw_tool_calls
+            if raw_tool_call_chunks:
+                law_payload["tool_call_chunks"] = raw_tool_call_chunks
 
             if stream:
                 self._stream_answer(
@@ -202,10 +408,18 @@ class ChatHandler(BaseHTTPRequestHandler):
                     thread_id=response_thread_id,
                     checkpoint_id=checkpoint_id,
                     law_payload=law_payload or None,
+                    tool_calls=formatted_tool_calls,
+                    tool_call_chunks=raw_tool_call_chunks,
                 )
                 return
 
             # Non-streaming response
+            message: Dict[str, Any] = {
+                "role": "assistant",
+                "content": answer or None,
+            }
+            if formatted_tool_calls:
+                message["tool_calls"] = formatted_tool_calls
             resp = {
                 "id": chat_id,
                 "object": "chat.completion",
@@ -214,7 +428,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": answer},
+                        "message": message,
                         "finish_reason": "stop",
                     }
                 ],
@@ -249,6 +463,8 @@ class ChatHandler(BaseHTTPRequestHandler):
         thread_id: Optional[str] = None,
         checkpoint_id: Optional[str] = None,
         law_payload: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_call_chunks: Optional[List[Any]] = None,
     ) -> None:
         # Prepare headers for SSE-compatible streaming
         self.send_response(HTTPStatus.OK)
@@ -261,17 +477,47 @@ class ChatHandler(BaseHTTPRequestHandler):
             self.send_header("X-Checkpoint-ID", checkpoint_id)
         self.end_headers()
 
-        # First chunk with role
+        # First chunk with role and optional tool call metadata
+        delta: Dict[str, Any] = {"role": "assistant"}
+        if tool_calls:
+            delta["tool_calls"] = [
+                {
+                    "index": idx,
+                    "id": call["id"],
+                    "type": call["type"],
+                    "function": call["function"],
+                }
+                for idx, call in enumerate(tool_calls)
+            ]
         first = {
             "id": chat_id,
             "object": "chat.completion.chunk",
             "created": created,
             "model": model,
-            "choices": [
-                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
-            ],
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
         }
         self._sse_send(first)
+
+        # Emit intermediate tool call chunks prior to the textual content
+        if tool_call_chunks:
+            for raw_chunk in tool_call_chunks:
+                normalized_chunks = _normalize_tool_call_chunk(raw_chunk)
+                if not normalized_chunks:
+                    continue
+                chunk_payload = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"tool_calls": normalized_chunks},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                self._sse_send(chunk_payload)
 
         # Stream the content in pieces
         content = answer or ""
@@ -352,10 +598,12 @@ class ChatHandler(BaseHTTPRequestHandler):
             if error:
                 payload["error"] = str(error)
 
-        if chat_result and chat_result.response:
-            tool_calls = chat_result.response.get("tool_calls")
+        if chat_result:
+            tool_calls, tool_call_chunks = _extract_tool_payloads(chat_result.response)
             if tool_calls:
                 payload["tool_calls"] = tool_calls
+            if tool_call_chunks:
+                payload["tool_call_chunks"] = tool_call_chunks
 
         return payload or None
 
