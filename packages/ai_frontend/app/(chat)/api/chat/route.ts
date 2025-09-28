@@ -64,14 +64,47 @@ const getTokenlensCatalog = cache(
   { revalidate: 24 * 60 * 60 } // 24 hours
 );
 
+function getRedisUrl() {
+  return process.env.REDIS_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+}
+
+function hasValidRedisConfiguration() {
+  const redisUrl = getRedisUrl();
+
+  if (!redisUrl) {
+    return false;
+  }
+
+  try {
+    // Ensure the provided value is a well-formed URL. This prevents
+    // placeholders such as "****" from triggering runtime errors in
+    // environments where secrets are redacted.
+    new URL(redisUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getStreamContext() {
   if (!globalStreamContext) {
+    if (!hasValidRedisConfiguration()) {
+      console.log(
+        " > Resumable streams are disabled due to missing or invalid Redis configuration"
+      );
+      return null;
+    }
+
     try {
       globalStreamContext = createResumableStreamContext({
         waitUntil: after,
       });
     } catch (error: any) {
-      if (error.message.includes("REDIS_URL")) {
+      if (error?.code === "ERR_INVALID_URL") {
+        console.log(
+          " > Resumable streams are disabled due to invalid Redis URL"
+        );
+      } else if (error?.message?.includes?.("REDIS_URL")) {
         console.log(
           " > Resumable streams are disabled due to missing REDIS_URL"
         );
