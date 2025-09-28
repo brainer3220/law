@@ -14,8 +14,9 @@ export default function Page() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirectUrl");
-  const nextPath =
-    redirectParam && redirectParam.startsWith("/") ? redirectParam : "/";
+  const sanitizedRedirectParam =
+    redirectParam && redirectParam.startsWith("/") ? redirectParam : null;
+  const nextPath = sanitizedRedirectParam ?? "/";
 
   const [email, setEmail] = useState("");
   const [isSuccessful, setIsSuccessful] = useState(false);
@@ -49,6 +50,9 @@ export default function Page() {
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get("email") as string);
+    if (sanitizedRedirectParam) {
+      formData.set("redirectUrl", sanitizedRedirectParam);
+    }
     formAction(formData);
   };
 
