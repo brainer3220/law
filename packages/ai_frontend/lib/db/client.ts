@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres, { type Options, type Sql } from "postgres";
+import postgres, { type Sql } from "postgres";
 
 import { getPostgresUrl } from "./env";
 
@@ -30,7 +30,9 @@ export const getDb = () => {
   return db;
 };
 
-export const createScopedDb = (options?: Options) => {
+type PostgresOptions = Parameters<typeof postgres>[1];
+
+export const createScopedDb = (options?: PostgresOptions) => {
   ensureServerEnvironment();
   const scopedClient = postgres(getPostgresUrl(), options);
   return { db: drizzle(scopedClient), client: scopedClient };
