@@ -68,9 +68,11 @@ export function identifyAmplitudeUser(
     return;
   }
 
-  if (userId && userId !== currentUserId) {
-    setUserId(userId);
-    currentUserId = userId;
+  const nextUserId = userId ?? null;
+
+  if (nextUserId !== currentUserId) {
+    setUserId(nextUserId);
+    currentUserId = nextUserId;
   }
 
   if (!traits) {
