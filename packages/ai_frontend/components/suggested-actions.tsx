@@ -3,6 +3,7 @@
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { motion } from "framer-motion";
 import { memo } from "react";
+import { trackAmplitudeEvent } from "@/lib/analytics/amplitude";
 import type { ChatMessage } from "@/lib/types";
 import { Suggestion } from "./elements/suggestion";
 import type { VisibilityType } from "./visibility-selector";
@@ -41,6 +42,12 @@ function PureSuggestedActions({ chatId, sendMessage }: SuggestedActionsProps) {
               sendMessage({
                 role: "user",
                 parts: [{ type: "text", text: suggestion }],
+              });
+              trackAmplitudeEvent("chat_suggested_action_selected", {
+                chatId,
+                suggestion,
+                index,
+                textLength: suggestion.length,
               });
             }}
             suggestion={suggestedAction}

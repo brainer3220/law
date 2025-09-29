@@ -18,6 +18,7 @@
     "test": "export PLAYWRIGHT=True && pnpm exec playwright test"
   },
   "dependencies": {
+    "@amplitude/analytics-browser": "^2.11.2",
     "@ai-sdk/openai-compatible": "^1.0.19",
     "@ai-sdk/provider": "2.0.0",
     "@ai-sdk/react": "2.0.26",

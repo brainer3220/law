@@ -20,6 +20,7 @@ import {
 import { useArtifactSelector } from "@/hooks/use-artifact";
 import { useAutoResume } from "@/hooks/use-auto-resume";
 import { useChatVisibility } from "@/hooks/use-chat-visibility";
+import { trackAmplitudeEvent } from "@/lib/analytics/amplitude";
 import type { Vote } from "@/lib/db/schema";
 import { ChatSDKError } from "@/lib/errors";
 import type { Attachment, ChatMessage } from "@/lib/types";
@@ -100,12 +101,38 @@ export function Chat({
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
       if (dataPart.type === "data-usage") {
         setUsage(dataPart.data);
+        trackAmplitudeEvent("chat_usage_received", {
+          chatId: id,
+          modelId: dataPart.data?.modelId ?? currentModelIdRef.current,
+          inputTokens: dataPart.data?.inputTokens,
+          outputTokens: dataPart.data?.outputTokens,
+          reasoningTokens: dataPart.data?.reasoningTokens,
+          cachedTokens: dataPart.data?.cachedTokens,
+          totalTokens: dataPart.data?.totalTokens,
+          totalRequests: dataPart.data?.totalRequests,
+          requestLatencyMs: dataPart.data?.latencyMs ?? dataPart.data?.requestLatencyMs,
+        });
       }
     },
     onFinish: () => {
+      trackAmplitudeEvent("chat_response_completed", {
+        chatId: id,
+        modelId: currentModelIdRef.current,
+        totalMessages: messages.length,
+      });
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
     onError: (error) => {
+      trackAmplitudeEvent("chat_response_error", {
+        chatId: id,
+        modelId: currentModelIdRef.current,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
+        errorType: error instanceof ChatSDKError ? error.type : undefined,
+        errorSurface: error instanceof ChatSDKError ? error.surface : undefined,
+        statusCode: error instanceof ChatSDKError ? error.statusCode : undefined,
+      });
       if (error instanceof ChatSDKError) {
         // Check if it's a credit card error
         if (
@@ -136,6 +163,10 @@ export function Chat({
 
       setHasAppendedQuery(true);
       window.history.replaceState({}, "", `/chat/${id}`);
+      trackAmplitudeEvent("chat_query_autosubmitted", {
+        chatId: id,
+        queryLength: query.length,
+      });
     }
   }, [query, sendMessage, hasAppendedQuery, id]);
 

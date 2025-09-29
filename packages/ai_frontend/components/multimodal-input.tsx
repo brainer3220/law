@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useLocalStorage, useWindowSize } from "usehooks-ts";
 import { saveChatModelAsCookie } from "@/app/(chat)/actions";
 import { SelectItem } from "@/components/ui/select";
+import { trackAmplitudeEvent } from "@/lib/analytics/amplitude";
 import { chatModels } from "@/lib/ai/models";
 import { myProvider } from "@/lib/ai/providers";
 import type { Attachment, ChatMessage } from "@/lib/types";
@@ -132,6 +133,20 @@ function PureMultimodalInput({
   const submitForm = useCallback(() => {
     window.history.replaceState({}, "", `/chat/${chatId}`);
 
+    const trimmedInput = input.trim();
+    trackAmplitudeEvent("chat_message_submitted", {
+      chatId,
+      hasText: trimmedInput.length > 0,
+      textLength: trimmedInput.length,
+      attachmentsCount: attachments.length,
+      attachmentTypes: attachments.map((attachment) => attachment.contentType ?? "unknown"),
+      includesFiles: attachments.length > 0,
+      modelId: selectedModelId,
+      visibility: selectedVisibilityType,
+      previousUsageTokens: usage?.totalTokens,
+      previousUsageModel: usage?.modelId,
+    });
+
     sendMessage({
       role: "user",
       parts: [
@@ -157,15 +172,19 @@ function PureMultimodalInput({
       textareaRef.current?.focus();
     }
   }, [
-    input,
-    setInput,
     attachments,
+    chatId,
+    input,
+    resetHeight,
+    selectedModelId,
+    selectedVisibilityType,
     sendMessage,
     setAttachments,
+    setInput,
     setLocalStorageInput,
+    usage?.modelId,
+    usage?.totalTokens,
     width,
-    chatId,
-    resetHeight,
   ]);
 
   const uploadFile = useCallback(async (file: File) => {
@@ -182,6 +201,13 @@ function PureMultimodalInput({
         const data = await response.json();
         const { url, pathname, contentType } = data;
 
+        trackAmplitudeEvent("chat_attachment_upload_succeeded", {
+          chatId,
+          fileName: pathname,
+          contentType,
+          fileSize: file.size,
+        });
+
         return {
           url,
           name: pathname,
@@ -189,11 +215,26 @@ function PureMultimodalInput({
         };
       }
       const { error } = await response.json();
+      trackAmplitudeEvent("chat_attachment_upload_failed", {
+        chatId,
+        fileName: file.name,
+        contentType: file.type,
+        fileSize: file.size,
+        reason: error,
+        status: response.status,
+      });
       toast.error(error);
     } catch (_error) {
+      trackAmplitudeEvent("chat_attachment_upload_failed", {
+        chatId,
+        fileName: file.name,
+        contentType: file.type,
+        fileSize: file.size,
+        reason: "network_error",
+      });
       toast.error("Failed to upload file, please try again!");
     }
-  }, []);
+  }, [chatId]);
 
   const _modelResolver = useMemo(() => {
     return myProvider.languageModel(selectedModelId);
@@ -223,13 +264,23 @@ function PureMultimodalInput({
           ...currentAttachments,
           ...successfullyUploadedAttachments,
         ]);
+        trackAmplitudeEvent("chat_attachments_added", {
+          chatId,
+          addedCount: successfullyUploadedAttachments.length,
+          totalAttachments:
+            successfullyUploadedAttachments.length + attachments.length,
+        });
       } catch (error) {
         console.error("Error uploading files!", error);
+        trackAmplitudeEvent("chat_attachment_upload_failed", {
+          chatId,
+          reason: "batch_failure",
+        });
       } finally {
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [attachments.length, chatId, setAttachments, uploadFile]
   );
 
   return (
@@ -258,6 +309,10 @@ function PureMultimodalInput({
         onSubmit={(event) => {
           event.preventDefault();
           if (status !== "ready") {
+            trackAmplitudeEvent("chat_submit_blocked", {
+              chatId,
+              reason: status,
+            });
             toast.error("Please wait for the model to finish its response!");
           } else {
             submitForm();
@@ -280,6 +335,10 @@ function PureMultimodalInput({
                   if (fileInputRef.current) {
                     fileInputRef.current.value = "";
                   }
+                  trackAmplitudeEvent("chat_attachment_removed", {
+                    chatId,
+                    attachmentUrl: attachment.url,
+                  });
                 }}
               />
             ))}
@@ -321,13 +380,14 @@ function PureMultimodalInput({
               status={status}
             />
             <ModelSelectorCompact
+              chatId={chatId}
               onModelChange={onModelChange}
               selectedModelId={selectedModelId}
             />
           </PromptInputTools>
 
           {status === "submitted" ? (
-            <StopButton setMessages={setMessages} stop={stop} />
+            <StopButton chatId={chatId} setMessages={setMessages} stop={stop} />
           ) : (
             <PromptInputSubmit
               className="size-8 rounded-full bg-primary text-primary-foreground transition-colors duration-200 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
@@ -385,6 +445,10 @@ function PureAttachmentsButton({
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();
+        trackAmplitudeEvent("chat_attachment_picker_opened", {
+          disabled: status !== "ready" || isReasoningModel,
+          modelId: selectedModelId,
+        });
       }}
       variant="ghost"
     >
@@ -396,9 +460,11 @@ function PureAttachmentsButton({
 const AttachmentsButton = memo(PureAttachmentsButton);
 
 function PureModelSelectorCompact({
+  chatId,
   selectedModelId,
   onModelChange,
 }: {
+  chatId: string;
   selectedModelId: string;
   onModelChange?: (modelId: string) => void;
 }) {
@@ -421,6 +487,11 @@ function PureModelSelectorCompact({
           onModelChange?.(model.id);
           startTransition(() => {
             saveChatModelAsCookie(model.id);
+          });
+          trackAmplitudeEvent("chat_model_selected", {
+            chatId,
+            previousModelId: selectedModelId,
+            nextModelId: model.id,
           });
         }
       }}
@@ -455,9 +526,11 @@ function PureModelSelectorCompact({
 const ModelSelectorCompact = memo(PureModelSelectorCompact);
 
 function PureStopButton({
+  chatId,
   stop,
   setMessages,
 }: {
+  chatId: string;
   stop: () => void;
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
 }) {
@@ -469,6 +542,9 @@ function PureStopButton({
         event.preventDefault();
         stop();
         setMessages((messages) => messages);
+        trackAmplitudeEvent("chat_generation_stopped", {
+          chatId,
+        });
       }}
     >
       <StopIcon size={14} />

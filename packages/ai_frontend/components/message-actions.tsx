@@ -3,6 +3,7 @@ import { memo } from "react";
 import { toast } from "sonner";
 import { useSWRConfig } from "swr";
 import { useCopyToClipboard } from "usehooks-ts";
+import { trackAmplitudeEvent } from "@/lib/analytics/amplitude";
 import type { Vote } from "@/lib/db/schema";
 import type { ChatMessage } from "@/lib/types";
 import { Action, Actions } from "./elements/actions";
@@ -37,11 +38,22 @@ export function PureMessageActions({
   const handleCopy = async () => {
     if (!textFromParts) {
       toast.error("There's no text to copy!");
+      trackAmplitudeEvent("chat_message_copy_failed", {
+        chatId,
+        messageId: message.id,
+        reason: "no_text",
+      });
       return;
     }
 
     await copyToClipboard(textFromParts);
     toast.success("Copied to clipboard!");
+    trackAmplitudeEvent("chat_message_copied", {
+      chatId,
+      messageId: message.id,
+      role: message.role,
+      textLength: textFromParts.length,
+    });
   };
 
   // User messages get edit (on hover) and copy actions
@@ -76,6 +88,12 @@ export function PureMessageActions({
         data-testid="message-upvote"
         disabled={vote?.isUpvoted}
         onClick={() => {
+          trackAmplitudeEvent("chat_response_vote_submitted", {
+            chatId,
+            messageId: message.id,
+            direction: "up",
+          });
+
           const upvote = fetch("/api/vote", {
             method: "PATCH",
             body: JSON.stringify({
@@ -83,7 +101,27 @@ export function PureMessageActions({
               messageId: message.id,
               type: "up",
             }),
-          });
+          })
+            .then((response) => {
+              trackAmplitudeEvent("chat_response_vote_result", {
+                chatId,
+                messageId: message.id,
+                direction: "up",
+                ok: response.ok,
+                status: response.status,
+              });
+              return response;
+            })
+            .catch((error) => {
+              trackAmplitudeEvent("chat_response_vote_result", {
+                chatId,
+                messageId: message.id,
+                direction: "up",
+                ok: false,
+                errorMessage: error instanceof Error ? error.message : String(error),
+              });
+              throw error;
+            });
 
           toast.promise(upvote, {
             loading: "Upvoting Response...",
@@ -125,6 +163,12 @@ export function PureMessageActions({
         data-testid="message-downvote"
         disabled={vote && !vote.isUpvoted}
         onClick={() => {
+          trackAmplitudeEvent("chat_response_vote_submitted", {
+            chatId,
+            messageId: message.id,
+            direction: "down",
+          });
+
           const downvote = fetch("/api/vote", {
             method: "PATCH",
             body: JSON.stringify({
@@ -132,7 +176,27 @@ export function PureMessageActions({
               messageId: message.id,
               type: "down",
             }),
-          });
+          })
+            .then((response) => {
+              trackAmplitudeEvent("chat_response_vote_result", {
+                chatId,
+                messageId: message.id,
+                direction: "down",
+                ok: response.ok,
+                status: response.status,
+              });
+              return response;
+            })
+            .catch((error) => {
+              trackAmplitudeEvent("chat_response_vote_result", {
+                chatId,
+                messageId: message.id,
+                direction: "down",
+                ok: false,
+                errorMessage: error instanceof Error ? error.message : String(error),
+              });
+              throw error;
+            });
 
           toast.promise(downvote, {
             loading: "Downvoting Response...",
