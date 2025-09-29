@@ -23,7 +23,7 @@ function sanitizeProperties(properties?: EventProperties): EventProperties {
   }
 
   return Object.fromEntries(
-    Object.entries(properties).filter(([, value]) => value !== undefined)
+    Object.entries(properties).filter(([, value]) => value !== undefined && value !== null)
   );
 }
 
