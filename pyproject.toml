@@ -18,4 +18,5 @@ dependencies = [
 ]
 
 [project.scripts]
-law = "main:main"
+law = "packages.legal_cli.runner:main"
+law-cli = "packages.legal_cli.runner:main"
