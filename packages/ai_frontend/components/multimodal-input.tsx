@@ -323,7 +323,6 @@ function PureMultimodalInput({
         <div className="flex flex-row items-start gap-1 sm:gap-2">
           <PromptInputTextarea
             autoFocus
-            aria-disabled={isOnboardingActive}
             className="grow resize-none border-0! border-none! bg-transparent p-2 text-sm outline-none ring-0 [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&::-webkit-scrollbar]:hidden"
             data-testid="multimodal-input"
             disableAutoResize={true}
@@ -396,9 +395,7 @@ export const MultimodalInput = memo(
     if (prevProps.isOnboardingActive !== nextProps.isOnboardingActive) {
       return false;
     }
-    if (
-      prevProps.isCompletingOnboarding !== nextProps.isCompletingOnboarding
-    ) {
+    if (prevProps.isCompletingOnboarding !== nextProps.isCompletingOnboarding) {
       return false;
     }
 
@@ -414,13 +411,13 @@ function OnboardingQuickStart({
   isCompleting: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-2xl border border-primary/40 border-dashed bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 font-medium text-sm text-primary">
+        <span className="flex items-center gap-2 font-medium text-primary text-sm">
           <Sparkles className="h-4 w-4" />
           온보딩을 마치고 시작해 보세요
         </span>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           주요 기능을 확인했다면 지금 바로 첫 질문을 남겨 보세요.
         </p>
       </div>
