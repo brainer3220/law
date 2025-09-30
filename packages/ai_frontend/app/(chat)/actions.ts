@@ -15,6 +15,14 @@ export async function saveChatModelAsCookie(model: string) {
   cookieStore.set("chat-model", model);
 }
 
+export async function completeOnboarding() {
+  const cookieStore = await cookies();
+  cookieStore.set("onboarding-complete", "true", {
+    maxAge: 60 * 60 * 24 * 365, // 1 year
+    path: "/",
+  });
+}
+
 export async function generateTitleFromUserMessage({
   message,
 }: {

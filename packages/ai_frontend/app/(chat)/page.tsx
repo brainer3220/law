@@ -17,6 +17,8 @@ export default async function Page() {
 
   const cookieStore = await cookies();
   const modelIdFromCookie = cookieStore.get("chat-model");
+  const onboardingCompleteCookie = cookieStore.get("onboarding-complete");
+  const shouldShowOnboarding = onboardingCompleteCookie?.value !== "true";
 
   if (!modelIdFromCookie) {
     return (
@@ -26,6 +28,7 @@ export default async function Page() {
           id={id}
           initialChatModel={DEFAULT_CHAT_MODEL}
           initialMessages={[]}
+          initialShowOnboarding={shouldShowOnboarding}
           initialVisibilityType="private"
           isReadonly={false}
           key={id}
@@ -42,6 +45,7 @@ export default async function Page() {
         id={id}
         initialChatModel={modelIdFromCookie.value}
         initialMessages={[]}
+        initialShowOnboarding={shouldShowOnboarding}
         initialVisibilityType="private"
         isReadonly={false}
         key={id}
