@@ -31,6 +31,15 @@ function LoginPageContent() {
   const { update: updateSession } = useSession();
 
   useEffect(() => {
+    if (state.status === "success") {
+      setIsSuccessful(true);
+      updateSession();
+      router.push(nextPath);
+      return;
+    }
+
+    setIsSuccessful(false);
+
     if (state.status === "failed") {
       toast({
         type: "error",
@@ -41,10 +50,6 @@ function LoginPageContent() {
         type: "error",
         description: "Failed validating your submission!",
       });
-    } else if (state.status === "success") {
-      setIsSuccessful(true);
-      updateSession();
-      router.push(nextPath);
     }
   }, [state.status, nextPath, router, updateSession]);
 
