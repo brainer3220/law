@@ -20,7 +20,7 @@ import {
 
 export function SidebarUserNav({ user }: { user: User }) {
   const { setTheme, resolvedTheme } = useTheme();
-  const email = user.email;
+  const {email} = user;
   const displayEmail = email ?? "Account";
 
   return (
