@@ -4,6 +4,7 @@ import type { UseChatHelpers } from "@ai-sdk/react";
 import { Trigger } from "@radix-ui/react-select";
 import type { UIMessage } from "ai";
 import equal from "fast-deep-equal";
+import { Sparkles } from "lucide-react";
 import {
   type ChangeEvent,
   type Dispatch,
@@ -63,6 +64,9 @@ function PureMultimodalInput({
   selectedModelId,
   onModelChange,
   usage,
+  isOnboardingActive,
+  onCompleteOnboarding,
+  isCompletingOnboarding,
 }: {
   chatId: string;
   input: string;
@@ -79,6 +83,9 @@ function PureMultimodalInput({
   selectedModelId: string;
   onModelChange?: (modelId: string) => void;
   usage?: AppUsage;
+  isOnboardingActive: boolean;
+  onCompleteOnboarding: () => void;
+  isCompletingOnboarding: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -130,6 +137,10 @@ function PureMultimodalInput({
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
 
   const submitForm = useCallback(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     window.history.replaceState({}, "", `/chat/${chatId}`);
 
     sendMessage({
@@ -166,6 +177,7 @@ function PureMultimodalInput({
     width,
     chatId,
     resetHeight,
+    isOnboardingActive,
   ]);
 
   const uploadFile = useCallback(async (file: File) => {
@@ -236,13 +248,19 @@ function PureMultimodalInput({
     <div className={cn("relative flex w-full flex-col gap-4", className)}>
       {messages.length === 0 &&
         attachments.length === 0 &&
-        uploadQueue.length === 0 && (
+        uploadQueue.length === 0 &&
+        (isOnboardingActive ? (
+          <OnboardingQuickStart
+            isCompleting={isCompletingOnboarding}
+            onComplete={onCompleteOnboarding}
+          />
+        ) : (
           <SuggestedActions
             chatId={chatId}
             selectedVisibilityType={selectedVisibilityType}
             sendMessage={sendMessage}
           />
-        )}
+        ))}
 
       <input
         className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
@@ -257,6 +275,11 @@ function PureMultimodalInput({
         className="rounded-xl border border-border bg-background p-3 shadow-xs transition-all duration-200 focus-within:border-border hover:border-muted-foreground/50"
         onSubmit={(event) => {
           event.preventDefault();
+          if (isOnboardingActive) {
+            onCompleteOnboarding();
+            return;
+          }
+
           if (status !== "ready") {
             toast.error("Please wait for the model to finish its response!");
           } else {
@@ -306,7 +329,12 @@ function PureMultimodalInput({
             maxHeight={200}
             minHeight={44}
             onChange={handleInput}
-            placeholder="Send a message..."
+            placeholder={
+              isOnboardingActive
+                ? "온보딩을 마치고 대화를 시작해 보세요"
+                : "Send a message..."
+            }
+            readOnly={isOnboardingActive}
             ref={textareaRef}
             rows={1}
             value={input}
@@ -317,6 +345,7 @@ function PureMultimodalInput({
           <PromptInputTools className="gap-0 sm:gap-0.5">
             <AttachmentsButton
               fileInputRef={fileInputRef}
+              isDisabled={isOnboardingActive}
               selectedModelId={selectedModelId}
               status={status}
             />
@@ -331,7 +360,9 @@ function PureMultimodalInput({
           ) : (
             <PromptInputSubmit
               className="size-8 rounded-full bg-primary text-primary-foreground transition-colors duration-200 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
-              disabled={!input.trim() || uploadQueue.length > 0}
+              disabled={
+                isOnboardingActive || !input.trim() || uploadQueue.length > 0
+              }
               status={status}
             >
               <ArrowUpIcon size={14} />
@@ -361,19 +392,56 @@ export const MultimodalInput = memo(
     if (prevProps.selectedModelId !== nextProps.selectedModelId) {
       return false;
     }
+    if (prevProps.isOnboardingActive !== nextProps.isOnboardingActive) {
+      return false;
+    }
+    if (prevProps.isCompletingOnboarding !== nextProps.isCompletingOnboarding) {
+      return false;
+    }
 
     return true;
   }
 );
 
+function OnboardingQuickStart({
+  onComplete,
+  isCompleting,
+}: {
+  onComplete: () => void;
+  isCompleting: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-primary/40 border-dashed bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-2 font-medium text-primary text-sm">
+          <Sparkles className="h-4 w-4" />
+          온보딩을 마치고 시작해 보세요
+        </span>
+        <p className="text-muted-foreground text-sm">
+          주요 기능을 확인했다면 지금 바로 첫 질문을 남겨 보세요.
+        </p>
+      </div>
+      <Button
+        className="w-full sm:w-auto"
+        disabled={isCompleting}
+        onClick={onComplete}
+      >
+        {isCompleting ? "저장 중..." : "온보딩 완료하기"}
+      </Button>
+    </div>
+  );
+}
+
 function PureAttachmentsButton({
   fileInputRef,
   status,
   selectedModelId,
+  isDisabled,
 }: {
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   status: UseChatHelpers<ChatMessage>["status"];
   selectedModelId: string;
+  isDisabled: boolean;
 }) {
   const isReasoningModel = selectedModelId === "chat-model-reasoning";
 
@@ -381,7 +449,7 @@ function PureAttachmentsButton({
     <Button
       className="aspect-square h-8 rounded-lg p-1 transition-colors hover:bg-accent"
       data-testid="attachments-button"
-      disabled={status !== "ready" || isReasoningModel}
+      disabled={status !== "ready" || isReasoningModel || isDisabled}
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();
