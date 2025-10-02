@@ -101,6 +101,20 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
 
 ---
 
+## 5-1. MCP 서버로 도구 노출하기
+
+Model Context Protocol을 통해 동일한 도구 세트를 다른 클라이언트(Claude Desktop, Cursor, OpenAI Agents 등)에서 재사용할 수 있습니다.
+
+```bash
+uv run law-mcp-server  # 기본값: streamable-http, http://127.0.0.1:8000/mcp
+```
+
+- `LAW_DATA_DIR`로 데이터 경로를 지정하면 OpenSearch 스니펫 검색이 동일하게 동작합니다.
+- `LAW_MCP_TRANSPORT=stdio`로 설정하면 Claude Desktop 설정 파일에 `command: "uv"`, `args: ["run", "law-mcp-server"]` 식으로 등록할 수 있습니다.
+- 개발 중에는 `uv run mcp dev packages/legal_tools/mcp_server.py`로 MCP Inspector를 띄워 툴/리소스/프롬프트를 확인하세요.
+
+---
+
 ## 6. 선택 기능: PostgreSQL BM25 검색 활성화
 
 BM25 기반 고급 검색이 필요하다면 다음 단계를 따릅니다.

@@ -19,11 +19,13 @@ dependencies = [
     "structlog>=24.4",
     "psycopg[binary]>=3.2.10",
     "tqdm>=4.66",
+    "mcp>=0.3",
 ]
 
 [project.scripts]
 law = "packages.legal_cli.runner:main"
 law-cli = "packages.legal_cli.runner:main"
+law-mcp-server = "packages.legal_tools.mcp_server:main"
 
 [tool.uv]
 package = true
