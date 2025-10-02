@@ -5,17 +5,19 @@ Command-line tool to explore the legal JSON dataset in `data/` and query an Open
 
 Usage
 -----
-- Preview a file: `uv run main.py preview "data/.../민사법_유권해석_요약_518.json"`
-- Show stats: `uv run main.py stats`
-- Search OpenSearch index: `uv run main.py opensearch-search "가산금 면제" --limit 5`
-- Agentic ask (LangGraph over OpenSearch): `uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3`
-- Serve OpenAI-compatible API: `uv run main.py serve --host 127.0.0.1 --port 8080`
+- Preview a file: `uv run law-cli preview "data/.../민사법_유권해석_요약_518.json"`
+- Show stats: `uv run law-cli stats`
+- Search OpenSearch index: `uv run law-cli opensearch-search "가산금 면제" --limit 5`
+- Agentic ask (LangGraph over OpenSearch): `uv run law-cli ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-tool-calls 3`
+- Serve OpenAI-compatible API: `uv run law-cli serve --host 127.0.0.1 --port 8080`
+
+The legacy `uv run main.py ...` invocation remains available and forwards to the new `law-cli` entrypoint. Use `--data-dir` or `LAW_DATA_DIR` to override the default `./data` corpus path when running dataset commands.
 
 OpenAI-Compatible API (Streaming)
 ---------------------------------
 Run the server:
 ```
-uv run main.py serve --host 127.0.0.1 --port 8080
+uv run law-cli serve --host 127.0.0.1 --port 8080
 ```
 
 Chat Completions (non-streaming):
@@ -95,17 +97,17 @@ export SUPABASE_DB_URL='postgresql://postgres.your-tenant-id:your-super-secret-a
 
 3) Initialize schema + BM25 index:
 ```
-uv run main.py pg-init
+uv run law-cli pg-init
 ```
 
 4) Load local JSON to Postgres:
 ```
- uv run main.py pg-load --data-dir data
+ uv run law-cli pg-load --data-dir data
 ```
 
 5) Search with BM25:
 ```
-uv run main.py pg-search "근로시간 면제" --limit 5
+uv run law-cli pg-search "근로시간 면제" --limit 5
 ```
 
 Notes:
@@ -124,12 +126,12 @@ docker run -it --rm -p 9200:9200 -p 9600:9600 \
 
 2) Load the sample legal guidance files:
 ```
-uv run main.py opensearch-load --data-dir data/opensearch
+uv run law-cli opensearch-load --data-dir data/opensearch
 ```
 
 3) Query from the CLI:
 ```
-uv run main.py opensearch-search "가산금 면제" --limit 5
+uv run law-cli opensearch-search "가산금 면제" --limit 5
 ```
 
 4) Query from Python:
