@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -138,7 +138,7 @@ def law_statute_search(
         oc=oc,
     )
     payload = _hits_payload(hits)
-    payload["response"] = response.model_dump()
+    payload["response"] = asdict(response)
     return payload
 
 
@@ -168,7 +168,7 @@ def law_statute_detail(
         oc=oc,
     )
     payload = _hits_payload(hits)
-    payload["detail"] = detail.model_dump()
+    payload["detail"] = asdict(detail)
     return payload
 
 
@@ -206,7 +206,7 @@ def law_interpretation_search(
         oc=oc,
     )
     payload = _hits_payload(hits)
-    payload["response"] = response.model_dump()
+    payload["response"] = asdict(response)
     return payload
 
 
@@ -226,11 +226,11 @@ def law_interpretation_detail(
         oc=oc,
     )
     payload = _hits_payload(hits)
-    payload["detail"] = detail.model_dump()
+    payload["detail"] = asdict(detail)
     return payload
 
 
-@mcp.resource("lawyer-use-cases")
+@mcp.resource("lawyer-use-cases", uri="resource://lawyer-use-cases")
 def lawyer_use_cases() -> str:
     """변호사 GPT 활용 사례 마크다운을 반환합니다."""
 
