@@ -37,4 +37,16 @@ test.describe.serial("Authentication gating", () => {
     await authPage.login(user.email, user.password);
     await chatPage.expectHomeLoaded();
   });
+
+  test("shows an error toast and re-enables the button on invalid login", async ({ page }) => {
+    const authPage = new AuthPage(page);
+
+    await authPage.login("nobody@example.com", "wrong-password");
+
+    await authPage.expectToastToContain("Invalid credentials!");
+
+    const submitButton = page.getByRole("button", { name: /sign in/i });
+    await expect(submitButton).toBeEnabled();
+    await expect(page).toHaveURL(/\/login/);
+  });
 });

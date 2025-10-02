@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "law"
 version = "0.1.0"
@@ -18,4 +22,12 @@ dependencies = [
 ]
 
 [project.scripts]
-law = "main:main"
+law = "packages.legal_cli.runner:main"
+law-cli = "packages.legal_cli.runner:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["packages*"]
+exclude = ["data*", "docs*", "tests*"]

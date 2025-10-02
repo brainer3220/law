@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getAuthSecret } from "./lib/auth";
-import { isDevelopmentEnvironment } from "./lib/constants";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -18,10 +17,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    .trim();
+  const isSecure =
+    request.nextUrl.protocol === "https:" || forwardedProto === "https";
+
   const token = await getToken({
     req: request,
     secret: getAuthSecret(),
-    secureCookie: !isDevelopmentEnvironment,
+    secureCookie: isSecure,
   });
 
   const authRoutes = ["/login", "/register"];

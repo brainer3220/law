@@ -3,9 +3,10 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { unstable_serialize } from "swr/infinite";
+import { completeOnboarding } from "@/app/(chat)/actions";
 import { ChatHeader } from "@/components/chat-header";
 import {
   AlertDialog,
@@ -37,6 +38,7 @@ export function Chat({
   id,
   initialMessages,
   initialChatModel,
+  initialShowOnboarding,
   initialVisibilityType,
   isReadonly,
   autoResume,
@@ -45,6 +47,7 @@ export function Chat({
   id: string;
   initialMessages: ChatMessage[];
   initialChatModel: string;
+  initialShowOnboarding: boolean;
   initialVisibilityType: VisibilityType;
   isReadonly: boolean;
   autoResume: boolean;
@@ -62,11 +65,26 @@ export function Chat({
   const [usage, setUsage] = useState<AppUsage | undefined>(initialLastContext);
   const [showCreditCardAlert, setShowCreditCardAlert] = useState(false);
   const [currentModelId, setCurrentModelId] = useState(initialChatModel);
+  const [showOnboarding, setShowOnboarding] = useState(initialShowOnboarding);
+  const [isCompletingOnboarding, startCompleteOnboarding] = useTransition();
   const currentModelIdRef = useRef(currentModelId);
 
   useEffect(() => {
     currentModelIdRef.current = currentModelId;
   }, [currentModelId]);
+
+  const handleCompleteOnboarding = useCallback(() => {
+    if (!showOnboarding) {
+      return;
+    }
+
+    setShowOnboarding(false);
+    startCompleteOnboarding(() => {
+      completeOnboarding().catch((error) => {
+        console.error("Failed to persist onboarding completion", error);
+      });
+    });
+  }, [showOnboarding]);
 
   const {
     messages,
@@ -166,11 +184,14 @@ export function Chat({
         <Messages
           chatId={id}
           isArtifactVisible={isArtifactVisible}
+          isCompletingOnboarding={isCompletingOnboarding}
           isReadonly={isReadonly}
           messages={messages}
+          onCompleteOnboarding={handleCompleteOnboarding}
           regenerate={regenerate}
           selectedModelId={initialChatModel}
           setMessages={setMessages}
+          showOnboarding={showOnboarding}
           status={status}
           votes={votes}
         />
@@ -181,7 +202,10 @@ export function Chat({
               attachments={attachments}
               chatId={id}
               input={input}
+              isCompletingOnboarding={isCompletingOnboarding}
+              isOnboardingActive={showOnboarding}
               messages={messages}
+              onCompleteOnboarding={handleCompleteOnboarding}
               onModelChange={setCurrentModelId}
               selectedModelId={currentModelId}
               selectedVisibilityType={visibilityType}
@@ -201,8 +225,11 @@ export function Chat({
         attachments={attachments}
         chatId={id}
         input={input}
+        isCompletingOnboarding={isCompletingOnboarding}
+        isOnboardingActive={showOnboarding}
         isReadonly={isReadonly}
         messages={messages}
+        onCompleteOnboarding={handleCompleteOnboarding}
         regenerate={regenerate}
         selectedModelId={currentModelId}
         selectedVisibilityType={visibilityType}
