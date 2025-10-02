@@ -33,6 +33,7 @@
   - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
 - [Auth.js](https://authjs.dev)
   - Simple and secure authentication
+- Law MCP integration for Korean legal research (keyword search, statute detail, 법령해석례 조회)
 
 ## Model Providers
 
@@ -73,6 +74,16 @@ You will need to use the environment variables [defined in `.env.example`](.env.
 1. Install Vercel CLI: `npm i -g vercel`
 2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
 3. Download your environment variables: `vercel env pull`
+
+### Law MCP server dependency
+
+The chat assistant now expects a running [`law-mcp-server`](../../packages/legal_tools/mcp_server.py) instance for legal research tools. Start it in a separate terminal before launching the Next.js dev server:
+
+```bash
+uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
+```
+
+Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
 
 ```bash
 pnpm install
