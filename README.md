@@ -10,6 +10,7 @@ Usage
 - Search OpenSearch index: `uv run law-cli opensearch-search "가산금 면제" --limit 5`
 - Agentic ask (LangGraph over OpenSearch): `uv run law-cli ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-tool-calls 3`
 - Serve OpenAI-compatible API: `uv run law-cli serve --host 127.0.0.1 --port 8080`
+- Expose tools over MCP: `uv run law-mcp-server`
 
 The legacy `uv run main.py ...` invocation remains available and forwards to the new `law-cli` entrypoint. Use `--data-dir` or `LAW_DATA_DIR` to override the default `./data` corpus path when running dataset commands.
 
@@ -46,6 +47,18 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
 Notes:
 - Set `LAW_DATA_DIR` to point to your data folder if not `./data`.
 - The server runs the same LangGraph agent as the CLI and streams the final answer in chunks.
+
+Model Context Protocol (MCP)
+---------------------------
+Run the FastMCP server to expose the legal search tools over Streamable HTTP or StdIO transports:
+
+```
+uv run law-mcp-server  # defaults to streamable-http on :8000
+```
+
+- Override the dataset location with `LAW_DATA_DIR=/absolute/path/to/data`.
+- Set `LAW_MCP_TRANSPORT=stdio` to integrate with Claude Desktop or other local hosts; the default `streamable-http` binds `/mcp` on port 8000.
+- Inspect the contract locally with `uv run mcp dev packages/legal_tools/mcp_server.py`.
 
 ### Postgres-backed multi-turn chat
 
