@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,11 +33,11 @@ from packages.legal_tools.agent_graph import (
 DEFAULT_GUIDANCE = "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
 
 
-@dataclass
 class LifespanContext:
     """Runtime context shared across MCP requests."""
 
-    data_dir: Path
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = data_dir
 
 
 def _resolve_data_dir() -> Path:
@@ -230,7 +230,7 @@ def law_interpretation_detail(
     return payload
 
 
-@mcp.resource("lawyer-use-cases", uri="resource://lawyer-use-cases")
+@mcp.resource("resource://law/lawyer-use-cases", name="lawyer-use-cases")
 def lawyer_use_cases() -> str:
     """변호사 GPT 활용 사례 마크다운을 반환합니다."""
 
