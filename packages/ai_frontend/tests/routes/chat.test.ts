@@ -66,6 +66,35 @@ test.describe
       chatIdsCreatedByAda.push(chatId);
     });
 
+    test(
+      "Ada receives tool results and a final response after exhausting tool steps",
+      async ({ adaContext }) => {
+        const chatId = generateUUID();
+
+        const response = await adaContext.request.post("/api/chat", {
+          data: {
+            id: chatId,
+            message: TEST_PROMPTS.MULTI_TOOL_SUCCESS.MESSAGE,
+            selectedChatModel: "chat-model",
+            selectedVisibilityType: "private",
+          },
+        });
+
+        expect(response.status()).toBe(200);
+
+        const text = await response.text();
+        const lines = text.split("\n");
+
+        const [_, ...rest] = lines;
+        const actualNormalized = normalizeStreamData(rest.filter(Boolean));
+        const expectedNormalized = normalizeStreamData(
+          TEST_PROMPTS.MULTI_TOOL_SUCCESS.OUTPUT_STREAM
+        );
+
+        expect(actualNormalized).toEqual(expectedNormalized);
+      }
+    );
+
     test("Babbage cannot append message to Ada's chat", async ({
       babbageContext,
     }) => {
@@ -119,6 +148,30 @@ test.describe
       );
       expect(response.status()).toBe(404);
     });
+
+    test(
+      "Ada receives a structured error when the agent cannot conclude after tool cap",
+      async ({ adaContext }) => {
+        const response = await adaContext.request.post("/api/chat", {
+          data: {
+            id: generateUUID(),
+            message: TEST_PROMPTS.MULTI_TOOL_FAILURE.MESSAGE,
+            selectedChatModel: "chat-model",
+            selectedVisibilityType: "private",
+          },
+        });
+
+        expect(response.status()).toBe(503);
+
+        const body = await response.json();
+        expect(body).toMatchObject({
+          code: "offline:chat",
+          message: getMessageByErrorCode("offline:chat"),
+          cause:
+            "Agent run ended without a final assistant message after the tool ceiling was reached.",
+        });
+      }
+    );
 
     test("Ada can resume chat generation", async ({ adaContext }) => {
       const chatId = generateUUID();

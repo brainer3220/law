@@ -239,6 +239,103 @@ As we move forward, Silicon Valley continues to reinvent itself. While some pred
   }
 
   if (
+    compareMessages(recentMessage, TEST_PROMPTS.USER_MULTI_TOOL_SUCCESS) ||
+    compareMessages(recentMessage, TEST_PROMPTS.USER_MULTI_TOOL_FAILURE)
+  ) {
+    return [
+      {
+        type: "tool-call",
+        toolCallId: "call_statute_search",
+        toolName: "lawStatuteSearch",
+        input: JSON.stringify({ query: "tenant protections" }),
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_statute_search",
+        toolName: "lawStatuteSearch",
+        output: {
+          type: "json",
+          value: {
+            hits: [
+              { id: "statute-101", title: "Tenant Protection Act" },
+              { id: "statute-202", title: "Rental Fairness Ordinance" },
+            ],
+          },
+        },
+        result: {
+          id: "statute_search_result",
+          hits: [
+            { id: "statute-101", title: "Tenant Protection Act" },
+            { id: "statute-202", title: "Rental Fairness Ordinance" },
+          ],
+        },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "call_interpretation_detail",
+        toolName: "lawInterpretationDetail",
+        input: JSON.stringify({ interpretationId: "interp-314" }),
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_interpretation_detail",
+        toolName: "lawInterpretationDetail",
+        output: {
+          type: "json",
+          value: {
+            id: "interp-314",
+            holding:
+              "Courts interpret the act to require proactive notice to tenants about rent increases.",
+          },
+        },
+        result: {
+          id: "interp-314",
+          holding:
+            "Courts interpret the act to require proactive notice to tenants about rent increases.",
+        },
+      },
+      {
+        type: "finish",
+        finishReason: "stop",
+        usage: { inputTokens: 3, outputTokens: 10, totalTokens: 13 },
+      },
+    ];
+  }
+
+  if (compareMessages(recentMessage, TEST_PROMPTS.MULTI_TOOL_RESULTS)) {
+    const isFailurePrompt = prompt.some((message) =>
+      compareMessages(message, TEST_PROMPTS.USER_MULTI_TOOL_FAILURE)
+    );
+
+    if (isFailurePrompt) {
+      return [
+        {
+          type: "tool-call",
+          toolCallId: "call_statute_detail",
+          toolName: "lawStatuteDetail",
+          input: JSON.stringify({ statuteId: "statute-202" }),
+        },
+        {
+          type: "finish",
+          finishReason: "stop",
+          usage: { inputTokens: 3, outputTokens: 10, totalTokens: 13 },
+        },
+      ];
+    }
+
+    return [
+      ...textToDeltas(
+        "Tenant protections stem from the Tenant Protection Act and subsequent interpretations requiring proactive notice."
+      ),
+      {
+        type: "finish",
+        finishReason: "stop",
+        usage: { inputTokens: 3, outputTokens: 10, totalTokens: 13 },
+      },
+    ];
+  }
+
+  if (
     compareMessages(recentMessage, TEST_PROMPTS.CREATE_DOCUMENT_TEXT_RESULT)
   ) {
     return [

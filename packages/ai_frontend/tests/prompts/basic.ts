@@ -42,12 +42,62 @@ export const TEST_PROMPTS: Record<string, ModelMessage> = {
       },
     ],
   },
+  USER_MULTI_TOOL_SUCCESS: {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: "Summarize the tenant protection statutes with relevant commentary.",
+      },
+    ],
+  },
+  USER_MULTI_TOOL_FAILURE: {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: "Summarize the statutes but keep calling tools forever.",
+      },
+    ],
+  },
   CREATE_DOCUMENT_TEXT_CALL: {
     role: "user",
     content: [
       {
         type: "text",
         text: "Essay about Silicon Valley",
+      },
+    ],
+  },
+  MULTI_TOOL_RESULTS: {
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        toolCallId: "call_statute_search",
+        toolName: "lawStatuteSearch",
+        output: {
+          type: "json",
+          value: {
+            hits: [
+              { id: "statute-101", title: "Tenant Protection Act" },
+              { id: "statute-202", title: "Rental Fairness Ordinance" },
+            ],
+          },
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_interpretation_detail",
+        toolName: "lawInterpretationDetail",
+        output: {
+          type: "json",
+          value: {
+            id: "interp-314",
+            holding:
+              "Courts interpret the act to require proactive notice to tenants about rent increases.",
+          },
+        },
       },
     ],
   },
