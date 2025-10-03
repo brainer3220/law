@@ -71,8 +71,14 @@ export async function buildDefaultAgentTools({
     requestSuggestionsModule.requestSuggestions ??
     requestSuggestionsModule.default;
 
-  if (!createDocumentFactory || !updateDocumentFactory || !requestSuggestionsFactory) {
-    throw new Error("Failed to load agent tool factories");
+  if (!createDocumentFactory) {
+    throw new Error("Failed to load agent tool factory: createDocumentFactory");
+  }
+  if (!updateDocumentFactory) {
+    throw new Error("Failed to load agent tool factory: updateDocumentFactory");
+  }
+  if (!requestSuggestionsFactory) {
+    throw new Error("Failed to load agent tool factory: requestSuggestionsFactory");
   }
 
   return {
