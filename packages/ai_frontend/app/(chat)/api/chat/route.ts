@@ -210,7 +210,7 @@ export async function POST(request: Request) {
           onFinish: async ({ usage }) => {
             try {
               const providers = await getTokenlensCatalog();
-              const modelId = languageModel.modelId;
+              const {modelId} = languageModel;
               if (!modelId) {
                 finalMergedUsage = usage;
                 dataStream.write({
