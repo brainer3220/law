@@ -16,7 +16,8 @@ export type Surface =
   | "vote"
   | "document"
   | "suggestions"
-  | "activate_gateway";
+  | "activate_gateway"
+  | "provider";
 
 export type ErrorCode = `${ErrorType}:${Surface}`;
 
@@ -33,6 +34,7 @@ export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   document: "response",
   suggestions: "response",
   activate_gateway: "response",
+  provider: "response",
 };
 
 export class ChatSDKError extends Error {
@@ -102,6 +104,11 @@ export function getMessageByErrorCode(errorCode: ErrorCode): string {
       return "You need to sign in to view this chat. Please sign in and try again.";
     case "offline:chat":
       return "We're having trouble sending your message. Please check your internet connection and try again.";
+
+    case "unauthorized:provider":
+      return "The configured AI provider rejected the request. Check your API key and base URL settings.";
+    case "rate_limit:provider":
+      return "The AI provider is rate limiting requests. Please wait a moment and try again.";
 
     case "not_found:document":
       return "The requested document was not found. Please check the document ID and try again.";

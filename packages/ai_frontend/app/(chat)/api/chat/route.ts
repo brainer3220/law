@@ -1,5 +1,6 @@
 import { geolocation } from "@vercel/functions";
 import {
+  APICallError,
   convertToModelMessages,
   createUIMessageStream,
   JsonToSseTransformStream,
@@ -323,6 +324,27 @@ export async function POST(request: Request) {
 
     if (error instanceof ChatSDKError) {
       return error.toResponse();
+    }
+
+    if (error instanceof APICallError) {
+      const { statusCode, responseBody, message } = error;
+      const responseText =
+        typeof responseBody === "string" && responseBody.length > 0
+          ? responseBody
+          : undefined;
+      const cause = responseText ?? message;
+
+      if (statusCode === 429) {
+        return new ChatSDKError("rate_limit:provider", cause).toResponse();
+      }
+
+      if (
+        statusCode === 401 ||
+        statusCode === 403 ||
+        (statusCode === 400 && responseText?.includes("API key not valid"))
+      ) {
+        return new ChatSDKError("unauthorized:provider", cause).toResponse();
+      }
     }
 
     // Check for Vercel AI Gateway credit card error
