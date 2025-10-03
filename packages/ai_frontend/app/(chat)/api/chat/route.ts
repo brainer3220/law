@@ -1,12 +1,8 @@
 import { geolocation } from "@vercel/functions";
 import {
   APICallError,
-  convertToModelMessages,
   createUIMessageStream,
   JsonToSseTransformStream,
-  smoothStream,
-  stepCountIs,
-  streamText,
 } from "ai";
 import { unstable_cache as cache } from "next/cache";
 import { after } from "next/server";
@@ -21,20 +17,9 @@ import { auth, type UserType } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { getEntitlementsForUserType } from "@/lib/ai/entitlements";
 import type { ChatModel } from "@/lib/ai/models";
-import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
+import { type RequestHints } from "@/lib/ai/prompts";
+import { buildDefaultAgentTools, runAgent } from "@/lib/ai/agent";
 import { myProvider } from "@/lib/ai/providers";
-import { createDocument } from "@/lib/ai/tools/create-document";
-import { getWeather } from "@/lib/ai/tools/get-weather";
-import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
-import {
-  lawInterpretationDetail,
-  lawInterpretationSearch,
-  lawKeywordSearch,
-  lawStatuteDetail,
-  lawStatuteSearch,
-} from "@/lib/ai/tools/law";
-import { updateDocument } from "@/lib/ai/tools/update-document";
-import { isProductionEnvironment } from "@/lib/constants";
 import {
   createStreamId,
   deleteChatById,
@@ -215,50 +200,17 @@ export async function POST(request: Request) {
     let finalMergedUsage: AppUsage | undefined;
 
     const stream = createUIMessageStream({
-      execute: ({ writer: dataStream }) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(6),
-          experimental_activeTools:
-            selectedChatModel === "chat-model-reasoning"
-              ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                  "lawKeywordSearch",
-                  "lawStatuteSearch",
-                  "lawStatuteDetail",
-                  "lawInterpretationSearch",
-                  "lawInterpretationDetail",
-                ],
-          experimental_transform: smoothStream({ chunking: "word" }),
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-            lawKeywordSearch,
-            lawStatuteSearch,
-            lawStatuteDetail,
-            lawInterpretationSearch,
-            lawInterpretationDetail,
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: "stream-text",
-          },
+      execute: async ({ writer: dataStream }) => {
+        const languageModel = myProvider.languageModel(selectedChatModel);
+        const tools = await buildDefaultAgentTools({ dataStream, session });
+        const result = runAgent({
+          dataStream,
+          tools,
+          model: languageModel,
           onFinish: async ({ usage }) => {
             try {
               const providers = await getTokenlensCatalog();
-              const modelId =
-                myProvider.languageModel(selectedChatModel).modelId;
+              const modelId = languageModel.modelId;
               if (!modelId) {
                 finalMergedUsage = usage;
                 dataStream.write({
@@ -286,6 +238,9 @@ export async function POST(request: Request) {
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             }
           },
+          requestHints,
+          selectedChatModel,
+          uiMessages,
         });
 
         result.consumeStream();
