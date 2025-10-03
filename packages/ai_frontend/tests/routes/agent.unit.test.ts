@@ -8,7 +8,10 @@ import {
   getAgentActiveTools,
   DEFAULT_CHAT_TOOL_NAMES,
 } from "@/lib/ai/agent";
-import type { ChatMessage, ChatTools } from "@/lib/types";
+import type {
+  ChatMessage,
+  ChatToolImplementations,
+} from "@/lib/types";
 
 const mockModel = new MockLanguageModelV2({
   doGenerate: async () => ({
@@ -119,7 +122,7 @@ test("runAgent streams a response with the provided model", async () => {
       inputSchema: z.object({}),
       execute: async () => ({ detail: null }),
     }),
-  } as unknown as ChatTools;
+  } satisfies ChatToolImplementations;
 
   let capturedUsage: LanguageModelUsage | undefined;
 

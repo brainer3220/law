@@ -9,7 +9,10 @@ import {
 } from "ai";
 import type { Session } from "next-auth";
 import { isProductionEnvironment } from "@/lib/constants";
-import type { ChatMessage, ChatTools } from "@/lib/types";
+import type {
+  ChatMessage,
+  ChatToolImplementations,
+} from "@/lib/types";
 import type { ChatModel } from "./models";
 import { type RequestHints, systemPrompt } from "./prompts";
 import { myProvider } from "./providers";
@@ -32,8 +35,8 @@ type RunAgentOptions = {
   uiMessages: ChatMessage[];
   requestHints: RequestHints;
   dataStream: UIMessageStreamWriter<ChatMessage>;
-  tools: ChatTools;
-  onFinish?: StreamTextOnFinishCallback<ChatTools>;
+  tools: ChatToolImplementations;
+  onFinish?: StreamTextOnFinishCallback<ChatToolImplementations>;
   model?: LanguageModel;
 };
 
@@ -53,7 +56,7 @@ export async function buildDefaultAgentTools({
 }: {
   dataStream: UIMessageStreamWriter<ChatMessage>;
   session: Session;
-}): Promise<ChatTools> {
+}): Promise<ChatToolImplementations> {
   const [weatherModule, createDocumentModule, updateDocumentModule, requestSuggestionsModule, law] =
     await Promise.all([
       import("./tools/get-weather"),
@@ -63,13 +66,10 @@ export async function buildDefaultAgentTools({
       import("./tools/law"),
     ]);
 
-  const createDocumentFactory =
-    createDocumentModule.createDocument ?? createDocumentModule.default;
-  const updateDocumentFactory =
-    updateDocumentModule.updateDocument ?? updateDocumentModule.default;
-  const requestSuggestionsFactory =
-    requestSuggestionsModule.requestSuggestions ??
-    requestSuggestionsModule.default;
+  const { createDocument: createDocumentFactory } = createDocumentModule;
+  const { updateDocument: updateDocumentFactory } = updateDocumentModule;
+  const { requestSuggestions: requestSuggestionsFactory } =
+    requestSuggestionsModule;
 
   if (!createDocumentFactory) {
     throw new Error("Failed to load agent tool factory: createDocumentFactory");
@@ -91,7 +91,7 @@ export async function buildDefaultAgentTools({
     lawStatuteDetail: law.lawStatuteDetail,
     lawInterpretationSearch: law.lawInterpretationSearch,
     lawInterpretationDetail: law.lawInterpretationDetail,
-  } satisfies ChatTools;
+  } satisfies ChatToolImplementations;
 }
 
 export function runAgent({
@@ -106,7 +106,7 @@ export function runAgent({
   const languageModel =
     model ?? myProvider.languageModel(selectedChatModel);
 
-  return streamText<ChatTools, never>({
+  return streamText<ChatToolImplementations, never>({
     model: languageModel,
     system: systemPrompt({ selectedChatModel, requestHints }),
     messages: convertToModelMessages(uiMessages),

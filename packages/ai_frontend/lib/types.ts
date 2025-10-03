@@ -1,4 +1,4 @@
-import type { InferUITool, UIMessage } from "ai";
+import type { InferUITools, ToolSet, UIMessage } from "ai";
 import { z } from "zod";
 import type { ArtifactKind } from "@/components/artifact";
 import type { createDocument } from "./ai/tools/create-document";
@@ -23,23 +23,17 @@ export const messageMetadataSchema = z.object({
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
-type weatherTool = InferUITool<typeof getWeather>;
-type createDocumentTool = InferUITool<ReturnType<typeof createDocument>>;
-type updateDocumentTool = InferUITool<ReturnType<typeof updateDocument>>;
-type requestSuggestionsTool = InferUITool<
-  ReturnType<typeof requestSuggestions>
->;
-type lawKeywordSearchTool = InferUITool<typeof lawKeywordSearch>;
-type lawStatuteSearchTool = InferUITool<typeof lawStatuteSearch>;
-type lawStatuteDetailTool = InferUITool<typeof lawStatuteDetail>;
-type lawInterpretationSearchTool = InferUITool<
-  typeof lawInterpretationSearch
->;
-type lawInterpretationDetailTool = InferUITool<
-  typeof lawInterpretationDetail
->;
+type weatherTool = typeof getWeather;
+type createDocumentTool = ReturnType<typeof createDocument>;
+type updateDocumentTool = ReturnType<typeof updateDocument>;
+type requestSuggestionsTool = ReturnType<typeof requestSuggestions>;
+type lawKeywordSearchTool = typeof lawKeywordSearch;
+type lawStatuteSearchTool = typeof lawStatuteSearch;
+type lawStatuteDetailTool = typeof lawStatuteDetail;
+type lawInterpretationSearchTool = typeof lawInterpretationSearch;
+type lawInterpretationDetailTool = typeof lawInterpretationDetail;
 
-export type ChatTools = {
+export type ChatToolImplementations = ToolSet & {
   getWeather: weatherTool;
   createDocument: createDocumentTool;
   updateDocument: updateDocumentTool;
@@ -50,6 +44,8 @@ export type ChatTools = {
   lawInterpretationSearch: lawInterpretationSearchTool;
   lawInterpretationDetail: lawInterpretationDetailTool;
 };
+
+export type ChatTools = InferUITools<ChatToolImplementations>;
 
 export type CustomUIDataTypes = {
   textDelta: string;
