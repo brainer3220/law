@@ -1,12 +1,8 @@
 import { geolocation } from "@vercel/functions";
 import {
   APICallError,
-  convertToModelMessages,
   createUIMessageStream,
   JsonToSseTransformStream,
-  smoothStream,
-  stepCountIs,
-  streamText,
 } from "ai";
 import { unstable_cache as cache } from "next/cache";
 import { after } from "next/server";
@@ -20,21 +16,9 @@ import { getUsage } from "tokenlens/helpers";
 import { auth, type UserType } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { getEntitlementsForUserType } from "@/lib/ai/entitlements";
-import type { ChatModel } from "@/lib/ai/models";
-import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { myProvider } from "@/lib/ai/providers";
-import { createDocument } from "@/lib/ai/tools/create-document";
-import { getWeather } from "@/lib/ai/tools/get-weather";
-import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
-import {
-  lawInterpretationDetail,
-  lawInterpretationSearch,
-  lawKeywordSearch,
-  lawStatuteDetail,
-  lawStatuteSearch,
-} from "@/lib/ai/tools/law";
-import { updateDocument } from "@/lib/ai/tools/update-document";
-import { isProductionEnvironment } from "@/lib/constants";
+import type { ChatModel } from "@/lib/ai/models";
+import { type RequestHints } from "@/lib/ai/prompts";
 import {
   createStreamId,
   deleteChatById,
@@ -49,6 +33,7 @@ import { ChatSDKError } from "@/lib/errors";
 import type { ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { convertToUIMessages, generateUUID } from "@/lib/utils";
+import { runAgent } from "@/lib/ai/agent";
 import { generateTitleFromUserMessage } from "../../actions";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
 
@@ -215,45 +200,13 @@ export async function POST(request: Request) {
     let finalMergedUsage: AppUsage | undefined;
 
     const stream = createUIMessageStream({
-      execute: ({ writer: dataStream }) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(6),
-          activeTools:
-            selectedChatModel === "chat-model-reasoning"
-              ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                  "lawKeywordSearch",
-                  "lawStatuteSearch",
-                  "lawStatuteDetail",
-                  "lawInterpretationSearch",
-                  "lawInterpretationDetail",
-                ],
-          experimental_transform: smoothStream({ chunking: "word" }),
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-            lawKeywordSearch,
-            lawStatuteSearch,
-            lawStatuteDetail,
-            lawInterpretationSearch,
-            lawInterpretationDetail,
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: "stream-text",
-          },
+      execute: async ({ writer: dataStream }) => {
+        const result = await runAgent({
+          selectedChatModel,
+          requestHints,
+          uiMessages,
+          session,
+          dataStream,
           onFinish: async ({ usage }) => {
             try {
               const providers = await getTokenlensCatalog();
