@@ -5,6 +5,7 @@ import {
   wrapLanguageModel,
 } from "ai";
 import { isTestEnvironment } from "../constants";
+import { createToolCallNormalizingFetch } from "./tool-call-normalizing-fetch";
 
 const gatewayProvider = (() => {
   const baseURL =
@@ -14,6 +15,7 @@ const gatewayProvider = (() => {
     name: "law-gateway",
     baseURL,
     apiKey: process.env.OPENAI_COMPATIBLE_API_KEY ?? undefined,
+    fetch: createToolCallNormalizingFetch(),
   });
 })();
 
