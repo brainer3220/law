@@ -71,6 +71,11 @@ export default function RootLayout({
             __html: THEME_COLOR_SCRIPT,
           }}
         />
+        <script
+          defer
+          data-cf-beacon='{"token": "897aad97e10143c6a0bfbbd899b6a07e"}'
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+        />
       </head>
       <body className="antialiased">
         <ThemeProvider
