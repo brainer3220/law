@@ -449,3 +449,21 @@ def test_normalize_tool_call_chunk_flattens_delta_shapes() -> None:
     assert call["id"] == "call_42"
     assert call["function"]["name"] == "lookup"
     assert call["function"]["arguments"] == '{"q": "law"}'
+    assert call["index"] == 0
+
+
+def test_normalize_tool_call_chunk_infers_missing_index() -> None:
+    chunk = [
+        {
+            "id": "call_99",
+            "type": "function",
+            "function": {"name": "lookup", "arguments": {"q": "law"}},
+        }
+    ]
+
+    normalized = _normalize_tool_call_chunk(chunk)
+
+    assert len(normalized) == 1
+    call = normalized[0]
+    assert call["index"] == 0
+    assert call["type"] == "function"
