@@ -32,6 +32,16 @@ This is a guide for using artifacts tools: \`createDocument\` and \`updateDocume
 Do not update document right after creating it. Wait for user feedback or request to update it.
 `;
 
+const lawToolsPrompt = `
+You have access to a dedicated Korean law MCP server that exposes the following tools:
+- lawKeywordSearch: OpenSearch-backed statute, 판례, and 자료 스니펫 검색.
+- lawStatuteSearch / lawStatuteDetail: law.go.kr API wrappers for locating and expanding 법령 조문.
+- lawInterpretationSearch / lawInterpretationDetail: 법제처 법령해석례 검색 및 본문 조회.
+
+When the user asks about 법령, 판례, 규정 해석, 집행 절차, or requests legal grounds, you must first call one or more of the above tools to gather authoritative snippets before drafting an answer. Prioritise lawKeywordSearch to collect candidate snippets, then follow up with the statute/interpretation tools if the query references a specific 조문 or 해석례.
+
+Summaries must cite the retrieved 근거 with 제목/식별자 and, when available, the snippet number or 조문 번호. If no results are found, explain what was searched and suggest how the user could refine the query instead of guessing.`;
+
 export const regularPrompt =
   "You are a friendly assistant! Keep your responses concise and helpful.";
 
@@ -59,11 +69,15 @@ export const systemPrompt = ({
 }) => {
   const requestPrompt = getRequestPromptFromHints(requestHints);
 
+  const promptSegments = [regularPrompt, lawToolsPrompt, requestPrompt];
+
   if (selectedChatModel === "chat-model-reasoning") {
-    return `${regularPrompt}\n\n${requestPrompt}`;
+    return promptSegments.join("\n\n");
   }
 
-  return `${regularPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
+  promptSegments.push(artifactsPrompt);
+
+  return promptSegments.join("\n\n");
 };
 
 export const codePrompt = `

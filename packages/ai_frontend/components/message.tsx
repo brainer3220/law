@@ -24,6 +24,9 @@ import { MessageEditor } from "./message-editor";
 import { MessageReasoning } from "./message-reasoning";
 import { PreviewAttachment } from "./preview-attachment";
 import { Weather } from "./weather";
+import {
+  renderLawOutput,
+} from "./law/tool-output";
 
 const PurePreviewMessage = ({
   chatId,
@@ -179,6 +182,153 @@ const PurePreviewMessage = ({
                       <ToolOutput
                         errorText={undefined}
                         output={<Weather weatherAtLocation={part.output} />}
+                      />
+                    )}
+                  </ToolContent>
+                </Tool>
+              );
+            }
+
+            if (type === "tool-lawKeywordSearch") {
+              const { toolCallId, state } = part;
+              const showResult =
+                state === "output-available" || state === "output-error";
+
+              return (
+                <Tool defaultOpen={true} key={toolCallId}>
+                  <ToolHeader state={state} type="tool-lawKeywordSearch" />
+                  <ToolContent>
+                    {state === "input-available" && (
+                      <ToolInput input={part.input} />
+                    )}
+                    {showResult && (
+                      <ToolOutput
+                        errorText={part.errorText}
+                        output={
+                          state === "output-available" && part.output
+                            ? renderLawOutput(part.output, "keyword")
+                            : undefined
+                        }
+                      />
+                    )}
+                  </ToolContent>
+                </Tool>
+              );
+            }
+
+            if (type === "tool-lawStatuteSearch") {
+              const { toolCallId, state } = part;
+              const showResult =
+                state === "output-available" || state === "output-error";
+
+              return (
+                <Tool defaultOpen={true} key={toolCallId}>
+                  <ToolHeader state={state} type="tool-lawStatuteSearch" />
+                  <ToolContent>
+                    {state === "input-available" && (
+                      <ToolInput input={part.input} />
+                    )}
+                    {showResult && (
+                      <ToolOutput
+                        errorText={part.errorText}
+                        output={
+                          state === "output-available" && part.output
+                            ? renderLawOutput(part.output, "statute-search")
+                            : undefined
+                        }
+                      />
+                    )}
+                  </ToolContent>
+                </Tool>
+              );
+            }
+
+            if (type === "tool-lawStatuteDetail") {
+              const { toolCallId, state } = part;
+              const showResult =
+                state === "output-available" || state === "output-error";
+
+              return (
+                <Tool defaultOpen={true} key={toolCallId}>
+                  <ToolHeader state={state} type="tool-lawStatuteDetail" />
+                  <ToolContent>
+                    {state === "input-available" && (
+                      <ToolInput input={part.input} />
+                    )}
+                    {showResult && (
+                      <ToolOutput
+                        errorText={part.errorText}
+                        output={
+                          state === "output-available" && part.output
+                            ? renderLawOutput(part.output, "statute-detail")
+                            : undefined
+                        }
+                      />
+                    )}
+                  </ToolContent>
+                </Tool>
+              );
+            }
+
+            if (type === "tool-lawInterpretationSearch") {
+              const { toolCallId, state } = part;
+              const showResult =
+                state === "output-available" || state === "output-error";
+
+              return (
+                <Tool defaultOpen={true} key={toolCallId}>
+                  <ToolHeader
+                    state={state}
+                    type="tool-lawInterpretationSearch"
+                  />
+                  <ToolContent>
+                    {state === "input-available" && (
+                      <ToolInput input={part.input} />
+                    )}
+                    {showResult && (
+                      <ToolOutput
+                        errorText={part.errorText}
+                        output={
+                          state === "output-available" && part.output
+                            ? renderLawOutput(
+                                part.output,
+                                "interpretation-search"
+                              )
+                            : undefined
+                        }
+                      />
+                    )}
+                  </ToolContent>
+                </Tool>
+              );
+            }
+
+            if (type === "tool-lawInterpretationDetail") {
+              const { toolCallId, state } = part;
+              const showResult =
+                state === "output-available" || state === "output-error";
+
+              return (
+                <Tool defaultOpen={true} key={toolCallId}>
+                  <ToolHeader
+                    state={state}
+                    type="tool-lawInterpretationDetail"
+                  />
+                  <ToolContent>
+                    {state === "input-available" && (
+                      <ToolInput input={part.input} />
+                    )}
+                    {showResult && (
+                      <ToolOutput
+                        errorText={part.errorText}
+                        output={
+                          state === "output-available" && part.output
+                            ? renderLawOutput(
+                                part.output,
+                                "interpretation-detail"
+                              )
+                            : undefined
+                        }
                       />
                     )}
                   </ToolContent>

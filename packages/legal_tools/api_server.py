@@ -170,7 +170,24 @@ def _normalize_tool_call_chunk(chunk: Any) -> List[Dict[str, Any]]:
         call = _coerce(value)
         return [call] if call else []
 
-    return _collect(chunk)
+    normalized = _collect(chunk)
+    indexed: List[Dict[str, Any]] = []
+    for fallback_index, call in enumerate(normalized):
+        data = dict(call)
+        index_value = data.get("index")
+        if isinstance(index_value, int):
+            index = index_value
+        else:
+            try:
+                index = int(index_value)
+            except (TypeError, ValueError):
+                index = fallback_index
+        data["index"] = index
+        if data.get("type") is None:
+            data["type"] = "function"
+        indexed.append(data)
+
+    return indexed
 
 
 def _serialize_tool_function(raw_fn: Any) -> Dict[str, Any]:

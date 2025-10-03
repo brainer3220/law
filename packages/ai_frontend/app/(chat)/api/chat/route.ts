@@ -26,6 +26,13 @@ import { myProvider } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
+import {
+  lawInterpretationDetail,
+  lawInterpretationSearch,
+  lawKeywordSearch,
+  lawStatuteDetail,
+  lawStatuteSearch,
+} from "@/lib/ai/tools/law";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
 import {
@@ -213,7 +220,7 @@ export async function POST(request: Request) {
           model: myProvider.languageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(5),
+          stopWhen: stepCountIs(6),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
@@ -222,6 +229,11 @@ export async function POST(request: Request) {
                   "createDocument",
                   "updateDocument",
                   "requestSuggestions",
+                  "lawKeywordSearch",
+                  "lawStatuteSearch",
+                  "lawStatuteDetail",
+                  "lawInterpretationSearch",
+                  "lawInterpretationDetail",
                 ],
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
@@ -232,6 +244,11 @@ export async function POST(request: Request) {
               session,
               dataStream,
             }),
+            lawKeywordSearch,
+            lawStatuteSearch,
+            lawStatuteDetail,
+            lawInterpretationSearch,
+            lawInterpretationDetail,
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
