@@ -326,7 +326,7 @@ export async function POST(request: Request) {
       return error.toResponse();
     }
 
-    if (APICallError.isInstance(error)) {
+    if (error instanceof APICallError) {
       const { statusCode, responseBody, message } = error;
       const responseText =
         typeof responseBody === "string" && responseBody.length > 0
