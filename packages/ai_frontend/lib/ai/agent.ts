@@ -3,7 +3,7 @@ import {
   smoothStream,
   stepCountIs,
   streamText,
-  type LanguageModelV2,
+  type LanguageModel,
   type StreamTextOnFinishCallback,
   type UIMessageStreamWriter,
 } from "ai";
@@ -34,7 +34,7 @@ type RunAgentOptions = {
   dataStream: UIMessageStreamWriter<ChatMessage>;
   tools: ChatTools;
   onFinish?: StreamTextOnFinishCallback<ChatTools>;
-  model?: LanguageModelV2;
+  model?: LanguageModel;
 };
 
 export function getAgentActiveTools(
@@ -111,7 +111,7 @@ export function runAgent({
     system: systemPrompt({ selectedChatModel, requestHints }),
     messages: convertToModelMessages(uiMessages),
     stopWhen: stepCountIs(6),
-    activeTools: getAgentActiveTools(selectedChatModel),
+    experimental_activeTools: getAgentActiveTools(selectedChatModel),
     experimental_transform: smoothStream({ chunking: "word" }),
     tools,
     experimental_telemetry: {
