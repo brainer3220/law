@@ -7,6 +7,8 @@ import {
   smoothStream,
   stepCountIs,
   streamText,
+  type LanguageModelUsage,
+  type ModelMessage,
 } from "ai";
 import { unstable_cache as cache } from "next/cache";
 import { after } from "next/server";
@@ -25,7 +27,6 @@ import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { myProvider } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
-import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import {
   lawInterpretationDetail,
   lawInterpretationSearch,
@@ -33,6 +34,7 @@ import {
   lawStatuteDetail,
   lawStatuteSearch,
 } from "@/lib/ai/tools/law";
+import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
 import {
@@ -55,6 +57,59 @@ import { type PostRequestBody, postRequestBodySchema } from "./schema";
 export const maxDuration = 60;
 
 let globalStreamContext: ResumableStreamContext | null = null;
+
+const DEFAULT_MAX_TOOL_STEPS = 6;
+
+/**
+ * Maximum number of tool-invocation steps the agent may take before we force a
+ * final assistant response. Operators can tune this via AI_MAX_TOOL_STEPS (or
+ * NEXT_PUBLIC_AI_MAX_TOOL_STEPS) without touching the agent loop.
+ */
+export const MAX_TOOL_STEPS = (() => {
+  const rawValue =
+    process.env.AI_MAX_TOOL_STEPS ?? process.env.NEXT_PUBLIC_AI_MAX_TOOL_STEPS;
+
+  if (!rawValue) {
+    return DEFAULT_MAX_TOOL_STEPS;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MAX_TOOL_STEPS;
+})();
+
+function mergeUsage(
+  current: LanguageModelUsage | undefined,
+  incoming: LanguageModelUsage | undefined
+): LanguageModelUsage | undefined {
+  if (!incoming) {
+    return current ? { ...current } : undefined;
+  }
+
+  if (!current) {
+    return { ...incoming };
+  }
+
+  const merged: Partial<LanguageModelUsage> = { ...current };
+
+  for (const key of Object.keys(incoming) as Array<keyof LanguageModelUsage>) {
+    const incomingValue = incoming[key];
+
+    if (typeof incomingValue === "number") {
+      const existingValue = merged[key];
+      merged[key] =
+        typeof existingValue === "number"
+          ? existingValue + incomingValue
+          : incomingValue;
+    } else if (merged[key] === undefined) {
+      merged[key] = incomingValue;
+    }
+  }
+
+  return merged as LanguageModelUsage;
+}
 
 const getTokenlensCatalog = cache(
   async (): Promise<ModelCatalog | undefined> => {
@@ -215,86 +270,185 @@ export async function POST(request: Request) {
     let finalMergedUsage: AppUsage | undefined;
 
     const stream = createUIMessageStream({
-      execute: ({ writer: dataStream }) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(6),
-          experimental_activeTools:
-            selectedChatModel === "chat-model-reasoning"
-              ? []
-              : [
-                  "getWeather",
-                  "createDocument",
-                  "updateDocument",
-                  "requestSuggestions",
-                  "lawKeywordSearch",
-                  "lawStatuteSearch",
-                  "lawStatuteDetail",
-                  "lawInterpretationSearch",
-                  "lawInterpretationDetail",
-                ],
-          experimental_transform: smoothStream({ chunking: "word" }),
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-            lawKeywordSearch,
-            lawStatuteSearch,
-            lawStatuteDetail,
-            lawInterpretationSearch,
-            lawInterpretationDetail,
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: "stream-text",
-          },
-          onFinish: async ({ usage }) => {
-            try {
-              const providers = await getTokenlensCatalog();
-              const modelId =
-                myProvider.languageModel(selectedChatModel).modelId;
-              if (!modelId) {
-                finalMergedUsage = usage;
-                dataStream.write({
-                  type: "data-usage",
-                  data: finalMergedUsage,
-                });
-                return;
-              }
+      execute: async ({ writer: dataStream }) => {
+        const languageModel = myProvider.languageModel(selectedChatModel);
+        const systemPromptValue = systemPrompt({
+          selectedChatModel,
+          requestHints,
+        });
+        const baseMessages = convertToModelMessages(uiMessages);
 
-              if (!providers) {
-                finalMergedUsage = usage;
-                dataStream.write({
-                  type: "data-usage",
-                  data: finalMergedUsage,
-                });
-                return;
-              }
+        const telemetryConfig = {
+          isEnabled: isProductionEnvironment,
+          functionId: "stream-text",
+        };
 
-              const summary = getUsage({ modelId, usage, providers });
-              finalMergedUsage = { ...usage, ...summary, modelId } as AppUsage;
-              dataStream.write({ type: "data-usage", data: finalMergedUsage });
-            } catch (err) {
-              console.warn("TokenLens enrichment failed", err);
-              finalMergedUsage = usage;
-              dataStream.write({ type: "data-usage", data: finalMergedUsage });
+        const toolset = {
+          getWeather,
+          createDocument: createDocument({ session, dataStream }),
+          updateDocument: updateDocument({ session, dataStream }),
+          requestSuggestions: requestSuggestions({
+            session,
+            dataStream,
+          }),
+          lawKeywordSearch,
+          lawStatuteSearch,
+          lawStatuteDetail,
+          lawInterpretationSearch,
+          lawInterpretationDetail,
+        };
+
+        const enabledToolNames: Array<keyof typeof toolset> =
+          selectedChatModel === "chat-model-reasoning"
+            ? []
+            : [
+                "getWeather",
+                "createDocument",
+                "updateDocument",
+                "requestSuggestions",
+                "lawKeywordSearch",
+                "lawStatuteSearch",
+                "lawStatuteDetail",
+                "lawInterpretationSearch",
+                "lawInterpretationDetail",
+              ];
+
+        let aggregatedUsage: LanguageModelUsage | undefined;
+
+        const publishUsage = async () => {
+          if (!aggregatedUsage) {
+            return;
+          }
+
+          const usageSnapshot: LanguageModelUsage = { ...aggregatedUsage };
+          const { modelId } = languageModel;
+          let usageForClient: AppUsage = {
+            ...usageSnapshot,
+            ...(modelId ? { modelId } : {}),
+          } as AppUsage;
+
+          try {
+            const providers = await getTokenlensCatalog();
+
+            if (modelId && providers) {
+              const summary = getUsage({
+                modelId,
+                usage: usageSnapshot,
+                providers,
+              });
+              usageForClient = {
+                ...usageSnapshot,
+                ...summary,
+                modelId,
+              } as AppUsage;
             }
-          },
+          } catch (err) {
+            console.warn("TokenLens enrichment failed", err);
+          }
+
+          finalMergedUsage = usageForClient;
+          dataStream.write({ type: "data-usage", data: usageForClient });
+        };
+
+        const handleStreamFinish = async ({
+          usage,
+          totalUsage,
+        }: {
+          usage: LanguageModelUsage;
+          totalUsage?: LanguageModelUsage;
+        }) => {
+          aggregatedUsage = mergeUsage(
+            aggregatedUsage,
+            totalUsage ?? usage
+          );
+          await publishUsage();
+        };
+
+        const createAgentStream = ({
+          messages,
+          stopWhen,
+          toolChoice,
+          activeTools,
+        }: {
+          messages: ModelMessage[];
+          stopWhen: ReturnType<typeof stepCountIs>;
+          toolChoice?: "none";
+          activeTools?: Array<keyof typeof toolset>;
+        }) =>
+          streamText({
+            model: languageModel,
+            system: systemPromptValue,
+            messages,
+            stopWhen,
+            toolChoice,
+            experimental_activeTools: activeTools ?? enabledToolNames,
+            experimental_transform: smoothStream({ chunking: "word" }),
+            tools: toolset,
+            experimental_telemetry: telemetryConfig,
+            onFinish: handleStreamFinish,
+          });
+
+        const initialResult = createAgentStream({
+          messages: baseMessages,
+          // Allow one extra step so the agent can reply after hitting the tool limit.
+          stopWhen: stepCountIs(MAX_TOOL_STEPS + 1),
         });
 
-        result.consumeStream();
-
         dataStream.merge(
-          result.toUIMessageStream({
+          initialResult.toUIMessageStream({
             sendReasoning: true,
           })
         );
+
+        await initialResult.consumeStream();
+
+        const initialSteps = await initialResult.steps;
+        const lastInitialStep = initialSteps.at(-1);
+
+        const unfinishedToolRun =
+          lastInitialStep?.toolCalls?.length &&
+          (!lastInitialStep.text || lastInitialStep.text.trim().length === 0);
+
+        if (unfinishedToolRun && lastInitialStep) {
+          console.info(
+            `Agent exhausted ${MAX_TOOL_STEPS} tool steps; requesting a concluding assistant turn.`
+          );
+
+          const continuationMessages: ModelMessage[] = [
+            ...baseMessages,
+            ...lastInitialStep.response.messages,
+          ];
+
+          const continuationResult = createAgentStream({
+            messages: continuationMessages,
+            stopWhen: stepCountIs(1),
+            toolChoice: "none",
+            activeTools: [],
+          });
+
+          dataStream.merge(
+            continuationResult.toUIMessageStream({
+              sendReasoning: true,
+            })
+          );
+
+          await continuationResult.consumeStream();
+
+          const continuationSteps = await continuationResult.steps;
+          const continuationFinalStep = continuationSteps.at(-1);
+
+          const continuationUnfinished =
+            continuationFinalStep?.toolCalls?.length &&
+            (!continuationFinalStep.text ||
+              continuationFinalStep.text.trim().length === 0);
+
+          if (continuationUnfinished) {
+            throw new ChatSDKError(
+              "offline:chat",
+              "Agent run ended without a final assistant message after the tool ceiling was reached."
+            );
+          }
+        }
       },
       generateId: generateUUID,
       onFinish: async ({ messages }) => {
