@@ -98,14 +98,15 @@
     "@types/papaparse": "^5.3.15",
     "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react-dom": "^18", 
     "@types/react-syntax-highlighter": "^15.5.13",
     "drizzle-kit": "^0.25.0",
     "postcss": "^8",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
-    "ultracite": "5.3.9"
+    "ultracite": "5.3.9",
+    "vitest": "^3.2.4"
   },
   "packageManager": "pnpm@9.12.3"
 }
