@@ -253,7 +253,7 @@ As we move forward, Silicon Valley continues to reinvent itself. While some pred
         type: "tool-result",
         toolCallId: "call_statute_search",
         toolName: "lawStatuteSearch",
-        output: {
+        result: {
           type: "json",
           value: {
             hits: [
@@ -261,13 +261,6 @@ As we move forward, Silicon Valley continues to reinvent itself. While some pred
               { id: "statute-202", title: "Rental Fairness Ordinance" },
             ],
           },
-        },
-        result: {
-          id: "statute_search_result",
-          hits: [
-            { id: "statute-101", title: "Tenant Protection Act" },
-            { id: "statute-202", title: "Rental Fairness Ordinance" },
-          ],
         },
       },
       {
@@ -280,18 +273,13 @@ As we move forward, Silicon Valley continues to reinvent itself. While some pred
         type: "tool-result",
         toolCallId: "call_interpretation_detail",
         toolName: "lawInterpretationDetail",
-        output: {
+        result: {
           type: "json",
           value: {
             id: "interp-314",
             holding:
               "Courts interpret the act to require proactive notice to tenants about rent increases.",
           },
-        },
-        result: {
-          id: "interp-314",
-          holding:
-            "Courts interpret the act to require proactive notice to tenants about rent increases.",
         },
       },
       {
