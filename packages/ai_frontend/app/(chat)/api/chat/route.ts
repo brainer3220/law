@@ -73,11 +73,28 @@ export const MAX_TOOL_STEPS = (() => {
     return DEFAULT_MAX_TOOL_STEPS;
   }
 
+  // Strict validation: must be a positive integer string
+  if (!/^\d+$/.test(rawValue)) {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(
+        `[MAX_TOOL_STEPS] Invalid environment variable value: "${rawValue}". Must be a positive integer. Using default (${DEFAULT_MAX_TOOL_STEPS}).`
+      );
+    }
+    return DEFAULT_MAX_TOOL_STEPS;
+  }
+
   const parsed = Number.parseInt(rawValue, 10);
 
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_MAX_TOOL_STEPS;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(
+        `[MAX_TOOL_STEPS] Environment variable value is not a positive integer: "${rawValue}". Using default (${DEFAULT_MAX_TOOL_STEPS}).`
+      );
+    }
+    return DEFAULT_MAX_TOOL_STEPS;
+  }
+
+  return parsed;
 })();
 
 function mergeUsage(
