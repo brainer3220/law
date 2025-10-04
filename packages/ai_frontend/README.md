@@ -85,6 +85,10 @@ uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
 
 Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
 
+- Use `LAW_MCP_TRANSPORT` to select the transports that should be merged by the `/api/completion` route. Provide a comma-separated list such as `streamable-http,sse` or `stdio,streamable-http`. The default is `streamable-http`.
+- When launching the stdio transport locally, set `LAW_MCP_STDIO_COMMAND` and `LAW_MCP_STDIO_ARGS` if you need to customize the spawn command (defaults to `uv` and `run law-mcp-server`).
+- Override derived URLs for additional transports with `LAW_MCP_HTTP_URL` or `LAW_MCP_SSE_URL` when the MCP server exposes different endpoints.
+
 ```bash
 pnpm install
 pnpm dev
@@ -93,3 +97,5 @@ pnpm dev
 The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
 
 > ⚠️ The chat UI now requires an authenticated session. After launching the dev server, visit [`/register`](http://localhost:3000/register) to create an account before opening the chat interface. Any API requests made without a session cookie will return a `401 Unauthorized` response or redirect you back to the login page.
+
+After signing in you can visit [`/mcp`](http://localhost:3000/mcp) to trigger the MCP-enabled completion demo without disturbing existing chat threads.
