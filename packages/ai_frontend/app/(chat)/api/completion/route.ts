@@ -91,9 +91,18 @@ export async function POST(request: Request) {
 
     closed = true;
 
-    await Promise.allSettled(
-      clients.map((client) => client.close().catch(() => undefined))
+    const results = await Promise.allSettled(
+      clients.map((client) => client.close())
     );
+
+    results.forEach((result, idx) => {
+      if (result.status === "rejected") {
+        console.error(
+          `Failed to close client at index ${idx}:`,
+          result.reason
+        );
+      }
+    });
   };
 
   try {
