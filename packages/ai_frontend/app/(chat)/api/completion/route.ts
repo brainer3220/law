@@ -1,7 +1,7 @@
 import { experimental_createMCPClient, streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 export const runtime = "nodejs";
@@ -188,7 +188,7 @@ export async function POST(request: Request) {
       },
     });
 
-    return response.toDataStreamResponse();
+    return response.toTextStreamResponse();
   } catch (error) {
     await closeAllClients();
     console.error("/api/completion failed", error);
