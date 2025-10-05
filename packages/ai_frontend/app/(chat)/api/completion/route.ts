@@ -2,7 +2,7 @@ import { experimental_createMCPClient, streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 export const runtime = "nodejs";
 
