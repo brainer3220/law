@@ -1,10 +1,6 @@
 import type { InferUITool, UIMessage } from "ai";
 import { z } from "zod";
 import type { ArtifactKind } from "@/components/artifact";
-import type { createDocument } from "./ai/tools/create-document";
-import type { getWeather } from "./ai/tools/get-weather";
-import type { requestSuggestions } from "./ai/tools/request-suggestions";
-import type { updateDocument } from "./ai/tools/update-document";
 import type {
   lawInterpretationDetail,
   lawInterpretationSearch,
@@ -23,12 +19,6 @@ export const messageMetadataSchema = z.object({
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
-type weatherTool = InferUITool<typeof getWeather>;
-type createDocumentTool = InferUITool<ReturnType<typeof createDocument>>;
-type updateDocumentTool = InferUITool<ReturnType<typeof updateDocument>>;
-type requestSuggestionsTool = InferUITool<
-  ReturnType<typeof requestSuggestions>
->;
 type lawKeywordSearchTool = InferUITool<typeof lawKeywordSearch>;
 type lawStatuteSearchTool = InferUITool<typeof lawStatuteSearch>;
 type lawStatuteDetailTool = InferUITool<typeof lawStatuteDetail>;
@@ -40,10 +30,6 @@ type lawInterpretationDetailTool = InferUITool<
 >;
 
 export type ChatTools = {
-  getWeather: weatherTool;
-  createDocument: createDocumentTool;
-  updateDocument: updateDocumentTool;
-  requestSuggestions: requestSuggestionsTool;
   lawKeywordSearch: lawKeywordSearchTool;
   lawStatuteSearch: lawStatuteSearchTool;
   lawStatuteDetail: lawStatuteDetailTool;
