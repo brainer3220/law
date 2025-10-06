@@ -13,18 +13,9 @@ import { createSuggestionWidget, type UISuggestion } from "./suggestions";
 export const buildDocumentFromContent = (content: string) => {
   const parser = DOMParser.fromSchema(documentSchema);
   const stringFromMarkdown = renderToString(<Response>{content}</Response>);
-  const HtmlParser =
-    typeof window === "undefined" ? globalThis.DOMParser : window.DOMParser;
-
-  if (!HtmlParser) {
-    throw new Error("DOMParser is not available in the current environment");
-  }
-
-  const parsedDocument = new HtmlParser().parseFromString(
-    stringFromMarkdown,
-    "text/html"
-  );
-  return parser.parse(parsedDocument.body);
+  const tempContainer = document.createElement("div");
+  tempContainer.innerHTML = stringFromMarkdown;
+  return parser.parse(tempContainer);
 };
 
 export const buildContentFromDocument = (document: Node) => {

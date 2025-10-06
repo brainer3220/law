@@ -20,7 +20,7 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
   const session = await auth();
 
   if (!session) {
-    redirect(`/login?redirectUrl=${encodeURIComponent(`/chat/${id}`)}`);
+    redirect("/api/auth/guest");
   }
 
   if (chat.visibility === "private") {
@@ -41,20 +41,32 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
 
   const cookieStore = await cookies();
   const chatModelFromCookie = cookieStore.get("chat-model");
-  const onboardingCompleteCookie = cookieStore.get("onboarding-complete");
-  const shouldShowOnboarding =
-    onboardingCompleteCookie?.value !== "true" && uiMessages.length === 0;
-  const initialChatModel = chatModelFromCookie?.value ?? DEFAULT_CHAT_MODEL;
+
+  if (!chatModelFromCookie) {
+    return (
+      <>
+        <Chat
+          autoResume={true}
+          id={chat.id}
+          initialChatModel={DEFAULT_CHAT_MODEL}
+          initialLastContext={chat.lastContext ?? undefined}
+          initialMessages={uiMessages}
+          initialVisibilityType={chat.visibility}
+          isReadonly={session?.user?.id !== chat.userId}
+        />
+        <DataStreamHandler />
+      </>
+    );
+  }
 
   return (
     <>
       <Chat
         autoResume={true}
         id={chat.id}
-        initialChatModel={initialChatModel}
+        initialChatModel={chatModelFromCookie.value}
         initialLastContext={chat.lastContext ?? undefined}
         initialMessages={uiMessages}
-        initialShowOnboarding={shouldShowOnboarding}
         initialVisibilityType={chat.visibility}
         isReadonly={session?.user?.id !== chat.userId}
       />

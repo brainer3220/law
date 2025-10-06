@@ -248,15 +248,18 @@ export const patchTextNodes = (schema, oldNode, newNode) => {
   });
 
   // Map diffs to nodes
-  return diffs.flatMap(([type, sentences]) => {
-    return sentences.map((sentence) =>
-      createTextNode(
+  const res = diffs.flatMap(([type, sentences]) => {
+    return sentences.map((sentence) => {
+      const node = createTextNode(
         schema,
         sentence,
         type !== DiffType.Unchanged ? [createDiffMark(schema, type)] : []
-      )
-    );
+      );
+      return node;
+    });
   });
+
+  return res;
 };
 
 // Function to tokenize text into sentences
@@ -299,89 +302,8 @@ const sentencesToChars = (oldSentences, newSentences) => {
   return { chars1, chars2, lineArray };
 };
 
-export const computeChildEqualityFactor = (node1, node2) => {
-  if (!node1 || !node2) {
-    return 0;
-  }
-
-  if (!matchNodeType(node1, node2)) {
-    return 0;
-  }
-
-  const factors = [];
-
-  if (isTextNode(node1) && isTextNode(node2)) {
-    const text1 = getNodeText(node1) ?? "";
-    const text2 = getNodeText(node2) ?? "";
-
-    if (text1 === text2) {
-      factors.push(1);
-    } else {
-      const dmp = new diff_match_patch();
-      const diffs = dmp.diff_main(text1, text2);
-      const unchangedLength = diffs
-        .filter(([type]) => type === DiffType.Unchanged)
-        .reduce((sum, [, value]) => sum + value.length, 0);
-      const maxLength = Math.max(text1.length, text2.length);
-      factors.push(maxLength === 0 ? 1 : unchangedLength / maxLength);
-    }
-  }
-
-  const attrs1 = getNodeAttributes(node1);
-  const attrs2 = getNodeAttributes(node2);
-  const attributeKeys = new Set([
-    ...Object.keys(attrs1),
-    ...Object.keys(attrs2),
-  ]);
-  if (attributeKeys.size > 0) {
-    let matches = 0;
-    attributeKeys.forEach((key) => {
-      if (attrs1[key] === attrs2[key]) {
-        matches += 1;
-      }
-    });
-    factors.push(matches / attributeKeys.size);
-  }
-
-  const marks1 = getNodeMarks(node1);
-  const marks2 = getNodeMarks(node2);
-  if (marks1.length || marks2.length) {
-    const maxLength = Math.max(marks1.length, marks2.length);
-    let matches = 0;
-    for (let index = 0; index < maxLength; index++) {
-      if (marks1[index] && marks2[index] && isNodeEqual(marks1[index], marks2[index])) {
-        matches += 1;
-      }
-    }
-    factors.push(maxLength === 0 ? 1 : matches / maxLength);
-  }
-
-  const children1 = getNodeChildren(node1);
-  const children2 = getNodeChildren(node2);
-  if (children1.length || children2.length) {
-    const maxLength = Math.max(children1.length, children2.length);
-    let matches = 0;
-    for (let index = 0; index < maxLength; index++) {
-      if (
-        children1[index] &&
-        children2[index] &&
-        isNodeEqual(children1[index], children2[index])
-      ) {
-        matches += 1;
-      }
-    }
-    factors.push(maxLength === 0 ? 1 : matches / maxLength);
-  }
-
-  if (factors.length === 0) {
-    return 1;
-  }
-
-  return (
-    factors.reduce((sum, value) => {
-      return sum + value;
-    }, 0) / factors.length
-  );
+export const computeChildEqualityFactor = (_node1, _node2) => {
+  return 0;
 };
 
 export const assertNodeTypeEqual = (node1, node2) => {
@@ -483,7 +405,7 @@ export const getNodeProperty = (node, property) => {
 export const getNodeAttribute = (node, attribute) =>
   node.attrs ? node.attrs[attribute] : undefined;
 
-export const getNodeAttributes = (node) => node.attrs || {};
+export const getNodeAttributes = (node) => (node.attrs ? node.attrs : {});
 
 export const getNodeMarks = (node) => node.marks ?? [];
 

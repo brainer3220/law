@@ -13,11 +13,6 @@ export class ChatPage {
     this.page = page;
   }
 
-  async expectHomeLoaded() {
-    await this.page.waitForURL((url) => url.pathname === "/");
-    await expect(this.page.getByPlaceholder("Send a message...")).toBeVisible();
-  }
-
   get sendButton() {
     return this.page.getByTestId("send-button");
   }

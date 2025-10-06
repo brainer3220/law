@@ -12,10 +12,13 @@ import {
   lt,
   type SQL,
 } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import type { ArtifactKind } from "@/components/artifact";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { ChatSDKError } from "../errors";
 import type { AppUsage } from "../usage";
+import { generateUUID } from "../utils";
 import {
   type Chat,
   chat,
@@ -30,13 +33,14 @@ import {
   vote,
 } from "./schema";
 import { generateHashedPassword } from "./utils";
-import { getDb } from "./client";
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
 // https://authjs.dev/reference/adapter/drizzle
 
-const db = getDb();
+// biome-ignore lint: Forbidden non-null assertion.
+const client = postgres(process.env.POSTGRES_URL!);
+const db = drizzle(client);
 
 export async function getUser(email: string): Promise<User[]> {
   try {
@@ -56,6 +60,23 @@ export async function createUser(email: string, password: string) {
     return await db.insert(user).values({ email, password: hashedPassword });
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to create user");
+  }
+}
+
+export async function createGuestUser() {
+  const email = `guest-${Date.now()}`;
+  const password = generateHashedPassword(generateUUID());
+
+  try {
+    return await db.insert(user).values({ email, password }).returning({
+      id: user.id,
+      email: user.email,
+    });
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to create guest user"
+    );
   }
 }
 
@@ -227,8 +248,7 @@ export async function voteMessage({
     const [existingVote] = await db
       .select()
       .from(vote)
-      .where(and(eq(vote.messageId, messageId), eq(vote.chatId, chatId)))
-      .limit(1);
+      .where(and(eq(vote.messageId, messageId)));
 
     if (existingVote) {
       return await db
@@ -236,17 +256,11 @@ export async function voteMessage({
         .set({ isUpvoted: type === "up" })
         .where(and(eq(vote.messageId, messageId), eq(vote.chatId, chatId)));
     }
-    return await db
-      .insert(vote)
-      .values({
-        chatId,
-        messageId,
-        isUpvoted: type === "up",
-      })
-      .onConflictDoUpdate({
-        target: [vote.chatId, vote.messageId],
-        set: { isUpvoted: type === "up" },
-      });
+    return await db.insert(vote).values({
+      chatId,
+      messageId,
+      isUpvoted: type === "up",
+    });
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to vote message");
   }
@@ -295,11 +309,13 @@ export async function saveDocument({
 
 export async function getDocumentsById({ id }: { id: string }) {
   try {
-    return await db
+    const documents = await db
       .select()
       .from(document)
       .where(eq(document.id, id))
       .orderBy(asc(document.createdAt));
+
+    return documents;
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -417,17 +433,19 @@ export async function deleteMessagesByChatIdAfterTimestamp({
       (currentMessage) => currentMessage.id
     );
 
-    if (messageIds.length === 0) {
-      return [];
+    if (messageIds.length > 0) {
+      await db
+        .delete(vote)
+        .where(
+          and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds))
+        );
+
+      return await db
+        .delete(message)
+        .where(
+          and(eq(message.chatId, chatId), inArray(message.id, messageIds))
+        );
     }
-
-    await db
-      .delete(vote)
-      .where(and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds)));
-
-    return await db
-      .delete(message)
-      .where(and(eq(message.chatId, chatId), inArray(message.id, messageIds)));
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",

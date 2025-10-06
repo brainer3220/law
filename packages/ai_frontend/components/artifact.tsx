@@ -52,10 +52,6 @@ export type UIArtifact = {
   };
 };
 
-const noop = () => {
-  return;
-};
-
 function PureArtifact({
   chatId,
   input,
@@ -72,9 +68,6 @@ function PureArtifact({
   isReadonly,
   selectedVisibilityType,
   selectedModelId,
-  isOnboardingActive = false,
-  onCompleteOnboarding,
-  isCompletingOnboarding = false,
 }: {
   chatId: string;
   input: string;
@@ -91,9 +84,6 @@ function PureArtifact({
   isReadonly: boolean;
   selectedVisibilityType: VisibilityType;
   selectedModelId: string;
-  isOnboardingActive?: boolean;
-  onCompleteOnboarding?: () => void;
-  isCompletingOnboarding?: boolean;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
 
@@ -346,10 +336,7 @@ function PureArtifact({
                     chatId={chatId}
                     className="bg-background dark:bg-muted"
                     input={input}
-                    isCompletingOnboarding={isCompletingOnboarding}
-                    isOnboardingActive={isOnboardingActive}
                     messages={messages}
-                    onCompleteOnboarding={onCompleteOnboarding ?? noop}
                     selectedModelId={selectedModelId}
                     selectedVisibilityType={selectedVisibilityType}
                     sendMessage={sendMessage}
@@ -535,15 +522,6 @@ export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
     return false;
   }
   if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType) {
-    return false;
-  }
-  if (prevProps.isOnboardingActive !== nextProps.isOnboardingActive) {
-    return false;
-  }
-  if (prevProps.isCompletingOnboarding !== nextProps.isCompletingOnboarding) {
-    return false;
-  }
-  if (prevProps.onCompleteOnboarding !== nextProps.onCompleteOnboarding) {
     return false;
   }
 

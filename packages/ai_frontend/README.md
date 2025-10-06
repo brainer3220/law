@@ -33,31 +33,18 @@
   - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
 - [Auth.js](https://authjs.dev)
   - Simple and secure authentication
-- Law MCP integration for Korean legal research (keyword search, statute detail, 법령해석례 조회)
 
 ## Model Providers
 
-This template targets the local OpenAI-compatible gateway served by `uv run main.py serve --host 127.0.0.1 --port 8080`. By default the frontend sends requests to `http://127.0.0.1:8080/v1`. Override or secure the endpoint with the following environment variables:
+This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. The default configuration includes [xAI](https://x.ai) models (`grok-2-vision-1212`, `grok-3-mini`) routed through the gateway.
 
-- `OPENAI_COMPATIBLE_BASE_URL` – optional base URL override when the gateway is hosted elsewhere.
-- `OPENAI_COMPATIBLE_API_KEY` – optional bearer token if the gateway enforces authentication.
-- `OPENAI_COMPATIBLE_MODEL` (plus the `*_REASONING`, `*_TITLE`, `*_ARTIFACT` variants) – optional model IDs forwarded in the `model` field.
+### AI Gateway Authentication
 
-You can still swap in any other provider supported by the [AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers) by editing `lib/ai/providers.ts`.
+**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
 
-### Manual Gateway Check
+**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
 
-Once the backend gateway is running you can issue a quick curl to confirm streaming responses:
-
-```bash
-curl -s http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-5-mini-2025-08-07",
-    "messages": [{"role":"user","content":"근로시간 면제업무 관련 판례 알려줘"}],
-    "stream": true
-  }'
-```
+With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
 
 ## Deploy Your Own
 
@@ -75,27 +62,9 @@ You will need to use the environment variables [defined in `.env.example`](.env.
 2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
 3. Download your environment variables: `vercel env pull`
 
-### Law MCP server dependency
-
-The chat assistant now expects a running [`law-mcp-server`](../../packages/legal_tools/mcp_server.py) instance for legal research tools. Start it in a separate terminal before launching the Next.js dev server:
-
-```bash
-uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
-```
-
-Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
-
-- Use `LAW_MCP_TRANSPORT` to select the transports that should be merged by the `/api/completion` route. Provide a comma-separated list such as `streamable-http,sse` or `stdio,streamable-http`. The default is `streamable-http`.
-- When launching the stdio transport locally, set `LAW_MCP_STDIO_COMMAND` and `LAW_MCP_STDIO_ARGS` if you need to customize the spawn command (defaults to `uv` and `run law-mcp-server`).
-- Override derived URLs for additional transports with `LAW_MCP_HTTP_URL` or `LAW_MCP_SSE_URL` when the MCP server exposes different endpoints.
-
 ```bash
 pnpm install
 pnpm dev
 ```
 
-The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
-
-> ⚠️ The chat UI now requires an authenticated session. After launching the dev server, visit [`/register`](http://localhost:3000/register) to create an account before opening the chat interface. Any API requests made without a session cookie will return a `401 Unauthorized` response or redirect you back to the login page.
-
-After signing in you can visit [`/mcp`](http://localhost:3000/mcp) to trigger the MCP-enabled completion demo without disturbing existing chat threads.
+Your app template should now be running on [localhost:3000](http://localhost:3000).

@@ -1,6 +1,5 @@
 import { geolocation } from "@vercel/functions";
 import {
-  APICallError,
   convertToModelMessages,
   createUIMessageStream,
   JsonToSseTransformStream,
@@ -19,20 +18,13 @@ import { fetchModels } from "tokenlens/fetch";
 import { getUsage } from "tokenlens/helpers";
 import { auth, type UserType } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/visibility-selector";
-import { getEntitlementsForUserType } from "@/lib/ai/entitlements";
+import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import type { ChatModel } from "@/lib/ai/models";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { myProvider } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
-import {
-  lawInterpretationDetail,
-  lawInterpretationSearch,
-  lawKeywordSearch,
-  lawStatuteDetail,
-  lawStatuteSearch,
-} from "@/lib/ai/tools/law";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
 import {
@@ -72,47 +64,14 @@ const getTokenlensCatalog = cache(
   { revalidate: 24 * 60 * 60 } // 24 hours
 );
 
-function getRedisUrl() {
-  return process.env.REDIS_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-}
-
-function hasValidRedisConfiguration() {
-  const redisUrl = getRedisUrl();
-
-  if (!redisUrl) {
-    return false;
-  }
-
-  try {
-    // Ensure the provided value is a well-formed URL. This prevents
-    // placeholders such as "****" from triggering runtime errors in
-    // environments where secrets are redacted.
-    new URL(redisUrl);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function getStreamContext() {
   if (!globalStreamContext) {
-    if (!hasValidRedisConfiguration()) {
-      console.log(
-        " > Resumable streams are disabled due to missing or invalid Redis configuration"
-      );
-      return null;
-    }
-
     try {
       globalStreamContext = createResumableStreamContext({
         waitUntil: after,
       });
     } catch (error: any) {
-      if (error?.code === "ERR_INVALID_URL") {
-        console.log(
-          " > Resumable streams are disabled due to invalid Redis URL"
-        );
-      } else if (error?.message?.includes?.("REDIS_URL")) {
+      if (error.message.includes("REDIS_URL")) {
         console.log(
           " > Resumable streams are disabled due to missing REDIS_URL"
         );
@@ -161,7 +120,7 @@ export async function POST(request: Request) {
       differenceInHours: 24,
     });
 
-    if (messageCount > getEntitlementsForUserType(userType).maxMessagesPerDay) {
+    if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
       return new ChatSDKError("rate_limit:chat").toResponse();
     }
 
@@ -220,7 +179,7 @@ export async function POST(request: Request) {
           model: myProvider.languageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(6),
+          stopWhen: stepCountIs(5),
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
@@ -229,11 +188,6 @@ export async function POST(request: Request) {
                   "createDocument",
                   "updateDocument",
                   "requestSuggestions",
-                  "lawKeywordSearch",
-                  "lawStatuteSearch",
-                  "lawStatuteDetail",
-                  "lawInterpretationSearch",
-                  "lawInterpretationDetail",
                 ],
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
@@ -244,11 +198,6 @@ export async function POST(request: Request) {
               session,
               dataStream,
             }),
-            lawKeywordSearch,
-            lawStatuteSearch,
-            lawStatuteDetail,
-            lawInterpretationSearch,
-            lawInterpretationDetail,
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -341,27 +290,6 @@ export async function POST(request: Request) {
 
     if (error instanceof ChatSDKError) {
       return error.toResponse();
-    }
-
-    if (error instanceof APICallError) {
-      const { statusCode, responseBody, message } = error;
-      const responseText =
-        typeof responseBody === "string" && responseBody.length > 0
-          ? responseBody
-          : undefined;
-      const cause = responseText ?? message;
-
-      if (statusCode === 429) {
-        return new ChatSDKError("rate_limit:provider", cause).toResponse();
-      }
-
-      if (
-        statusCode === 401 ||
-        statusCode === 403 ||
-        (statusCode === 400 && responseText?.includes("API key not valid"))
-      ) {
-        return new ChatSDKError("unauthorized:provider", cause).toResponse();
-      }
     }
 
     // Check for Vercel AI Gateway credit card error

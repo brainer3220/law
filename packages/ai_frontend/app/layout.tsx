@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Analytics } from "@vercel/analytics/react";
 
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
@@ -71,11 +70,6 @@ export default function RootLayout({
             __html: THEME_COLOR_SCRIPT,
           }}
         />
-        <script
-          defer
-          data-cf-beacon='{"token": "897aad97e10143c6a0bfbbd899b6a07e"}'
-          src="https://static.cloudflareinsights.com/beacon.min.js"
-        />
       </head>
       <body className="antialiased">
         <ThemeProvider
@@ -86,7 +80,6 @@ export default function RootLayout({
         >
           <Toaster position="top-center" />
           <SessionProvider>{children}</SessionProvider>
-          <Analytics />
         </ThemeProvider>
       </body>
     </html>

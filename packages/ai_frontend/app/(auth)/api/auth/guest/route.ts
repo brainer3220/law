@@ -1,31 +1,15 @@
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { getAuthSecret } from "@/lib/auth";
+import { signIn } from "@/app/(auth)/auth";
 import { isDevelopmentEnvironment } from "@/lib/constants";
 
 export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const redirectParam = requestUrl.searchParams.get("redirectUrl");
-  let safeRedirect = "/";
-
-  if (redirectParam) {
-    if (redirectParam.startsWith("/")) {
-      safeRedirect = redirectParam;
-    } else {
-      try {
-        const parsed = new URL(redirectParam, requestUrl);
-        if (parsed.origin === requestUrl.origin) {
-          safeRedirect = `${parsed.pathname}${parsed.search}`;
-        }
-      } catch {
-        // Ignore malformed URLs and fall back to default
-      }
-    }
-  }
+  const { searchParams } = new URL(request.url);
+  const redirectUrl = searchParams.get("redirectUrl") || "/";
 
   const token = await getToken({
     req: request,
-    secret: getAuthSecret(),
+    secret: process.env.AUTH_SECRET,
     secureCookie: !isDevelopmentEnvironment,
   });
 
@@ -33,9 +17,5 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  const loginUrl = new URL(
-    `/login?redirectUrl=${encodeURIComponent(safeRedirect)}`,
-    request.url
-  );
-  return NextResponse.redirect(loginUrl);
+  return signIn("guest", { redirect: true, redirectTo: redirectUrl });
 }
