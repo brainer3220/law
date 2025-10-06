@@ -1,28 +1,28 @@
 import { tool } from "ai";
 import { z } from "zod";
 import {
-  callLawMcpTool,
-  type LawMcpHit,
-  type LawMcpHitsPayload,
-} from "./law-mcp-client";
+  callLawTool,
+  type LawToolHit,
+  type LawToolHitsPayload,
+} from "./law-tool-client";
 
 type GenericRecord = Record<string, unknown>;
 
-export type LawKeywordSearchResult = LawMcpHitsPayload;
+export type LawKeywordSearchResult = LawToolHitsPayload;
 
-export type LawStatuteSearchResult = LawMcpHitsPayload & {
+export type LawStatuteSearchResult = LawToolHitsPayload & {
   response?: GenericRecord | null;
 };
 
-export type LawStatuteDetailResult = LawMcpHitsPayload & {
+export type LawStatuteDetailResult = LawToolHitsPayload & {
   detail?: GenericRecord | null;
 };
 
-export type LawInterpretationSearchResult = LawMcpHitsPayload & {
+export type LawInterpretationSearchResult = LawToolHitsPayload & {
   response?: GenericRecord | null;
 };
 
-export type LawInterpretationDetailResult = LawMcpHitsPayload & {
+export type LawInterpretationDetailResult = LawToolHitsPayload & {
   detail?: GenericRecord | null;
 };
 
@@ -233,7 +233,7 @@ export const lawKeywordSearch = tool({
     "OpenSearch 기반 법령·판례 키워드 검색. 질문에 답하기 전에 관련 스니펫과 출처를 확보할 때 사용하세요.",
   inputSchema: keywordSearchSchema,
   execute: async (args, { abortSignal }) => {
-    return callLawMcpTool<LawKeywordSearchResult>("keyword_search", args, {
+    return callLawTool<LawKeywordSearchResult>("keyword_search", args, {
       signal: abortSignal,
     });
   },
@@ -244,7 +244,7 @@ export const lawStatuteSearch = tool({
     "law.go.kr 법령 검색 API 래퍼. 특정 법령이나 조문을 빠르게 찾고 싶을 때 사용하세요.",
   inputSchema: statuteSearchSchema,
   execute: async (args, { abortSignal }) => {
-    return callLawMcpTool<LawStatuteSearchResult>("law_statute_search", args, {
+    return callLawTool<LawStatuteSearchResult>("law_statute_search", args, {
       signal: abortSignal,
     });
   },
@@ -255,7 +255,7 @@ export const lawStatuteDetail = tool({
     "law.go.kr 법령 본문 조회. law_statute_search에서 받은 식별자로 상세 조문을 가져옵니다.",
   inputSchema: statuteDetailSchema,
   execute: async (args, { abortSignal }) => {
-    return callLawMcpTool<LawStatuteDetailResult>("law_statute_detail", args, {
+    return callLawTool<LawStatuteDetailResult>("law_statute_detail", args, {
       signal: abortSignal,
     });
   },
@@ -266,7 +266,7 @@ export const lawInterpretationSearch = tool({
     "법제처 법령해석례 검색. 쟁점별 유사 해석례를 찾아 근거를 확보하세요.",
   inputSchema: interpretationSearchSchema,
   execute: async (args, { abortSignal }) => {
-    return callLawMcpTool<LawInterpretationSearchResult>(
+    return callLawTool<LawInterpretationSearchResult>(
       "law_interpretation_search",
       args,
       { signal: abortSignal }
@@ -279,7 +279,7 @@ export const lawInterpretationDetail = tool({
     "법령해석례 본문 조회. 해석례 ID나 law_interpretation_search 결과를 바탕으로 전문을 확인합니다.",
   inputSchema: interpretationDetailSchema,
   execute: async (args, { abortSignal }) => {
-    return callLawMcpTool<LawInterpretationDetailResult>(
+    return callLawTool<LawInterpretationDetailResult>(
       "law_interpretation_detail",
       args,
       { signal: abortSignal }
@@ -294,4 +294,4 @@ export type LawToolResults =
   | LawInterpretationSearchResult
   | LawInterpretationDetailResult;
 
-export type { LawMcpHit };
+export type { LawToolHit };

@@ -5,13 +5,22 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from packages.legal_tools.agent_graph import run_ask
+from packages.legal_tools.agent_graph import (
+    Hit,
+    run_ask,
+    tool_keyword_search,
+    tool_law_go_detail,
+    tool_law_go_interpretation_detail,
+    tool_law_go_interpretations,
+    tool_law_go_search,
+)
 from packages.legal_tools.tracing import configure_langsmith, trace_run
 
 try:  # Optional dependency guard for multi-turn chat support
@@ -47,6 +56,141 @@ def _extract_question(messages: List[Dict[str, Any]]) -> str:
 
 def _json_response(obj: Dict[str, Any]) -> bytes:
     return json.dumps(obj, ensure_ascii=False).encode("utf-8")
+
+
+def _serialize_hit(hit: Hit) -> Dict[str, Any]:
+    return {
+        "source": hit.source,
+        "path": str(hit.path),
+        "doc_id": hit.doc_id,
+        "title": hit.title,
+        "score": hit.score,
+        "snippet": hit.snippet,
+        "line_no": hit.line_no,
+        "page_index": hit.page_index,
+        "page_total": hit.page_total,
+    }
+
+
+def _hits_payload(hits: List[Hit]) -> Dict[str, Any]:
+    return {"hits": [_serialize_hit(hit) for hit in hits], "count": len(hits)}
+
+
+def _coerce_optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(stripped, 10)
+        except ValueError as exc:
+            raise ValueError(f"Invalid integer value: {value!r}") from exc
+    raise ValueError(f"Invalid integer value type: {type(value).__name__}")
+
+
+def _coerce_optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _invoke_law_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    *,
+    data_dir: Path,
+) -> Dict[str, Any]:
+    if tool_name == "keyword_search":
+        query = _coerce_optional_str(args.get("query"))
+        if not query:
+            raise ValueError("Missing `query` parameter for keyword_search")
+        k_value = _coerce_optional_int(args.get("k"))
+        context_chars_value = _coerce_optional_int(args.get("context_chars"))
+        hits = tool_keyword_search(
+            query=query,
+            k=max(1, k_value or 5),
+            context_chars=max(0, context_chars_value or 0),
+            data_dir=data_dir,
+        )
+        return _hits_payload(hits)
+
+    if tool_name == "law_statute_search":
+        query = _coerce_optional_str(args.get("query"))
+        if not query:
+            raise ValueError("Missing `query` parameter for law_statute_search")
+        response, hits = tool_law_go_search(
+            query=query,
+            search=_coerce_optional_int(args.get("search")),
+            display=_coerce_optional_int(args.get("display")),
+            page=_coerce_optional_int(args.get("page")),
+            sort=_coerce_optional_str(args.get("sort")),
+            ef_yd=_coerce_optional_str(args.get("ef_yd")),
+            anc_yd=_coerce_optional_str(args.get("anc_yd")),
+            anc_no=_coerce_optional_str(args.get("anc_no")),
+            rr_cls_cd=_coerce_optional_str(args.get("rr_cls_cd")),
+            nb=_coerce_optional_int(args.get("nb")),
+            org=_coerce_optional_str(args.get("org")),
+            knd=_coerce_optional_str(args.get("knd")),
+            ls_chap_no=_coerce_optional_str(args.get("ls_chap_no")),
+            gana=_coerce_optional_str(args.get("gana")),
+            oc=_coerce_optional_str(args.get("oc")),
+        )
+        payload = _hits_payload(hits)
+        payload["response"] = asdict(response)
+        return payload
+
+    if tool_name == "law_statute_detail":
+        detail, hits = tool_law_go_detail(
+            law_id=_coerce_optional_str(args.get("law_id")),
+            mst=_coerce_optional_str(args.get("mst")),
+            lm=_coerce_optional_str(args.get("lm")),
+            ld=_coerce_optional_int(args.get("ld")),
+            ln=_coerce_optional_int(args.get("ln")),
+            jo=_coerce_optional_int(args.get("jo")),
+            lang=_coerce_optional_str(args.get("lang")),
+            oc=_coerce_optional_str(args.get("oc")),
+        )
+        payload = _hits_payload(hits)
+        payload["detail"] = asdict(detail)
+        return payload
+
+    if tool_name == "law_interpretation_search":
+        response, hits = tool_law_go_interpretations(
+            query=_coerce_optional_str(args.get("query")),
+            search=_coerce_optional_int(args.get("search")),
+            display=_coerce_optional_int(args.get("display")),
+            page=_coerce_optional_int(args.get("page")),
+            inq=_coerce_optional_str(args.get("inq")),
+            rpl=_coerce_optional_int(args.get("rpl")),
+            gana=_coerce_optional_str(args.get("gana")),
+            itmno=_coerce_optional_int(args.get("itmno")),
+            reg_yd=_coerce_optional_str(args.get("reg_yd")),
+            expl_yd=_coerce_optional_str(args.get("expl_yd")),
+            sort=_coerce_optional_str(args.get("sort")),
+            oc=_coerce_optional_str(args.get("oc")),
+        )
+        payload = _hits_payload(hits)
+        payload["response"] = asdict(response)
+        return payload
+
+    if tool_name == "law_interpretation_detail":
+        detail, hits = tool_law_go_interpretation_detail(
+            interpretation_id=_coerce_optional_str(args.get("interpretation_id")),
+            lm=_coerce_optional_str(args.get("lm")),
+            oc=_coerce_optional_str(args.get("oc")),
+        )
+        payload = _hits_payload(hits)
+        payload["detail"] = asdict(detail)
+        return payload
+
+    raise ValueError(f"Unknown law tool: {tool_name}")
 
 
 def _normalize_tool_calls(
@@ -307,10 +451,67 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
-        if self.path.rstrip("/") == "/v1/chat/completions":
+        parsed = urlparse(self.path)
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if (
+            len(segments) >= 3
+            and segments[-3] == "law"
+            and segments[-2] == "tools"
+        ):
+            tool_name = segments[-1]
+            if not tool_name:
+                self.send_error(HTTPStatus.NOT_FOUND, "Unknown tool endpoint")
+                return
+            self._handle_law_tool(tool_name)
+            return
+        if parsed.path.rstrip("/") == "/v1/chat/completions":
             self._handle_chat_completions()
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
+
+    def _handle_law_tool(self, tool_name: str) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except Exception:
+            length = 0
+
+        raw = self.rfile.read(length) if length > 0 else b"{}"
+
+        try:
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+
+        if not isinstance(payload, dict):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+
+        arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload
+        if not isinstance(arguments, dict):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid tool arguments")
+            return
+
+        data_dir = Path(os.getenv("LAW_DATA_DIR") or "data")
+
+        try:
+            result = _invoke_law_tool(tool_name, arguments, data_dir=data_dir)
+        except ValueError as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - runtime errors depend on env/data
+            logger.exception("law_tool_invoke_failed", tool=tool_name, error=str(exc))
+            self.send_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "Law tool invocation failed"
+            )
+            return
+
+        body = _json_response(result)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------------- OpenAI-compatible Chat Completions -----------------
 
