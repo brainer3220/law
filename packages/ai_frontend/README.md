@@ -75,19 +75,18 @@ You will need to use the environment variables [defined in `.env.example`](.env.
 2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
 3. Download your environment variables: `vercel env pull`
 
-### Law MCP server dependency
+### Built-in law tool endpoint
 
-The chat assistant now expects a running [`law-mcp-server`](../../packages/legal_tools/mcp_server.py) instance for legal research tools. Start it in a separate terminal before launching the Next.js dev server:
+Legal research tools are now served directly from the OpenAI-compatible gateway started by `uv run law-cli serve`. Make sure the gateway is running before starting the Next.js dev server:
 
 ```bash
-uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
+uv run law-cli serve --host 127.0.0.1 --port 8080
 ```
 
-Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
+The frontend issues POST requests to `http://127.0.0.1:8080/v1/law/tools/<tool-name>` (or the URL specified via `LAW_TOOL_BASE_URL`) to resolve keyword, statute, and 법령해석례 lookups. If the gateway lives elsewhere, override the base URL with:
 
-- Use `LAW_MCP_TRANSPORT` to select the transports that should be merged by the `/api/completion` route. Provide a comma-separated list such as `streamable-http,sse` or `stdio,streamable-http`. The default is `streamable-http`.
-- When launching the stdio transport locally, set `LAW_MCP_STDIO_COMMAND` and `LAW_MCP_STDIO_ARGS` if you need to customize the spawn command (defaults to `uv` and `run law-mcp-server`).
-- Override derived URLs for additional transports with `LAW_MCP_HTTP_URL` or `LAW_MCP_SSE_URL` when the MCP server exposes different endpoints.
+- `LAW_TOOL_BASE_URL` – explicit base URL for tool calls (defaults to `OPENAI_COMPATIBLE_BASE_URL`).
+- `OPENAI_COMPATIBLE_BASE_URL` – reused when the explicit tool base is not provided.
 
 ```bash
 pnpm install
