@@ -1,101 +1,60 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Next.js 14 and App Router-ready AI chatbot." src="app/(chat)/opengraph-image.png">
-  <h1 align="center">Chat SDK</h1>
-</a>
+# ChatKit Starter Template
 
-<p align="center">
-    Chat SDK is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
-</p>
+This repository is the simplest way to bootstrap a [ChatKit](http://openai.github.io/chatkit-js/) application. It ships with a minimal Next.js UI, the ChatKit web component, and a ready-to-use session endpoint so you can experiment with OpenAI-hosted workflows built using [Agent Builder](https://platform.openai.com/agent-builder).
 
-<p align="center">
-  <a href="https://chat-sdk.dev"><strong>Read Docs</strong></a> ·
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#model-providers"><strong>Model Providers</strong></a> ·
-  <a href="#deploy-your-own"><strong>Deploy Your Own</strong></a> ·
-  <a href="#running-locally"><strong>Running locally</strong></a>
-</p>
-<br/>
+## What You Get
 
-## Features
+- Next.js app with `<openai-chatkit>` web component and theming controls
+- API endpoint for creating a session at [`app/api/create-session/route.ts`](app/api/create-session/route.ts)
+- Quick examples for starter prompts, placeholder text, and greating message
 
-- [Next.js](https://nextjs.org) App Router
-  - Advanced routing for seamless navigation and performance
-  - React Server Components (RSCs) and Server Actions for server-side rendering and increased performance
-- [AI SDK](https://ai-sdk.dev/docs/introduction)
-  - Unified API for generating text, structured objects, and tool calls with LLMs
-  - Hooks for building dynamic chat and generative user interfaces
-  - Supports xAI (default), OpenAI, Fireworks, and other model providers
-- [shadcn/ui](https://ui.shadcn.com)
-  - Styling with [Tailwind CSS](https://tailwindcss.com)
-  - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
-- Data Persistence
-  - [Neon Serverless Postgres](https://vercel.com/marketplace/neon) for saving chat history and user data
-  - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
-- [Auth.js](https://authjs.dev)
-  - Simple and secure authentication
-- Law MCP integration for Korean legal research (keyword search, statute detail, 법령해석례 조회)
+## Getting Started
 
-## Model Providers
+Follow every step below to run the app locally and configure it for your preferred backend.
 
-This template targets the local OpenAI-compatible gateway served by `uv run main.py serve --host 127.0.0.1 --port 8080`. By default the frontend sends requests to `http://127.0.0.1:8080/v1`. Override or secure the endpoint with the following environment variables:
-
-- `OPENAI_COMPATIBLE_BASE_URL` – optional base URL override when the gateway is hosted elsewhere.
-- `OPENAI_COMPATIBLE_API_KEY` – optional bearer token if the gateway enforces authentication.
-- `OPENAI_COMPATIBLE_MODEL` (plus the `*_REASONING`, `*_TITLE`, `*_ARTIFACT` variants) – optional model IDs forwarded in the `model` field.
-
-You can still swap in any other provider supported by the [AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers) by editing `lib/ai/providers.ts`.
-
-### Manual Gateway Check
-
-Once the backend gateway is running you can issue a quick curl to confirm streaming responses:
+### 1. Install dependencies
 
 ```bash
-curl -s http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-5-mini-2025-08-07",
-    "messages": [{"role":"user","content":"근로시간 면제업무 관련 판례 알려줘"}],
-    "stream": true
-  }'
+npm install
 ```
 
-## Deploy Your Own
+### 2. Create your environment file
 
-You can deploy your own version of the Next.js AI Chatbot to Vercel with one click:
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/nextjs-ai-chatbot)
-
-## Running locally
-
-You will need to use the environment variables [defined in `.env.example`](.env.example) to run Next.js AI Chatbot. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
-
-> Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
-
-1. Install Vercel CLI: `npm i -g vercel`
-2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
-3. Download your environment variables: `vercel env pull`
-
-### Law MCP server dependency
-
-The chat assistant now expects a running [`law-mcp-server`](../../packages/legal_tools/mcp_server.py) instance for legal research tools. Start it in a separate terminal before launching the Next.js dev server:
+Copy the example file and fill in the required values:
 
 ```bash
-uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
+cp .env.example .env.local
 ```
 
-Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
+### 3. Configure ChatKit credentials
 
-- Use `LAW_MCP_TRANSPORT` to select the transports that should be merged by the `/api/completion` route. Provide a comma-separated list such as `streamable-http,sse` or `stdio,streamable-http`. The default is `streamable-http`.
-- When launching the stdio transport locally, set `LAW_MCP_STDIO_COMMAND` and `LAW_MCP_STDIO_ARGS` if you need to customize the spawn command (defaults to `uv` and `run law-mcp-server`).
-- Override derived URLs for additional transports with `LAW_MCP_HTTP_URL` or `LAW_MCP_SSE_URL` when the MCP server exposes different endpoints.
+Update `.env.local` with the variables that match your setup.
+
+- `OPENAI_API_KEY` — API key with access to ChatKit.
+- `NEXT_PUBLIC_CHATKIT_WORKFLOW_ID` — the workflow you created in the ChatKit dashboard.
+- (optional) `CHATKIT_API_BASE` - customizable base URL for the ChatKit API endpoint
+
+### 4. Run the app
 
 ```bash
-pnpm install
-pnpm dev
+npm run dev
 ```
 
-The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
+Visit `http://localhost:3000` and start chatting. Use the prompts on the start screen to verify your workflow connection, then customize the UI or prompt list in [`lib/config.ts`](lib/config.ts) and [`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx).
 
-> ⚠️ The chat UI now requires an authenticated session. After launching the dev server, visit [`/register`](http://localhost:3000/register) to create an account before opening the chat interface. Any API requests made without a session cookie will return a `401 Unauthorized` response or redirect you back to the login page.
+### 5. Build for production (optional)
 
-After signing in you can visit [`/mcp`](http://localhost:3000/mcp) to trigger the MCP-enabled completion demo without disturbing existing chat threads.
+```bash
+npm run build
+npm start
+```
+
+## Customization Tips
+
+- Adjust starter prompts, greeting text, and placeholder copy in [`lib/config.ts`](lib/config.ts).
+- Update the theme defaults or event handlers inside[`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx) to integrate with your product analytics or storage.
+
+## References
+
+- [ChatKit JavaScript Library](http://openai.github.io/chatkit-js/)
+- [Advanced Self-Hosting Examples](https://github.com/openai/openai-chatkit-advanced-samples)
