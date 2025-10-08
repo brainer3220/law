@@ -11,6 +11,7 @@ import {
 } from "@/lib/config";
 import { ErrorOverlay } from "./ErrorOverlay";
 import type { ColorScheme } from "@/hooks/useColorScheme";
+import { SharePanel } from "./SharePanel";
 
 export type FactAction = {
   type: "save";
@@ -60,6 +61,8 @@ export function ChatKitPanel({
       : "pending"
   );
   const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
+  const [sharePanelOpen, setSharePanelOpen] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   const setErrorState = useCallback((updates: Partial<ErrorState>) => {
     setErrors((current) => ({ ...current, ...updates }));
@@ -154,6 +157,11 @@ export function ChatKitPanel({
     setIsInitializingSession(true);
     setErrors(createInitialErrors());
     setWidgetInstanceKey((prev) => prev + 1);
+    setSharePanelOpen(false);
+  }, []);
+
+  const handleToggleSharePanel = useCallback(() => {
+    setSharePanelOpen((current) => !current);
   }, []);
 
   const getClientSecret = useCallback(
@@ -271,6 +279,13 @@ export function ChatKitPanel({
       },
       radius: "round",
     },
+    header: {
+      enabled: true,
+      rightAction: {
+        icon: sharePanelOpen ? "sidebar-collapse-right" : "sidebar-open-right",
+        onClick: handleToggleSharePanel,
+      },
+    },
     startScreen: {
       greeting: GREETING,
       prompts: STARTER_PROMPTS,
@@ -320,8 +335,13 @@ export function ChatKitPanel({
     onResponseStart: () => {
       setErrorState({ integration: null, retryable: false });
     },
-    onThreadChange: () => {
+    onThreadChange: ({ threadId }: { threadId: string | null }) => {
       processedFacts.current.clear();
+      setSharePanelOpen(false);
+      setActiveThreadId(threadId ?? null);
+    },
+    onThreadLoadEnd: ({ threadId }: { threadId: string }) => {
+      setActiveThreadId(threadId);
     },
     onError: ({ error }: { error: unknown }) => {
       // Note that Chatkit UI handles errors for your users.
@@ -363,6 +383,11 @@ export function ChatKitPanel({
         }
         onRetry={blockingError && errors.retryable ? handleResetChat : null}
         retryLabel="Restart chat"
+      />
+      <SharePanel
+        open={sharePanelOpen}
+        onClose={handleToggleSharePanel}
+        threadId={activeThreadId}
       />
     </div>
   );
