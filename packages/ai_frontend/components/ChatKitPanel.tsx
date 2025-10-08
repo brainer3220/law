@@ -161,8 +161,12 @@ export function ChatKitPanel({
   }, []);
 
   const handleToggleSharePanel = useCallback(() => {
+    if (!activeThreadId) {
+      setSharePanelOpen(false);
+      return;
+    }
     setSharePanelOpen((current) => !current);
-  }, []);
+  }, [activeThreadId]);
 
   const getClientSecret = useCallback(
     async (currentSecret: string | null) => {
@@ -281,10 +285,14 @@ export function ChatKitPanel({
     },
     header: {
       enabled: true,
-      rightAction: {
-        icon: sharePanelOpen ? "sidebar-collapse-right" : "sidebar-open-right",
-        onClick: handleToggleSharePanel,
-      },
+      rightAction: activeThreadId
+        ? {
+            icon: sharePanelOpen
+              ? "sidebar-collapse-right"
+              : "sidebar-open-right",
+            onClick: handleToggleSharePanel,
+          }
+        : undefined,
     },
     startScreen: {
       greeting: GREETING,
@@ -385,7 +393,7 @@ export function ChatKitPanel({
         retryLabel="Restart chat"
       />
       <SharePanel
-        open={sharePanelOpen}
+        open={sharePanelOpen && Boolean(activeThreadId)}
         onClose={handleToggleSharePanel}
         threadId={activeThreadId}
       />
