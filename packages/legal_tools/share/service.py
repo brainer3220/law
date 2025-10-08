@@ -43,11 +43,11 @@ class ShareSettings:
     def from_env(cls) -> "ShareSettings":
         import os
 
-        database_url = (
-            os.getenv("LAW_SHARE_DB_URL")
-            or os.getenv("DATABASE_URL")
-            or "sqlite+pysqlite:///./share.db"
-        )
+        database_url = os.getenv("LAW_SHARE_DB_URL") or os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError(
+                "PostgreSQL connection required: set LAW_SHARE_DB_URL or DATABASE_URL environment variable"
+            )
         external_base_url = os.getenv("LAW_SHARE_BASE_URL", "http://localhost:8081")
         default_ttl = int(os.getenv("LAW_SHARE_LINK_TTL_DAYS", "14"))
         token_bytes = int(os.getenv("LAW_SHARE_TOKEN_BYTES", "16"))
@@ -60,26 +60,25 @@ class ShareSettings:
 
 
 def init_engine(settings: ShareSettings) -> Engine:
-    """Create an SQLAlchemy engine with sensible defaults."""
+    """Create an SQLAlchemy engine for PostgreSQL only."""
 
     database_url = settings.database_url
+    
+    # Normalize PostgreSQL URLs to use psycopg driver
     if database_url.startswith("postgres://"):
         database_url = "postgresql+psycopg://" + database_url[len("postgres://") :]
     elif database_url.startswith("postgresql://") and "+" not in database_url.split("://", 1)[1].split("/", 1)[0]:
         database_url = database_url.replace(
             "postgresql://", "postgresql+psycopg://", 1
         )
+    
+    # Validate that it's a PostgreSQL URL
+    if not database_url.startswith("postgresql+"):
+        raise ValueError(
+            f"Only PostgreSQL is supported. Invalid database URL scheme: {database_url.split('://')[0]}"
+        )
 
-    connect_args = {}
-    engine_kwargs = {"future": True}
-    if database_url.startswith("sqlite"):
-        from sqlalchemy.pool import StaticPool
-
-        engine_kwargs["poolclass"] = StaticPool
-        connect_args["check_same_thread"] = False
-    if connect_args:
-        engine_kwargs["connect_args"] = connect_args
-    engine = create_engine(database_url, pool_pre_ping=True, **engine_kwargs)
+    engine = create_engine(database_url, pool_pre_ping=True, future=True)
     Base.metadata.create_all(engine)
     return engine
 
