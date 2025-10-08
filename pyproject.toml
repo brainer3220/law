@@ -20,6 +20,8 @@ dependencies = [
     "psycopg[binary]>=3.2.10",
     "tqdm>=4.66",
     "mcp[cli]>=0.3",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]

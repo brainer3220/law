@@ -160,6 +160,53 @@ Environment variables:
 - `LAW_OPENSEARCH_API_KEY` — supply an API key; alternatively configure `LAW_OPENSEARCH_USERNAME` / `LAW_OPENSEARCH_PASSWORD` for basic auth.
 - `LAW_OPENSEARCH_INDEX` — change the target index (defaults to `legal-docs`).
 
+Sharing service
+---------------
+Run the FastAPI-powered sharing service that backs redactions, share links, and permission APIs:
+
+```
+uv run law-cli share-serve --host 127.0.0.1 --port 8081
+```
+
+- The service stores state in `LAW_SHARE_DB_URL` (defaults to `sqlite+pysqlite:///./share.db`). Provide a Postgres DSN to run it against a production database.
+- Externally shared URLs are composed with `LAW_SHARE_BASE_URL` (defaults to `http://localhost:8081`). Set this to the public origin that clients use to open share links.
+- Adjust link expiry defaults with `LAW_SHARE_LINK_TTL_DAYS` and increase token entropy via `LAW_SHARE_TOKEN_BYTES` if needed.
+- To override the database without touching environment variables, pass `--db-url postgresql://...` on the CLI.
+
+After the server starts, you can generate a share by first redacting a resource, creating the share, and then accessing it via the generated token:
+
+```bash
+# preview PII redactions
+curl -s http://127.0.0.1:8081/v1/redactions/preview \
+  -H 'Content-Type: application/json' \
+  -d '{"payloads": {"body": "연락처 test@example.com API 키 sk-abc1234567890"}}'
+
+# apply the redaction and persist the resource
+curl -s http://127.0.0.1:8081/v1/redactions/apply \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "actor_id": "user-123",
+        "resource": {"type": "conversation", "owner_id": "user-123"},
+        "payloads": {"body": "연락처 test@example.com API 키 sk-abc1234567890"}
+      }'
+
+# create an unlisted share and generate an access link
+curl -s http://127.0.0.1:8081/v1/shares \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "resource_id": "<RESOURCE_ID>",
+        "actor_id": "user-123",
+        "mode": "unlisted",
+        "create_link": true,
+        "link_domain_whitelist": ["share.test"]
+      }'
+
+# exchange the token for the shared payload (domain parameter optional if not whitelisted)
+curl -s "http://127.0.0.1:8081/v1/s/<TOKEN>"
+```
+
+Replace `<RESOURCE_ID>` and `<TOKEN>` with values returned from the previous calls. Use `/v1/shares/{id}/revoke` to immediately invalidate a share and its tokens.
+
 
 Notes
 -----
