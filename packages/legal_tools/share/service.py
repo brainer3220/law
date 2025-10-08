@@ -62,16 +62,24 @@ class ShareSettings:
 def init_engine(settings: ShareSettings) -> Engine:
     """Create an SQLAlchemy engine with sensible defaults."""
 
+    database_url = settings.database_url
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql+psycopg://" + database_url[len("postgres://") :]
+    elif database_url.startswith("postgresql://") and "+" not in database_url.split("://", 1)[1].split("/", 1)[0]:
+        database_url = database_url.replace(
+            "postgresql://", "postgresql+psycopg://", 1
+        )
+
     connect_args = {}
     engine_kwargs = {"future": True}
-    if settings.database_url.startswith("sqlite"):
+    if database_url.startswith("sqlite"):
         from sqlalchemy.pool import StaticPool
 
         engine_kwargs["poolclass"] = StaticPool
         connect_args["check_same_thread"] = False
     if connect_args:
         engine_kwargs["connect_args"] = connect_args
-    engine = create_engine(settings.database_url, pool_pre_ping=True, **engine_kwargs)
+    engine = create_engine(database_url, pool_pre_ping=True, **engine_kwargs)
     Base.metadata.create_all(engine)
     return engine
 
