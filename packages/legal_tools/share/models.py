@@ -469,6 +469,15 @@ class Vote(Base):
     chat: Mapped[Chat] = relationship(back_populates="votes")
     message: Mapped[Message] = relationship(back_populates="votes")
 
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "chat_id"],
+            ["Message.id", "Message.chatId"],
+            name="Vote_message_chat_fk",
+            ondelete="CASCADE",
+        ),
+    )
+
 
 class VoteV2(Base):
     """Votes targeting the second generation message table."""
@@ -489,3 +498,12 @@ class VoteV2(Base):
 
     chat: Mapped[Chat] = relationship(back_populates="votes_v2")
     message: Mapped[MessageV2] = relationship(back_populates="votes")
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "chat_id"],
+            ["Message_v2.id", "Message_v2.chatId"],
+            name="Vote_v2_message_chat_fk",
+            ondelete="CASCADE",
+        ),
+    )
