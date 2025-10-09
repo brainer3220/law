@@ -151,7 +151,7 @@ PATCH  /v1/projects/{id}/budget        # 예산 설정
 
 ```bash
 # .env 파일 생성
-export LAW_WORKSPACE_DB_URL="postgresql://user:pass@localhost/law_workspace"
+export LAW_SHARE_DB_URL="postgresql://user:pass@localhost/law_workspace"
 export LAW_ENABLE_AUDIT=true
 export LAW_ENABLE_BUDGET_CHECK=true
 ```
@@ -315,7 +315,7 @@ mypy packages/legal_tools/workspace/
 
 ```bash
 # Supabase 마이그레이션 적용
-psql $LAW_WORKSPACE_DB_URL < supabase/migrations/20240308000000_project_workspace_schema.sql
+psql $LAW_SHARE_DB_URL < supabase/migrations/20240308000000_project_workspace_schema.sql
 ```
 
 ## 로드맵

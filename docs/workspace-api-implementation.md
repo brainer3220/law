@@ -53,7 +53,7 @@
 
 ```bash
 # .env 파일에 추가
-export LAW_WORKSPACE_DB_URL="postgresql://user:pass@localhost:5432/law_workspace"
+export LAW_SHARE_DB_URL="postgresql://user:pass@localhost:5432/law_workspace"
 export LAW_ENABLE_AUDIT=true
 export LAW_ENABLE_BUDGET_CHECK=true
 ```
@@ -62,7 +62,7 @@ export LAW_ENABLE_BUDGET_CHECK=true
 
 ```bash
 # Supabase 마이그레이션 사용
-psql $LAW_WORKSPACE_DB_URL < supabase/migrations/20240308000000_project_workspace_schema.sql
+psql $LAW_SHARE_DB_URL < supabase/migrations/20240308000000_project_workspace_schema.sql
 ```
 
 ### 3. 서버 시작

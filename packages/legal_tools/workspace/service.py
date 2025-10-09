@@ -48,10 +48,10 @@ class WorkspaceSettings:
 
     @classmethod
     def from_env(cls) -> WorkspaceSettings:
-        database_url = os.getenv("LAW_WORKSPACE_DB_URL") or os.getenv("DATABASE_URL")
+        database_url = os.getenv("LAW_SHARE_DB_URL") or os.getenv("DATABASE_URL")
         if not database_url:
             raise ValueError(
-                "PostgreSQL connection required: set LAW_WORKSPACE_DB_URL or DATABASE_URL"
+                "PostgreSQL connection required: set LAW_SHARE_DB_URL or DATABASE_URL"
             )
         return cls(
             database_url=database_url,
@@ -63,8 +63,13 @@ class WorkspaceSettings:
 
 def init_engine(settings: WorkspaceSettings) -> Engine:
     """SQLAlchemy 엔진 초기화."""
+    # SQLAlchemy 1.4+ requires 'postgresql://' not 'postgres://'
+    database_url = settings.database_url
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    
     engine = create_engine(
-        settings.database_url,
+        database_url,
         echo=False,
         pool_pre_ping=True,
         pool_size=10,
