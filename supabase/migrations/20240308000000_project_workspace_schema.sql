@@ -6,6 +6,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- 1) Enum types
+-- <workspace-enums:start>
+-- Generated via scripts/render_workspace_enums.py; do not edit manually.
 DO $$ BEGIN
   CREATE TYPE permission_role AS ENUM ('owner','maintainer','editor','commenter','viewer');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -25,6 +27,17 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   CREATE TYPE resource_type AS ENUM ('project','file','document','memory','instruction','chat','snapshot');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- <workspace-enums:end>
+
+-- 1b) Immutable helpers for generated columns
+CREATE OR REPLACE FUNCTION immutable_unaccent(input text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT unaccent('public.unaccent', coalesce(input, ''))
+$$;
 
 -- 2) Organizations, projects, and memberships
 CREATE TABLE IF NOT EXISTS organizations (
@@ -118,7 +131,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 ALTER TABLE document_chunks
   ADD COLUMN IF NOT EXISTS tsv tsvector
   GENERATED ALWAYS AS (
-    to_tsvector('simple', unaccent(coalesce(heading, '') || ' ' || coalesce(body, '')))
+    to_tsvector('simple', immutable_unaccent(coalesce(heading, '') || ' ' || coalesce(body, '')))
   ) STORED;
 
 CREATE INDEX IF NOT EXISTS idx_document_chunks_project ON document_chunks(project_id);
@@ -224,7 +237,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   user_agent    text,
   meta          jsonb
 );
-CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs(project_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs(project_id, at);
 CREATE INDEX IF NOT EXISTS idx_audit_action  ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_meta    ON audit_logs USING GIN(meta jsonb_path_ops);
 
@@ -247,17 +260,36 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
   cost_cents   integer DEFAULT 0,
   meta         jsonb
 );
-CREATE INDEX IF NOT EXISTS idx_usage_project_at ON usage_ledger(project_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_project_at ON usage_ledger(project_id, at);
 
--- 10) Search view
-CREATE OR REPLACE VIEW v_project_search AS
-SELECT
-  c.project_id,
-  c.document_id,
-  c.page,
-  ts_rank_cd(c.tsv, websearch_to_tsquery('simple', unaccent(coalesce($$q$$, '')))) AS rank,
-  left(c.body, 500) AS snippet
-FROM document_chunks c;
+-- 10) Search API
+DROP VIEW IF EXISTS v_project_search;
+
+CREATE OR REPLACE FUNCTION v_project_search(search_query text)
+RETURNS TABLE (
+  project_id uuid,
+  document_id uuid,
+  page integer,
+  rank real,
+  snippet text
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH query AS (
+    SELECT websearch_to_tsquery('simple', immutable_unaccent(coalesce(search_query, ''))) AS tsq
+  )
+  SELECT
+    c.project_id,
+    c.document_id,
+    c.page,
+    ts_rank_cd(c.tsv, q.tsq) AS rank,
+    left(c.body, 500) AS snippet
+  FROM document_chunks c
+  CROSS JOIN query q
+  WHERE q.tsq @@ c.tsv
+  ORDER BY rank DESC, c.project_id, c.document_id, c.page
+$$;
 
 -- 11) RLS skeleton (policies to be refined per project requirements)
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
