@@ -60,10 +60,16 @@ class ShareSettings:
 
 
 def init_engine(settings: ShareSettings) -> Engine:
-    """Create an SQLAlchemy engine for PostgreSQL only."""
+    """Create an SQLAlchemy engine, normalizing PostgreSQL URLs when needed."""
 
     database_url = settings.database_url
-    
+
+    # Allow SQLite URLs without applying PostgreSQL-specific normalization.
+    if database_url.startswith("sqlite"):
+        engine = create_engine(database_url, pool_pre_ping=True, future=True)
+        Base.metadata.create_all(engine)
+        return engine
+
     # Normalize PostgreSQL URLs to use psycopg driver
     if database_url.startswith("postgres://"):
         database_url = "postgresql+psycopg://" + database_url[len("postgres://") :]
@@ -71,11 +77,11 @@ def init_engine(settings: ShareSettings) -> Engine:
         database_url = database_url.replace(
             "postgresql://", "postgresql+psycopg://", 1
         )
-    
+
     # Validate that it's a PostgreSQL URL
     if not database_url.startswith("postgresql+"):
         raise ValueError(
-            f"Only PostgreSQL is supported. Invalid database URL scheme: {database_url.split('://')[0]}"
+            f"Unsupported database URL scheme: {database_url.split('://')[0]}"
         )
 
     engine = create_engine(database_url, pool_pre_ping=True, future=True)

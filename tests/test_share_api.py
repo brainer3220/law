@@ -9,6 +9,17 @@ from fastapi.testclient import TestClient
 from packages.legal_tools.share import ShareSettings, create_app
 
 
+def test_create_app_accepts_sqlite_dsn() -> None:
+    settings = ShareSettings(
+        database_url="sqlite+pysqlite:///:memory:",
+        external_base_url="https://share.test",
+        default_link_ttl_days=7,
+        token_bytes=8,
+    )
+    app = create_app(settings)
+    assert app.title == "Law Share Service"
+
+
 def _create_client() -> TestClient:
     settings = ShareSettings(
         database_url="sqlite+pysqlite:///:memory:",
