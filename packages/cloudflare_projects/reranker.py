@@ -38,9 +38,16 @@ class AIGatewayReranker:
         )
         results = response.get("data") or response.get("results") or []
         reranked: List[RerankedChunk] = []
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         for item in results:
             idx = item.get("index")
             if idx is None or idx >= len(candidates):
+                logger.warning(
+                    f"Skipped rerank result with invalid index: {idx} (candidates={len(candidates)})"
+                )
                 continue
             score = float(item.get("relevance", item.get("score", 0.0)))
             reranked.append(RerankedChunk(candidate=candidates[idx], score=score))
