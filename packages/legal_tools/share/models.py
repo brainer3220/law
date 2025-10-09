@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the sharing service."""
+"""SQLAlchemy models for the sharing and conversation services."""
 
 from __future__ import annotations
 
@@ -12,15 +12,19 @@ from sqlalchemy import (
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 __all__ = [
     "Base",
+    "UUIDPrimaryKeyMixin",
     "Resource",
     "Share",
     "ShareLink",
@@ -28,6 +32,15 @@ __all__ = [
     "Redaction",
     "AuditLog",
     "Embed",
+    "Chat",
+    "Document",
+    "Message",
+    "MessageV2",
+    "Stream",
+    "Suggestion",
+    "User",
+    "Vote",
+    "VoteV2",
     "ResourceType",
     "ShareMode",
     "PrincipalType",
@@ -36,10 +49,17 @@ __all__ = [
 
 
 class Base(DeclarativeBase):
-    """Declarative base with UUID primary key convenience."""
+    """Declarative base for all sharing models."""
+
+
+class UUIDPrimaryKeyMixin:
+    """Mixin providing a UUID primary key column."""
 
     id: Mapped[uuid.UUID] = mapped_column(
-        default=uuid.uuid4, primary_key=True, index=True
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
     )
 
 
@@ -78,7 +98,7 @@ class PermissionRole(str, Enum):
     GUEST = "guest"
 
 
-class Resource(Base):
+class Resource(UUIDPrimaryKeyMixin, Base):
     """Shareable resource metadata."""
 
     __tablename__ = "resources"
@@ -108,7 +128,7 @@ class Resource(Base):
     )
 
 
-class Share(Base):
+class Share(UUIDPrimaryKeyMixin, Base):
     """Sharing configuration for a resource."""
 
     __tablename__ = "shares"
@@ -136,7 +156,7 @@ class Share(Base):
     )
 
 
-class ShareLink(Base):
+class ShareLink(UUIDPrimaryKeyMixin, Base):
     """Tokenized access link for a share."""
 
     __tablename__ = "share_links"
@@ -159,7 +179,7 @@ class ShareLink(Base):
     )
 
 
-class Permission(Base):
+class Permission(UUIDPrimaryKeyMixin, Base):
     """Access control list entry."""
 
     __tablename__ = "permissions"
@@ -189,7 +209,7 @@ class Permission(Base):
     )
 
 
-class Redaction(Base):
+class Redaction(UUIDPrimaryKeyMixin, Base):
     """Applied redaction snapshot for a resource."""
 
     __tablename__ = "redactions"
@@ -208,7 +228,7 @@ class Redaction(Base):
     __table_args__ = (Index("ix_redactions_resource_id", "resource_id"),)
 
 
-class AuditLog(Base):
+class AuditLog(UUIDPrimaryKeyMixin, Base):
     """Audit events covering share lifecycle actions."""
 
     __tablename__ = "audit_logs"
@@ -231,7 +251,7 @@ class AuditLog(Base):
     )
 
 
-class Embed(Base):
+class Embed(UUIDPrimaryKeyMixin, Base):
     """Embed configuration for a share."""
 
     __tablename__ = "embeds"
@@ -249,3 +269,225 @@ class Embed(Base):
     share: Mapped[Share] = relationship(back_populates="embeds")
 
     __table_args__ = (Index("ix_embeds_share_id", "share_id"),)
+
+
+# ---------------------------------------------------------------------------
+# Conversation records
+# ---------------------------------------------------------------------------
+
+
+class User(UUIDPrimaryKeyMixin, Base):
+    """Human owner for chats and documents."""
+
+    __tablename__ = "User"
+
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    password: Mapped[str | None] = mapped_column(String(255))
+
+    chats: Mapped[list["Chat"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    suggestions: Mapped[list["Suggestion"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Chat(UUIDPrimaryKeyMixin, Base):
+    """Chat session containing messages and votes."""
+
+    __tablename__ = "Chat"
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt", DateTime(timezone=False), server_default=func.now(), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        "userId", ForeignKey("User.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(
+        String(32), server_default=text("'private'"), nullable=False
+    )
+    last_context: Mapped[dict | None] = mapped_column("lastContext", JSONB)
+
+    user: Mapped[User] = relationship(back_populates="chats")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+    messages_v2: Mapped[list["MessageV2"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+    streams: Mapped[list["Stream"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+    votes: Mapped[list["Vote"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+    votes_v2: Mapped[list["VoteV2"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+
+
+class Document(UUIDPrimaryKeyMixin, Base):
+    """Document that suggestions can annotate."""
+
+    __tablename__ = "Document"
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt",
+        DateTime(timezone=False),
+        primary_key=True,
+        server_default=func.now(),
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        "userId", ForeignKey("User.id", ondelete="CASCADE"), nullable=False
+    )
+    text_type: Mapped[str] = mapped_column(
+        "text", String(32), server_default=text("'text'::character varying"), nullable=False
+    )
+
+    user: Mapped[User] = relationship(back_populates="documents")
+    suggestions: Mapped[list["Suggestion"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class Message(UUIDPrimaryKeyMixin, Base):
+    """First generation message payloads."""
+
+    __tablename__ = "Message"
+
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        "chatId", ForeignKey("Chat.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt", DateTime(timezone=False), server_default=func.now(), nullable=False
+    )
+
+    chat: Mapped[Chat] = relationship(back_populates="messages")
+    votes: Mapped[list["Vote"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )
+
+
+class MessageV2(UUIDPrimaryKeyMixin, Base):
+    """Structured message payloads with parts and attachments."""
+
+    __tablename__ = "Message_v2"
+
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        "chatId", ForeignKey("Chat.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    parts: Mapped[dict] = mapped_column(JSON, nullable=False)
+    attachments: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt", DateTime(timezone=False), server_default=func.now(), nullable=False
+    )
+
+    chat: Mapped[Chat] = relationship(back_populates="messages_v2")
+    votes: Mapped[list["VoteV2"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )
+
+
+class Stream(UUIDPrimaryKeyMixin, Base):
+    """Live stream sessions tied to a chat."""
+
+    __tablename__ = "Stream"
+
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        "chatId", ForeignKey("Chat.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt", DateTime(timezone=False), server_default=func.now(), nullable=False
+    )
+
+    chat: Mapped[Chat] = relationship(back_populates="streams")
+
+
+class Suggestion(UUIDPrimaryKeyMixin, Base):
+    """User suggestions attached to a document."""
+
+    __tablename__ = "Suggestion"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        "documentId", PGUUID(as_uuid=True), nullable=False
+    )
+    document_created_at: Mapped[dt.datetime] = mapped_column(
+        "documentCreatedAt", DateTime(timezone=False), nullable=False
+    )
+    original_text: Mapped[str] = mapped_column("originalText", Text, nullable=False)
+    suggested_text: Mapped[str] = mapped_column("suggestedText", Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_resolved: Mapped[bool] = mapped_column(
+        "isResolved", Boolean, server_default=text("false"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        "userId", ForeignKey("User.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        "createdAt", DateTime(timezone=False), server_default=func.now(), nullable=False
+    )
+
+    document: Mapped[Document] = relationship(back_populates="suggestions")
+    user: Mapped[User] = relationship(back_populates="suggestions")
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["documentId", "documentCreatedAt"],
+            ["Document.id", "Document.createdAt"],
+            name="Suggestion_document_fk",
+            ondelete="CASCADE",
+        ),
+    )
+
+
+class Vote(Base):
+    """Legacy votes on v1 messages."""
+
+    __tablename__ = "Vote"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        "messageId",
+        ForeignKey("Message.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        "chatId",
+        ForeignKey("Chat.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    is_upvoted: Mapped[bool] = mapped_column("isUpvoted", Boolean, nullable=False)
+
+    chat: Mapped[Chat] = relationship(back_populates="votes")
+    message: Mapped[Message] = relationship(back_populates="votes")
+
+
+
+class VoteV2(Base):
+    """Votes targeting the second generation message table."""
+
+    __tablename__ = "Vote_v2"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        "messageId",
+        ForeignKey("Message_v2.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        "chatId",
+        ForeignKey("Chat.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    is_upvoted: Mapped[bool] = mapped_column("isUpvoted", Boolean, nullable=False)
+
+    chat: Mapped[Chat] = relationship(back_populates="votes_v2")
+    message: Mapped[MessageV2] = relationship(back_populates="votes")
+
