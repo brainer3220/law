@@ -5,6 +5,18 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
+-- Helper to expose unaccent() as an immutable function so it can be used in
+-- generated columns and expression indexes.
+CREATE OR REPLACE FUNCTION immutable_unaccent(text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+RETURNS NULL ON NULL INPUT
+AS $$
+  SELECT unaccent($1);
+$$;
+
 -- 1) Enum types
 DO $$ BEGIN
   CREATE TYPE permission_role AS ENUM ('owner','maintainer','editor','commenter','viewer');
@@ -118,7 +130,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 ALTER TABLE document_chunks
   ADD COLUMN IF NOT EXISTS tsv tsvector
   GENERATED ALWAYS AS (
-    to_tsvector('simple', unaccent(coalesce(heading, '') || ' ' || coalesce(body, '')))
+    to_tsvector('simple', immutable_unaccent(coalesce(heading, '') || ' ' || coalesce(body, '')))
   ) STORED;
 
 CREATE INDEX IF NOT EXISTS idx_document_chunks_project ON document_chunks(project_id);
