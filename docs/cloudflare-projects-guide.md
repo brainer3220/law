@@ -22,7 +22,7 @@ All modules are dependency-light so they can run inside Workers using Python-on-
 
 ## Configuration (`config.py`)
 
-`CloudflareProjectsConfig` centralises binding names, table identifiers, and tuning parameters. Key sections:
+`CloudflareProjectsConfig` centralizes binding names, table identifiers, and tuning parameters. Key sections:
 
 - **D1 / Tables**: `doc_chunks_fts`, `doc_chunks_meta`, `instructions`, `memories`, etc. Update these fields if your schema names differ.
 - **FTS (D1FTSConfig)**: Candidate limit, snippet formatting, boost weights for recency and click feedback.
