@@ -14,9 +14,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Generator, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, File as FastAPIFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         description="프로젝트 중심 컨텍스트 관리 시스템",
     )
 
-    def get_session() -> Session:
+    def get_session() -> Generator[Session, None, None]:
         session = database.session()
         try:
             yield session
@@ -404,18 +404,119 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
     # ========================================================================
 
     @app.post(
-        "/v1/projects/{project_id}/files", response_model=schemas.FileResponse, status_code=201
+        "/v1/projects/{project_id}/files/presigned-upload",
+        response_model=schemas.PresignedUploadResponse,
+        status_code=200,
     )
-    def upload_file(
+    def generate_presigned_upload_url(
+        project_id: uuid.UUID,
+        request: schemas.PresignedUploadRequest,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.PresignedUploadResponse:
+        """클라이언트 직접 업로드용 Presigned URL 생성.
+        
+        클라이언트 워크플로우:
+        1. 이 엔드포인트를 호출하여 upload_url과 r2_key를 받음
+        2. upload_url로 직접 PUT 요청 (파일 바이너리)
+        3. 업로드 완료 후 POST /v1/projects/{project_id}/files 호출하여 메타데이터 저장
+        """
+        try:
+            # R2 키 생성: projects/{project_id}/files/{uuid}/{filename}
+            import uuid as uuid_lib
+            file_uuid = uuid_lib.uuid4()
+            r2_key = f"projects/{project_id}/files/{file_uuid}/{request.name}"
+            
+            upload_url = service.generate_upload_url(
+                project_id=project_id,
+                key=r2_key,
+                content_type=request.mime,
+                user_id=user_id,
+            )
+            
+            return schemas.PresignedUploadResponse(
+                upload_url=upload_url,
+                r2_key=r2_key,
+                expires_in=service.settings.r2_config.presigned_url_expiry if service.settings.r2_config else 3600,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
+    @app.post(
+        "/v1/projects/{project_id}/files",
+        response_model=schemas.FileResponse,
+        status_code=201,
+    )
+    def create_file_metadata(
         project_id: uuid.UUID,
         request: schemas.FileUploadRequest,
         service: WorkspaceService = Depends(get_service),
         user_id: uuid.UUID = Depends(get_current_user),
     ) -> schemas.FileResponse:
-        """파일 업로드 (메타만, 실제 파일은 별도 스토리지)."""
+        """파일 메타데이터 생성 (Presigned URL 업로드 완료 후).
+        
+        Presigned URL로 업로드한 후 이 엔드포인트를 호출하여 DB에 메타데이터를 저장합니다.
+        """
         try:
             file = service.create_file(project_id, request, user_id)
             return schemas.FileResponse.from_orm(file)
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
+    @app.post(
+        "/v1/projects/{project_id}/files/direct-upload",
+        response_model=schemas.FileResponse,
+        status_code=201,
+    )
+    async def direct_upload_file(
+        project_id: uuid.UUID,
+        file: UploadFile = FastAPIFile(...),
+        name: Optional[str] = None,
+        sensitivity: str = "internal",
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.FileResponse:
+        """파일 직접 업로드 (multipart/form-data).
+        
+        서버를 통해 직접 R2에 업로드합니다. 큰 파일은 Presigned URL 방식을 권장합니다.
+        """
+        try:
+            # 파일 내용 읽기
+            file_content = await file.read()
+            
+            # R2 키 생성
+            import uuid as uuid_lib
+            from .models import SensitivityLevel
+            
+            file_uuid = uuid_lib.uuid4()
+            file_name = name or file.filename or "unnamed"
+            r2_key = f"projects/{project_id}/files/{file_uuid}/{file_name}"
+            
+            # 파일 업로드 요청 생성
+            upload_request = schemas.FileUploadRequest(
+                r2_key=r2_key,
+                name=file_name,
+                mime=file.content_type,
+                size_bytes=len(file_content),
+                sensitivity=SensitivityLevel(sensitivity),
+            )
+            
+            # 서비스에 파일 업로드 (R2 + DB)
+            created_file = service.create_file(
+                project_id=project_id,
+                request=upload_request,
+                user_id=user_id,
+                file_content=file_content,
+            )
+            
+            return schemas.FileResponse.from_orm(created_file)
+            
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Project not found") from None
         except PermissionError as e:
@@ -466,13 +567,47 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         except PermissionError as e:
             raise HTTPException(status_code=403, detail=str(e)) from None
 
+    @app.get(
+        "/v1/files/{file_id}/download-url",
+        response_model=schemas.PresignedDownloadResponse,
+    )
+    def generate_download_url(
+        file_id: uuid.UUID,
+        expiry: Optional[int] = Query(None, description="URL 유효 시간 (초)"),
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.PresignedDownloadResponse:
+        """파일 다운로드용 Presigned URL 생성."""
+        try:
+            download_url = service.generate_download_url(
+                file_id=file_id,
+                user_id=user_id,
+                expiry=expiry,
+            )
+            
+            actual_expiry = expiry or (
+                service.settings.r2_config.presigned_url_expiry 
+                if service.settings.r2_config else 3600
+            )
+            
+            return schemas.PresignedDownloadResponse(
+                download_url=download_url,
+                expires_in=actual_expiry,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="File not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
     @app.delete("/v1/files/{file_id}", status_code=204)
     def delete_file(
         file_id: uuid.UUID,
         service: WorkspaceService = Depends(get_service),
         user_id: uuid.UUID = Depends(get_current_user),
     ) -> None:
-        """파일 삭제."""
+        """파일 삭제 (DB 및 R2)."""
         try:
             service.delete_file(file_id, user_id)
         except NoResultFound:

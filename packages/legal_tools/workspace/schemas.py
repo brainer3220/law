@@ -26,6 +26,10 @@ __all__ = [
     "MemoryResponse",
     "FileUploadRequest",
     "FileResponse",
+    "PresignedUploadRequest",
+    "PresignedUploadResponse",
+    "PresignedDownloadResponse",
+    "DirectFileUploadRequest",
     "ChatCreateRequest",
     "ChatResponse",
     "MessageSendRequest",
@@ -226,6 +230,37 @@ class FileResponse(BaseModel):
     created_by: uuid.UUID
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+class PresignedUploadRequest(BaseModel):
+    """Presigned URL 생성 요청 (클라이언트 직접 업로드용)."""
+
+    name: str = Field(..., description="파일명")
+    mime: Optional[str] = Field(None, description="MIME 타입")
+    size_bytes: Optional[int] = Field(None, description="파일 크기 (bytes)")
+    sensitivity: SensitivityLevel = Field(default=SensitivityLevel.INTERNAL)
+
+
+class PresignedUploadResponse(BaseModel):
+    """Presigned URL 응답."""
+
+    upload_url: str = Field(..., description="파일 업로드용 Presigned URL")
+    r2_key: str = Field(..., description="R2 객체 키 (업로드 완료 후 메타 생성 시 사용)")
+    expires_in: int = Field(..., description="URL 유효 시간 (초)")
+
+
+class PresignedDownloadResponse(BaseModel):
+    """Presigned 다운로드 URL 응답."""
+
+    download_url: str = Field(..., description="파일 다운로드용 Presigned URL")
+    expires_in: int = Field(..., description="URL 유효 시간 (초)")
+
+
+class DirectFileUploadRequest(BaseModel):
+    """직접 파일 업로드 요청 (multipart/form-data)."""
+
+    name: str = Field(..., description="파일명")
+    sensitivity: SensitivityLevel = Field(default=SensitivityLevel.INTERNAL)
 
 
 # ========================================================================

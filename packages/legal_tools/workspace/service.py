@@ -34,6 +34,7 @@ from .models import (
     PermissionRole,
 )
 from . import schemas
+from .storage import R2Client, R2Config
 
 __all__ = ["WorkspaceSettings", "WorkspaceDatabase", "WorkspaceService", "init_engine"]
 
@@ -45,6 +46,7 @@ class WorkspaceSettings:
     database_url: str
     enable_audit: bool = True
     enable_budget_check: bool = True
+    r2_config: Optional[R2Config] = None
 
     @classmethod
     def from_env(cls) -> WorkspaceSettings:
@@ -53,11 +55,21 @@ class WorkspaceSettings:
             raise ValueError(
                 "PostgreSQL connection required: set LAW_SHARE_DB_URL or DATABASE_URL"
             )
+        
+        # R2 설정 (선택)
+        r2_config = None
+        try:
+            r2_config = R2Config.from_env()
+        except ValueError:
+            # R2 설정이 없으면 None (파일 업로드 비활성화)
+            pass
+        
         return cls(
             database_url=database_url,
             enable_audit=os.getenv("LAW_ENABLE_AUDIT", "true").lower() == "true",
             enable_budget_check=os.getenv("LAW_ENABLE_BUDGET_CHECK", "true").lower()
             == "true",
+            r2_config=r2_config,
         )
 
 
@@ -102,6 +114,7 @@ class WorkspaceService:
     def __init__(self, session: Session, settings: WorkspaceSettings):
         self.session = session
         self.settings = settings
+        self.r2_client = R2Client(settings.r2_config) if settings.r2_config else None
 
     # ========================================================================
     # 권한 체크
@@ -610,9 +623,37 @@ class WorkspaceService:
         project_id: uuid.UUID,
         request: schemas.FileUploadRequest,
         user_id: uuid.UUID,
+        file_content: Optional[bytes] = None,
     ) -> File:
-        """파일 메타 생성."""
+        """파일 메타 생성 및 R2 업로드.
+        
+        Args:
+            project_id: 프로젝트 ID
+            request: 파일 업로드 요청
+            user_id: 사용자 ID
+            file_content: 파일 내용 (바이너리, 직접 업로드 시)
+        
+        Returns:
+            생성된 File 객체
+        """
         self._check_permission(project_id, user_id, PermissionRole.EDITOR)
+
+        # R2 업로드 (file_content가 제공된 경우)
+        if file_content and self.r2_client:
+            upload_result = self.r2_client.upload_file(
+                file_content=file_content,
+                key=request.r2_key,
+                content_type=request.mime,
+                metadata={
+                    "project_id": str(project_id),
+                    "uploaded_by": str(user_id),
+                },
+            )
+            # R2 업로드 결과로 체크섬 업데이트
+            if not request.checksum:
+                request.checksum = upload_result["checksum"]
+            if not request.size_bytes:
+                request.size_bytes = upload_result["size"]
 
         file = File(
             project_id=project_id,
@@ -654,12 +695,85 @@ class WorkspaceService:
         self._log_audit(file.project_id, user_id, "file.reindex", "file", str(file_id))
 
     def delete_file(self, file_id: uuid.UUID, user_id: uuid.UUID):
-        """파일 삭제."""
+        """파일 삭제 (DB 및 R2)."""
         file = self.get_file(file_id, user_id)
         self._check_permission(file.project_id, user_id, PermissionRole.EDITOR)
+        
+        # R2에서 파일 삭제
+        if self.r2_client:
+            try:
+                self.r2_client.delete_file(file.r2_key)
+            except Exception as e:
+                # R2 삭제 실패해도 DB 레코드는 삭제 (로그만 남김)
+                import logging
+                logging.error(f"Failed to delete file from R2: {file.r2_key}", exc_info=e)
+        
         self.session.delete(file)
         self.session.commit()
         self._log_audit(file.project_id, user_id, "file.deleted", "file", str(file_id))
+
+    def generate_upload_url(
+        self,
+        project_id: uuid.UUID,
+        key: str,
+        content_type: Optional[str],
+        user_id: uuid.UUID,
+    ) -> str:
+        """파일 업로드용 Presigned URL 생성.
+        
+        클라이언트가 직접 R2에 업로드할 수 있는 임시 URL을 생성합니다.
+        
+        Args:
+            project_id: 프로젝트 ID
+            key: R2 객체 키
+            content_type: MIME 타입
+            user_id: 사용자 ID
+        
+        Returns:
+            Presigned upload URL
+        
+        Raises:
+            ValueError: R2가 설정되지 않은 경우
+        """
+        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
+        
+        if not self.r2_client:
+            raise ValueError("R2 storage is not configured")
+        
+        return self.r2_client.generate_presigned_upload_url(
+            key=key,
+            content_type=content_type,
+        )
+
+    def generate_download_url(
+        self,
+        file_id: uuid.UUID,
+        user_id: uuid.UUID,
+        expiry: Optional[int] = None,
+    ) -> str:
+        """파일 다운로드용 Presigned URL 생성.
+        
+        Args:
+            file_id: 파일 ID
+            user_id: 사용자 ID
+            expiry: URL 유효 시간 (초)
+        
+        Returns:
+            Presigned download URL
+        
+        Raises:
+            ValueError: R2가 설정되지 않은 경우
+        """
+        file = self.get_file(file_id, user_id)
+        
+        if not self.r2_client:
+            raise ValueError("R2 storage is not configured")
+        
+        return self.r2_client.generate_presigned_download_url(
+            key=file.r2_key,
+            expiry=expiry,
+            filename=file.name,
+        )
 
     # ========================================================================
     # 검색 (스텁)
