@@ -441,8 +441,8 @@ class Suggestion(UUIDPrimaryKeyMixin, Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["document_id", "document_created_at"],
-            lambda: [Document.id, Document.created_at],
+            ["documentId", "documentCreatedAt"],
+            ["Document.id", "Document.createdAt"],
             name="Suggestion_document_fk",
             ondelete="CASCADE",
         ),
