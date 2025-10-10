@@ -6,7 +6,6 @@
 
 "use client";
 
-import { useState } from "react";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { SearchBar } from "@/components/SearchBar";
 import { EvidenceCard } from "@/components/EvidenceCard";
@@ -136,11 +135,8 @@ const sampleProvenance: Provenance = {
 };
 
 export default function ComponentsDemoPage() {
-  const [searchResults, setSearchResults] = useState<EvidenceSource[]>([]);
-
   const handleSearch = (filter: SearchFilter) => {
     console.log("Search:", filter);
-    setSearchResults(sampleEvidence);
   };
 
   return (

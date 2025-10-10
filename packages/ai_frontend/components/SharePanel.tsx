@@ -88,7 +88,7 @@ export function SharePanel({ open, onClose, threadId }: SharePanelProps) {
     }
     const cookieValue = getCookie(CHATKIT_SESSION_COOKIE);
     return cookieValue ?? "anonymous";
-  }, [storedShareId, open]);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -129,7 +129,7 @@ export function SharePanel({ open, onClose, threadId }: SharePanelProps) {
     } else if (!resourceId) {
       setResourceId("");
     }
-  }, [open, threadId]);
+  }, [open, threadId, resourceId]);
 
   useEffect(() => {
     if (!open || !storageKey) {

@@ -1,13 +1,11 @@
 'use client'
 
 import { useAuth } from '@/lib/auth/AuthContext'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import App from "./App"
 
 export default function Home() {
   const { user, loading } = useAuth()
-  const router = useRouter()
 
   // Show loading state
   if (loading) {

@@ -80,7 +80,7 @@ export function ChatKitPanel({
       console.log('🎨 ChatKitPanel unmounting');
       isMountedRef.current = false;
     };
-  }, []);
+  }, [theme, scriptStatus]);
 
   useEffect(() => {
     console.log('🔄 ChatKitPanel script status:', scriptStatus);

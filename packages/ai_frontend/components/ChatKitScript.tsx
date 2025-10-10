@@ -16,7 +16,7 @@ export default function ChatKitScript() {
   return (
     <Script
       src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
-      strategy="beforeInteractive"
+      strategy="lazyOnload"
       onLoad={handleLoad}
       onError={handleError}
     />

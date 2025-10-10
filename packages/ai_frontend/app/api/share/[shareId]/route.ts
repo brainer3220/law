@@ -8,12 +8,13 @@ import {
 export const runtime = "nodejs";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     shareId: string;
-  };
+  }>;
 };
 
-export async function GET(_: Request, { params }: RouteParams): Promise<Response> {
+export async function GET(_: Request, context: RouteParams): Promise<Response> {
+  const params = await context.params;
   try {
     const upstream = await callShareService(`/v1/shares/${params.shareId}`, {
       method: "GET",

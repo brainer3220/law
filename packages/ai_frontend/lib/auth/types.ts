@@ -2,7 +2,7 @@
  * Authentication related TypeScript types
  */
 
-import type { User } from '@supabase/supabase-js'
+import type { User, Session } from '@supabase/supabase-js'
 
 export interface AuthUser {
   id: string
@@ -22,7 +22,7 @@ export interface SignupCredentials extends LoginCredentials {
 
 export interface AuthResponse {
   user?: AuthUser | null
-  session?: any
+  session?: Session | null
   error?: string
   message?: string
 }
