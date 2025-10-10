@@ -8,7 +8,7 @@ interface LoginFormProps {
   redirectTo?: string
 }
 
-export function LoginForm({ redirectTo = '/demo' }: LoginFormProps) {
+export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -36,8 +36,9 @@ export function LoginForm({ redirectTo = '/demo' }: LoginFormProps) {
       }
 
       setMessage('로그인 성공! 리다이렉트 중...')
-      router.push(redirectTo)
-      router.refresh()
+      
+      // Use window.location for full page refresh to ensure auth state is updated
+      window.location.href = redirectTo
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인에 실패했습니다.')
     } finally {

@@ -69,7 +69,7 @@ export async function updateSession(request: NextRequest) {
   if (user && request.nextUrl.pathname.startsWith('/auth')) {
     const redirectTo = request.nextUrl.searchParams.get('redirectTo')
     const url = request.nextUrl.clone()
-    url.pathname = redirectTo || '/demo'
+    url.pathname = redirectTo || '/'
     url.search = ''
     return NextResponse.redirect(url)
   }
