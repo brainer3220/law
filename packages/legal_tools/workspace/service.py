@@ -813,6 +813,27 @@ class WorkspaceService:
             ).scalars()
         )
 
+    def create_chat(
+        self,
+        project_id: uuid.UUID,
+        request: schemas.ChatCreateRequest,
+        user_id: uuid.UUID,
+    ) -> ProjectChat:
+        """채팅 생성."""
+        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
+
+        chat = ProjectChat(
+            project_id=project_id,
+            title=request.title or "New Chat",
+            created_by=user_id,
+        )
+        self.session.add(chat)
+        self.session.commit()
+        self._log_audit(
+            project_id, user_id, "chat.created", "chat", str(chat.chat_id)
+        )
+        return chat
+
     # ========================================================================
     # 스냅샷
     # ========================================================================

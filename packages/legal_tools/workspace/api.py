@@ -657,14 +657,8 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
     ) -> schemas.ChatResponse:
         """채팅 생성."""
         try:
-            # TODO: 실제 Chat 모델 연동
-            return schemas.ChatResponse(
-                id=uuid.uuid4(),
-                project_id=project_id,
-                title=request.title or "New Chat",
-                created_at=None,
-                updated_at=None,
-            )
+            chat = service.create_chat(project_id, request, user_id)
+            return schemas.ChatResponse.from_orm(chat)
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Project not found") from None
         except PermissionError as e:
