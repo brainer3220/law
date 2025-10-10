@@ -826,6 +826,7 @@ class WorkspaceService:
             project_id=project_id,
             title=request.title or "New Chat",
             created_by=user_id,
+            added_by=user_id,
         )
         self.session.add(chat)
         self.session.commit()
