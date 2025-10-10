@@ -69,13 +69,24 @@ export function ChatKitPanel({
   }, []);
 
   useEffect(() => {
+    console.log('🎨 ChatKitPanel mounted', {
+      theme,
+      workflowId: WORKFLOW_ID,
+      scriptStatus,
+      isBrowser
+    });
+    
     return () => {
+      console.log('🎨 ChatKitPanel unmounting');
       isMountedRef.current = false;
     };
   }, []);
 
   useEffect(() => {
+    console.log('🔄 ChatKitPanel script status:', scriptStatus);
+    
     if (!isBrowser) {
+      console.warn('⚠️ Not in browser environment');
       return;
     }
 
@@ -242,8 +253,16 @@ export function ChatKitPanel({
           throw new Error("Missing client secret in response");
         }
 
+        if (isDev) {
+          console.info("[ChatKitPanel] ✅ Successfully got client_secret, clearing errors");
+        }
+
         if (isMountedRef.current) {
           setErrorState({ session: null, integration: null });
+        }
+
+        if (isDev) {
+          console.info("[ChatKitPanel] Returning client_secret to ChatKit");
         }
 
         return clientSecret;
@@ -258,6 +277,13 @@ export function ChatKitPanel({
         }
         throw error instanceof Error ? error : new Error(detail);
       } finally {
+        if (isDev) {
+          console.info("[ChatKitPanel] getClientSecret finally block", {
+            isMounted: isMountedRef.current,
+            hadCurrentSecret: Boolean(currentSecret),
+            willSetInitializingFalse: isMountedRef.current && !currentSecret
+          });
+        }
         if (isMountedRef.current && !currentSecret) {
           setIsInitializingSession(false);
         }
@@ -357,6 +383,15 @@ export function ChatKitPanel({
       console.error("ChatKit error", error);
     },
   });
+
+  // Track when ChatKit control becomes available
+  useEffect(() => {
+    if (chatkit.control && isDev) {
+      console.info("🎉 ChatKit control is now available! Session initialized successfully.");
+      // Control is ready, so we should clear the initializing state
+      setIsInitializingSession(false);
+    }
+  }, [chatkit.control]);
 
   const activeError = errors.session ?? errors.integration;
   const blockingError = errors.script ?? activeError;
