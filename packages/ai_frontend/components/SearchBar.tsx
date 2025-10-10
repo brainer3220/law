@@ -9,7 +9,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
-import { type SearchFilter } from "@/lib/types";
+import { type SearchFilter, type LegalDomain, type EvidenceType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export interface SearchBarProps {
@@ -140,7 +140,7 @@ export function SearchBar({
                 onChange={(e) =>
                   setFilter((prev) => ({
                     ...prev,
-                    domain: (e.target.value as any) || undefined,
+                    domain: (e.target.value as LegalDomain) || undefined,
                   }))
                 }
                 className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-gray-100"
@@ -166,11 +166,11 @@ export function SearchBar({
                   >
                     <input
                       type="checkbox"
-                      checked={filter.corpus?.includes(type as any) ?? false}
+                      checked={filter.corpus?.includes(type as EvidenceType) ?? false}
                       onChange={(e) => {
                         const current = filter.corpus ?? [];
                         const updated = e.target.checked
-                          ? [...current, type as any]
+                          ? [...current, type as EvidenceType]
                           : current.filter((t) => t !== type);
                         setFilter((prev) => ({
                           ...prev,

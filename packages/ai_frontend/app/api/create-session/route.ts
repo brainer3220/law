@@ -1,6 +1,8 @@
 import { WORKFLOW_ID } from "@/lib/config";
+import { createClient } from "@/lib/supabase/server";
 
-export const runtime = "edge";
+// Remove edge runtime to support Supabase
+// export const runtime = "edge";
 
 interface CreateSessionRequestBody {
   workflow?: { id?: string | null } | null;
@@ -20,6 +22,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
+      console.error("[create-session] Missing OPENAI_API_KEY");
       return new Response(
         JSON.stringify({ error: "Missing OPENAI_API_KEY environment variable" }),
         {
@@ -30,19 +33,27 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const parsedBody = await safeParseJson<CreateSessionRequestBody>(request);
+    console.log("[create-session] Parsed body:", parsedBody);
+    
     const { userId, sessionCookie: resolvedSessionCookie } = await resolveUserId(request);
+    console.log("[create-session] Resolved userId:", userId);
+    
     sessionCookie = resolvedSessionCookie;
     const resolvedWorkflowId =
       parsedBody?.workflow?.id ?? parsedBody?.workflowId ?? WORKFLOW_ID;
 
+    console.log("[create-session] Workflow ID:", resolvedWorkflowId);
+
     if (process.env.NODE_ENV !== "production") {
       console.info("[create-session] handling request", {
         resolvedWorkflowId,
+        userId,
         body: JSON.stringify(parsedBody),
       });
     }
 
     if (!resolvedWorkflowId) {
+      console.error("[create-session] Missing workflow ID");
       return buildJsonResponse(
         { error: "Missing workflow id" },
         400,
@@ -102,6 +113,12 @@ export async function POST(request: Request): Promise<Response> {
       expires_after: expiresAfter,
     };
 
+    console.log("[create-session] Sending response:", {
+      hasClientSecret: !!clientSecret,
+      clientSecretLength: clientSecret ? String(clientSecret).length : 0,
+      expiresAfter
+    });
+
     return buildJsonResponse(
       responsePayload,
       200,
@@ -134,8 +151,33 @@ async function resolveUserId(request: Request): Promise<{
   userId: string;
   sessionCookie: string | null;
 }> {
+  console.log('[create-session] Resolving user ID...');
+  
+  // Try to get Supabase authenticated user first
+  try {
+    console.log('[create-session] Attempting to get Supabase user...');
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    console.log('[create-session] Supabase user result:', { userId: user?.id, error });
+    
+    if (user?.id) {
+      // Use Supabase user ID as the ChatKit user ID
+      console.log('[create-session] Using Supabase user ID:', user.id);
+      return { 
+        userId: user.id, 
+        sessionCookie: serializeSessionCookie(user.id) 
+      };
+    }
+  } catch (error) {
+    console.error('[create-session] Error getting Supabase user:', error);
+  }
+
+  // Fallback to cookie-based or generated ID
+  console.log('[create-session] Falling back to cookie or generated ID');
   const existing = getCookieValue(request.headers.get("cookie"), SESSION_COOKIE_NAME);
   if (existing) {
+    console.log('[create-session] Using existing cookie ID');
     return { userId: existing, sessionCookie: null };
   }
 
@@ -143,6 +185,7 @@ async function resolveUserId(request: Request): Promise<{
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 
+  console.log('[create-session] Generated new ID:', generated);
   return {
     userId: generated,
     sessionCookie: serializeSessionCookie(generated),

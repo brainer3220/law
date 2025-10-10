@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { UserMenu } from "@/components/auth/UserMenu";
 import { SearchBar } from "@/components/SearchBar";
 import { EvidenceCard } from "@/components/EvidenceCard";
 import { ClauseDiffCard } from "@/components/ClauseDiffCard";
@@ -135,23 +135,23 @@ const sampleProvenance: Provenance = {
 };
 
 export default function ComponentsDemoPage() {
-  const [searchResults, setSearchResults] = useState<EvidenceSource[]>([]);
-
   const handleSearch = (filter: SearchFilter) => {
     console.log("Search:", filter);
-    setSearchResults(sampleEvidence);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 p-8 dark:bg-slate-950">
       <div className="mx-auto max-w-7xl space-y-8">
-        <header className="mb-8">
-          <h1 className="mb-2 text-3xl font-bold text-gray-900 dark:text-gray-100">
-            법률 LLM UI 컴포넌트 데모
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            공유 로직과 UI 컴포넌트의 사용 예시
-          </p>
+        <header className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="mb-2 text-3xl font-bold text-gray-900 dark:text-gray-100">
+              법률 LLM UI 컴포넌트 데모
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              공유 로직과 UI 컴포넌트의 사용 예시
+            </p>
+          </div>
+          <UserMenu />
         </header>
 
         {/* Status Badges */}

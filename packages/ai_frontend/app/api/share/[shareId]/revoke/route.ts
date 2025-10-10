@@ -8,12 +8,13 @@ import {
 export const runtime = "nodejs";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     shareId: string;
-  };
+  }>;
 };
 
-export async function POST(request: Request, { params }: RouteParams): Promise<Response> {
+export async function POST(request: Request, context: RouteParams): Promise<Response> {
+  const params = await context.params;
   try {
     const body = await request.text();
     const upstream = await callShareService(`/v1/shares/${params.shareId}/revoke`, {
