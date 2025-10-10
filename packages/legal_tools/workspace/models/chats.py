@@ -6,7 +6,7 @@ import datetime as dt
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,9 +27,14 @@ class ProjectChat(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
     )
     chat_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    added_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    added_at: Mapped[dt.datetime] = mapped_column(
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    added_by: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="project_chats")
