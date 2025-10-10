@@ -2,6 +2,16 @@
 
 import { useEffect } from 'react'
 
+// Type definition for iframe-resizer library
+interface IFrameResizerOptions {
+  checkOrigin: boolean
+  log: boolean
+}
+
+interface WindowWithIFrameResize extends Window {
+  iFrameResize?: (options: IFrameResizerOptions, selector: string) => void
+}
+
 /**
  * SoftrHero Component
  * 
@@ -17,8 +27,9 @@ export default function SoftrHero() {
     
     script.onload = () => {
       // Initialize iFrameResize after script loads
-      if (typeof window !== 'undefined' && (window as any).iFrameResize) {
-        (window as any).iFrameResize(
+      const win = window as WindowWithIFrameResize
+      if (typeof window !== 'undefined' && win.iFrameResize) {
+        win.iFrameResize(
           { 
             checkOrigin: false, 
             log: true 
