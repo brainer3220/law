@@ -17,6 +17,7 @@ import uuid
 from typing import Generator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, File as FastAPIFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
@@ -39,6 +40,15 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         title="Law Workspace API",
         version="1.0.0",
         description="프로젝트 중심 컨텍스트 관리 시스템",
+    )
+
+    # CORS 미들웨어 추가 (개발 환경용)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     def get_session() -> Generator[Session, None, None]:

@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { ChatKitPanel, type FactAction } from "@/components/ChatKitPanel";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { UserMenu } from "@/components/auth/UserMenu";
+import Link from "next/link";
 
 export default function App() {
   const { scheme, setScheme } = useColorScheme();
@@ -25,9 +26,25 @@ export default function App() {
       {/* Header with User Menu */}
       <header className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-            법률 AI 에이전트
-          </h1>
+          <div className="flex items-center gap-6">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+              법률 AI 에이전트
+            </h1>
+            <nav className="flex items-center gap-4">
+              <Link
+                href="/"
+                className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              >
+                채팅
+              </Link>
+              <Link
+                href="/workspace"
+                className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              >
+                프로젝트
+              </Link>
+            </nav>
+          </div>
           <UserMenu />
         </div>
       </header>
