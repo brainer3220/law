@@ -157,7 +157,7 @@ export class WorkspaceClient {
     const data = await this.fetch<{ projects: ProjectListItem[] }>(
       `/v1/projects?${query.toString()}`
     )
-    return data.projects
+    return data.projects || []
   }
 
   async getProject(projectId: string): Promise<Project> {
@@ -199,10 +199,10 @@ export class WorkspaceClient {
   // ========================================================================
 
   async listChats(projectId: string): Promise<Chat[]> {
-    const data = await this.fetch<{ chats: Chat[] }>(
+    const data = await this.fetch<Chat[]>(
       `/v1/projects/${projectId}/chats`
     )
-    return data.chats
+    return data || []
   }
 
   async createChat(projectId: string, title?: string): Promise<Chat> {
@@ -213,10 +213,10 @@ export class WorkspaceClient {
   }
 
   async listMessages(chatId: string): Promise<Message[]> {
-    const data = await this.fetch<{ messages: Message[] }>(
+    const data = await this.fetch<Message[]>(
       `/v1/chats/${chatId}/messages`
     )
-    return data.messages
+    return data || []
   }
 
   async sendMessage(
@@ -235,10 +235,10 @@ export class WorkspaceClient {
   // ========================================================================
 
   async listFiles(projectId: string): Promise<File[]> {
-    const data = await this.fetch<{ files: File[] }>(
+    const data = await this.fetch<File[]>(
       `/v1/projects/${projectId}/files`
     )
-    return data.files
+    return data || []
   }
 
   async uploadFile(
@@ -281,10 +281,10 @@ export class WorkspaceClient {
   // ========================================================================
 
   async listMemories(projectId: string): Promise<Memory[]> {
-    const data = await this.fetch<{ memories: Memory[] }>(
+    const data = await this.fetch<Memory[]>(
       `/v1/projects/${projectId}/memories`
     )
-    return data.memories
+    return data || []
   }
 
   async createMemory(
