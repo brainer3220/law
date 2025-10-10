@@ -2,9 +2,9 @@
 
 ## 🚀 시작하기
 
-### 1. Backend API 실행
+### 1. 데이터베이스 마이그레이션 및 초기화
 
-터미널 1에서:
+터미널 1에서 (최초 1회만):
 
 ```bash
 cd /Users/brainer/Programming/law
@@ -13,36 +13,49 @@ cd /Users/brainer/Programming/law
 uv venv
 uv sync
 
-# Workspace API 서버 실행
-uv run python -m packages.legal_tools.workspace.api
+# 데이터베이스 마이그레이션 실행
+uv run python scripts/run_workspace_migrations.py
+
+# 데이터베이스 초기화 (데모 데이터 생성)
+uv run python scripts/init_workspace_db.py
 ```
 
-또는 `main.py`에 workspace 서버 명령어 추가 후:
+### 2. Backend API 실행
+
+터미널 1에서:
 
 ```bash
-uv run main.py serve-workspace --host 0.0.0.0 --port 8001
+# Workspace API 서버 실행 (포트 8082)
+uv run law-cli workspace-serve
 ```
 
-### 2. Frontend 실행
+또는 커스텀 포트:
+
+```bash
+uv run law-cli workspace-serve --port 8001
+```
+
+### 3. Frontend 실행
 
 터미널 2에서:
 
 ```bash
 cd packages/ai_frontend
 
-# 환경 변수 설정 (.env.local 파일 생성)
-echo "NEXT_PUBLIC_WORKSPACE_API_URL=http://localhost:8001" >> .env.local
+# 환경 변수 설정 (.env.local 파일이 없다면)
+# NEXT_PUBLIC_WORKSPACE_API_URL=http://localhost:8082 추가
 
 # 개발 서버 실행
 npm run dev
 ```
 
-### 3. 브라우저에서 확인
+### 4. 브라우저에서 확인
 
 1. http://localhost:3000 접속
-2. 로그인
+2. 로그인 (또는 개발 모드에서는 자동으로 demo user 사용)
 3. 상단 내비게이션에서 "프로젝트" 클릭
-4. "새 프로젝트" 버튼으로 프로젝트 생성
+4. Demo Project가 표시되는지 확인
+5. "새 프로젝트" 버튼으로 프로젝트 생성
 
 ## 📁 주요 화면
 

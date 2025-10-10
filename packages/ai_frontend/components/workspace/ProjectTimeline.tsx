@@ -29,11 +29,12 @@ export default function ProjectTimeline() {
 
   useEffect(() => {
     async function loadProjects() {
-      if (!user?.id) return
+      // Use demo user ID if no user is logged in (for development)
+      const userId = user?.id || '00000000-0000-0000-0000-000000000001'
 
       try {
         setLoading(true)
-        workspaceClient.setUserId(user.id)
+        workspaceClient.setUserId(userId)
         const data = await workspaceClient.listProjects({
           archived: false,
           limit: 50,

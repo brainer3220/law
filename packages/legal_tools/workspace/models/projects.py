@@ -50,11 +50,15 @@ class Project(Base):
         ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         Text, server_default=text("'active'"), nullable=False
     )
     visibility: Mapped[str] = mapped_column(
         Text, server_default=text("'private'"), nullable=False
+    )
+    archived: Mapped[bool] = mapped_column(
+        server_default=text("false"), nullable=False
     )
     budget_quota: Mapped[int | None] = mapped_column(BigInteger)
     current_instr_v: Mapped[int | None] = mapped_column(Integer)
