@@ -251,8 +251,11 @@ class ShareService:
             raise PermissionError("Share expired or revoked")
         if link.revoked_at:
             raise PermissionError("Link revoked")
-        if link.domain_whitelist and domain and domain not in link.domain_whitelist:
-            raise PermissionError("Domain not allowed")
+        if link.domain_whitelist:
+            if not domain:
+                raise PermissionError("Domain required")
+            if domain not in link.domain_whitelist:
+                raise PermissionError("Domain not allowed")
         self._log(
             actor_id=None,
             action="share.link.view",

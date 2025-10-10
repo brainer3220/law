@@ -78,7 +78,7 @@ def test_share_flow_round_trip() -> None:
     token = new_link_data["token"]
     assert re.match(r"^[A-Za-z0-9]+$", token)
 
-    access = client.get(f"/v1/s/{token}")
+    access = client.get(f"/v1/s/{token}", params={"domain": "share.test"})
     assert access.status_code == 200
     access_data = access.json()
     assert access_data["share"]["id"] == share_id
@@ -100,3 +100,52 @@ def test_share_flow_round_trip() -> None:
     audit_entries = audit.json()["results"]
     assert any(entry["action"] == "share.create" for entry in audit_entries)
     assert any(entry["action"] == "share.link.view" for entry in audit_entries)
+
+
+def test_share_link_requires_domain_for_whitelist() -> None:
+    client = _create_client()
+
+    preview_payload = {
+        "payloads": {
+            "body": "연락처 test@example.com API 키 sk-abc1234567890",
+        }
+    }
+    preview = client.post("/v1/redactions/preview", json=preview_payload)
+    assert preview.status_code == 200
+
+    apply_payload = {
+        "actor_id": "user-123",
+        "resource": {
+            "type": "conversation",
+            "owner_id": "user-123",
+            "org_id": "org-1",
+            "title": "테스트 대화",
+        },
+        "payloads": preview_payload["payloads"],
+    }
+    applied = client.post("/v1/redactions/apply", json=apply_payload)
+    assert applied.status_code == 200
+    resource_id = applied.json()["resource"]["id"]
+
+    share_payload = {
+        "resource_id": resource_id,
+        "actor_id": "user-123",
+        "mode": "unlisted",
+        "allow_download": False,
+        "allow_comments": True,
+        "is_live": False,
+        "create_link": True,
+        "link_domain_whitelist": ["share.test"],
+    }
+    created = client.post("/v1/shares", json=share_payload)
+    assert created.status_code == 200
+    share_id = created.json()["id"]
+
+    link_request = {"actor_id": "user-123", "domain_whitelist": ["share.test"]}
+    link_resp = client.post(f"/v1/shares/{share_id}/links", json=link_request)
+    assert link_resp.status_code == 200
+    token = link_resp.json()["token"]
+
+    access = client.get(f"/v1/s/{token}")
+    assert access.status_code == 410
+    assert access.json()["detail"] == "Domain required"
