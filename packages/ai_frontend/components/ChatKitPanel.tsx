@@ -265,6 +265,11 @@ export function ChatKitPanel({
           console.info("[ChatKitPanel] Returning client_secret to ChatKit");
         }
 
+        // Clear initializing state on successful secret retrieval
+        if (isMountedRef.current) {
+          setIsInitializingSession(false);
+        }
+
         return clientSecret;
       } catch (error) {
         console.error("Failed to create ChatKit session", error);
@@ -274,19 +279,9 @@ export function ChatKitPanel({
             : "Unable to start ChatKit session.";
         if (isMountedRef.current) {
           setErrorState({ session: detail, retryable: false });
-        }
-        throw error instanceof Error ? error : new Error(detail);
-      } finally {
-        if (isDev) {
-          console.info("[ChatKitPanel] getClientSecret finally block", {
-            isMounted: isMountedRef.current,
-            hadCurrentSecret: Boolean(currentSecret),
-            willSetInitializingFalse: isMountedRef.current && !currentSecret
-          });
-        }
-        if (isMountedRef.current && !currentSecret) {
           setIsInitializingSession(false);
         }
+        throw error instanceof Error ? error : new Error(detail);
       }
     },
     [isWorkflowConfigured, setErrorState]
@@ -386,8 +381,10 @@ export function ChatKitPanel({
 
   // Track when ChatKit control becomes available
   useEffect(() => {
-    if (chatkit.control && isDev) {
-      console.info("🎉 ChatKit control is now available! Session initialized successfully.");
+    if (chatkit.control) {
+      if (isDev) {
+        console.info("🎉 ChatKit control is now available! Session initialized successfully.");
+      }
       // Control is ready, so we should clear the initializing state
       setIsInitializingSession(false);
     }
