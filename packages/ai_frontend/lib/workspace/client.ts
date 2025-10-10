@@ -34,7 +34,6 @@ export const ProjectCreateSchema = z.object({
   description: z.string().optional(),
   visibility: z.enum(['private', 'team', 'public']).default('private'),
   org_id: z.string().uuid().optional(),
-  template_id: z.string().uuid().optional(),
   budget_quota: z.number().optional(),
 })
 

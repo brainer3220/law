@@ -37,7 +37,7 @@ class RedactionRule(Base):
         Boolean, server_default=text("true"), nullable=False
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
+        nullable=False
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -62,7 +62,7 @@ class RedactionRun(Base):
     )
     stats: Mapped[dict | None] = mapped_column(JSONB)
     created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
+        nullable=False
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

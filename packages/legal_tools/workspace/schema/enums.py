@@ -114,4 +114,4 @@ def pg_enum(enum_cls: type[WorkspaceEnum]):
     from sqlalchemy.dialects.postgresql import ENUM as PgEnum
 
     definition = ENUM_DEFINITION_BY_CLASS[enum_cls]
-    return PgEnum(enum_cls, name=definition.name, create_type=False)
+    return PgEnum(*definition.values, name=definition.name, create_type=False)

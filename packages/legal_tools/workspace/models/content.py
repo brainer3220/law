@@ -46,9 +46,7 @@ class Instruction(Base):
     )
     version: Mapped[int] = mapped_column(Integer, primary_key=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -70,9 +68,7 @@ class Memory(Base):
     source: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     confidence: Mapped[float | None] = mapped_column(Float)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -106,9 +102,7 @@ class File(Base):
         nullable=False,
     )
     checksum: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

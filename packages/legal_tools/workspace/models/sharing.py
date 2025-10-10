@@ -40,7 +40,7 @@ class Permission(Base):
     principal_id: Mapped[str | None] = mapped_column(Text)
     role: Mapped[PermissionRole] = mapped_column(permission_role_enum(), nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
+        nullable=False
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -71,7 +71,7 @@ class ShareLink(Base):
         Integer, server_default=text("0"), nullable=False
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
+        nullable=False
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

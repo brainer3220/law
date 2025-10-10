@@ -62,9 +62,7 @@ class Project(Base):
     )
     budget_quota: Mapped[int | None] = mapped_column(BigInteger)
     current_instr_v: Mapped[int | None] = mapped_column(Integer)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -129,11 +127,9 @@ class ProjectMember(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("auth.users.id", ondelete="CASCADE"), primary_key=True
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     role: Mapped[PermissionRole] = mapped_column(permission_role_enum(), nullable=False)
-    invited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("auth.users.id"))
+    invited_by: Mapped[uuid.UUID | None] = mapped_column()
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

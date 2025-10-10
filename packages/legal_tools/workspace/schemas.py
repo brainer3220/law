@@ -58,7 +58,6 @@ class ProjectCreateRequest(BaseModel):
     description: Optional[str] = None
     visibility: str = Field(default="private")
     org_id: Optional[uuid.UUID] = None
-    template_id: Optional[uuid.UUID] = None
     budget_quota: Optional[int] = None
 
 
@@ -282,6 +281,17 @@ class ChatResponse(BaseModel):
     title: str
     created_at: Optional[dt.datetime]
     updated_at: Optional[dt.datetime]
+
+    @classmethod
+    def from_orm(cls, obj):
+        """ORM 객체로부터 생성."""
+        return cls(
+            id=obj.chat_id,
+            project_id=obj.project_id,
+            title=f"Chat {obj.chat_id}",  # ProjectChat에는 title이 없으므로 임시
+            created_at=obj.added_at,
+            updated_at=obj.added_at,
+        )
 
 
 class MessageSendRequest(BaseModel):

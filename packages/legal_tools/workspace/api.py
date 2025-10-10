@@ -629,6 +629,23 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
     # 채팅
     # ========================================================================
 
+    @app.get(
+        "/v1/projects/{project_id}/chats", response_model=list[schemas.ChatResponse]
+    )
+    def list_chats(
+        project_id: uuid.UUID,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> list[schemas.ChatResponse]:
+        """프로젝트의 채팅 목록."""
+        try:
+            chats = service.list_chats(project_id, user_id)
+            return [schemas.ChatResponse.from_orm(c) for c in chats]
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
     @app.post(
         "/v1/projects/{project_id}/chats", response_model=schemas.ChatResponse, status_code=201
     )

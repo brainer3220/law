@@ -22,8 +22,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .models import (
     Base,
+    Organization,
     Project,
     ProjectMember,
+    ProjectChat,
     Instruction,
     Memory,
     File,
@@ -187,19 +189,30 @@ class WorkspaceService:
         self, request: schemas.ProjectCreateRequest, user_id: uuid.UUID
     ) -> Project:
         """프로젝트 생성."""
+        # org_id가 없으면 기본 organization 사용
+        org_id = request.org_id
+        if not org_id:
+            stmt = select(Organization).where(Organization.name == "Default Organization")
+            default_org = self.session.execute(stmt).scalar_one_or_none()
+            if not default_org:
+                # 기본 organization 생성
+                default_org = Organization(name="Default Organization")
+                self.session.add(default_org)
+                self.session.flush()
+            org_id = default_org.id
+        
         project = Project(
             name=request.name,
             description=request.description,
             visibility=request.visibility,
-            org_id=request.org_id,
-            template_id=request.template_id,
+            org_id=org_id,
             budget_quota=request.budget_quota,
             created_by=user_id,
         )
         self.session.add(project)
         self.session.flush()
 
-        # 생성자를 OWNER로 추가
+        # OWNER로 멤버 추가
         member = ProjectMember(
             project_id=project.id,
             user_id=user_id,
@@ -786,6 +799,19 @@ class WorkspaceService:
         self._check_permission(request.project_id, user_id, PermissionRole.VIEWER)
         # TODO: 실제 BM25 + 벡터 검색
         return []
+
+    # ========================================================================
+    # 채팅
+    # ========================================================================
+
+    def list_chats(self, project_id: uuid.UUID, user_id: uuid.UUID) -> list[ProjectChat]:
+        """프로젝트의 채팅 목록."""
+        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
+        return list(
+            self.session.execute(
+                select(ProjectChat).where(ProjectChat.project_id == project_id)
+            ).scalars()
+        )
 
     # ========================================================================
     # 스냅샷
