@@ -7,7 +7,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
   // Check if Supabase is configured
-  const supabaseUrl = process.env.KIM_BYUN_SUPABASE_URL
+  const supabaseUrl = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey || 
@@ -15,7 +15,7 @@ export async function updateSession(request: NextRequest) {
       supabaseAnonKey === 'your-anon-key-here') {
     // Supabase not configured - allow request to proceed without auth
     console.warn('⚠️  Supabase not configured. Authentication is disabled.')
-    console.warn('Please set KIM_BYUN_SUPABASE_URL and KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
+    console.warn('Please set KIM_BYUN_NEXT_PUBLIC_SUPABASE_URL and KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
     return NextResponse.next({ request })
   }
 
@@ -50,7 +50,18 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
+
+  if (userError) {
+    console.error('Error getting user in middleware:', userError)
+  }
+
+  if (user) {
+    console.log(`[Middleware] User authenticated: ${user.email}, Path: ${request.nextUrl.pathname}`)
+  } else {
+    console.log(`[Middleware] No user, Path: ${request.nextUrl.pathname}`)
+  }
 
   // Protected routes - redirect to login if not authenticated
   if (
@@ -65,12 +76,14 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Redirect authenticated users away from auth pages
-  if (user && request.nextUrl.pathname.startsWith('/auth')) {
+  // Redirect authenticated users away from auth pages (except logout)
+  if (user && request.nextUrl.pathname.startsWith('/auth/') && 
+      !request.nextUrl.pathname.startsWith('/auth/logout')) {
     const redirectTo = request.nextUrl.searchParams.get('redirectTo')
     const url = request.nextUrl.clone()
     url.pathname = redirectTo || '/'
     url.search = ''
+    console.log(`Redirecting authenticated user from ${request.nextUrl.pathname} to ${url.pathname}`)
     return NextResponse.redirect(url)
   }
 

@@ -20,20 +20,34 @@ export async function POST(request: Request) {
     })
 
     if (error) {
+      console.error('Login error from Supabase:', error)
       return NextResponse.json(
         { error: error.message },
         { status: 401 }
       )
     }
 
-    return NextResponse.json(
+    if (!data.session) {
+      return NextResponse.json(
+        { error: '세션 생성에 실패했습니다.' },
+        { status: 500 }
+      )
+    }
+
+    // Create response with success message
+    const response = NextResponse.json(
       { 
         user: data.user,
-        session: data.session,
         message: '로그인 성공'
       },
       { status: 200 }
     )
+
+    // The cookies are automatically set by the supabase client
+    // through the server client's cookie handling
+    console.log('Login successful for user:', data.user.email)
+
+    return response
   } catch (error) {
     console.error('Login error:', error)
     return NextResponse.json(

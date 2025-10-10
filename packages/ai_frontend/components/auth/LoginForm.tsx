@@ -25,6 +25,7 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        credentials: 'same-origin', // Ensure cookies are included
       })
 
       const data = await response.json()
@@ -35,11 +36,13 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
 
       setMessage('로그인 성공! 리다이렉트 중...')
       
-      // Use window.location for full page refresh to ensure auth state is updated
+      // Wait a bit for cookies to be set, then redirect with router for better UX
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Use window.location for full page refresh to ensure middleware picks up auth state
       window.location.href = redirectTo
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인에 실패했습니다.')
-    } finally {
       setLoading(false)
     }
   }
