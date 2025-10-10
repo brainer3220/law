@@ -18,8 +18,8 @@ npm install @supabase/supabase-js @supabase/ssr
 
 ```bash
 # Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+KIM_BYUN_SUPABASE_URL=https://your-project.supabase.co
+KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 # Optional: Site URL for email redirects
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
@@ -228,7 +228,7 @@ npm run dev
 
 1. 쿠키가 제대로 설정되는지 확인
 2. Middleware가 올바르게 구성되었는지 확인
-3. `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_ANON_KEY`가 올바른지 확인
+3. `KIM_BYUN_SUPABASE_URL`과 `KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY`가 올바른지 확인
 
 ## 보안 고려사항
 

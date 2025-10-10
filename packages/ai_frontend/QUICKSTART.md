@@ -5,8 +5,8 @@
 ## ⚠️ 현재 상태
 
 ```
-❌ NEXT_PUBLIC_SUPABASE_URL: 미설정
-❌ NEXT_PUBLIC_SUPABASE_ANON_KEY: 미설정
+❌ KIM_BYUN_SUPABASE_URL: 미설정
+❌ KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY: 미설정
 ```
 
 인증 기능을 사용하려면 아래 단계를 따라주세요.
@@ -36,12 +36,12 @@
 
 ```bash
 # 현재 (❌ 잘못된 값)
-NEXT_PUBLIC_SUPABASE_URL=your-project-url-here
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+KIM_BYUN_SUPABASE_URL=your-project-url-here
+KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 
 # 변경 후 (✅ 실제 값)
-NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...실제키...
+KIM_BYUN_SUPABASE_URL=https://xxxxx.supabase.co
+KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...실제키...
 ```
 
 ### 4단계: Email Provider 활성화

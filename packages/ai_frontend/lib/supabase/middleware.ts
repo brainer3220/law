@@ -7,15 +7,15 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
   // Check if Supabase is configured
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.KIM_BYUN_SUPABASE_URL
+  const supabaseAnonKey = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey || 
       supabaseUrl === 'your-project-url-here' || 
       supabaseAnonKey === 'your-anon-key-here') {
     // Supabase not configured - allow request to proceed without auth
     console.warn('⚠️  Supabase not configured. Authentication is disabled.')
-    console.warn('Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
+    console.warn('Please set KIM_BYUN_SUPABASE_URL and KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local')
     return NextResponse.next({ request })
   }
 
