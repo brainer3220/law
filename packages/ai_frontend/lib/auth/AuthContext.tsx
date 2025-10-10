@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 
@@ -16,9 +16,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabase = useMemo<ReturnType<typeof createClient> | null>(() => {
+    try {
+      return createClient()
+    } catch (error) {
+      console.warn(
+        'Supabase environment not configured. Auth features are disabled.',
+        error
+      )
+      return null
+    }
+  }, [])
 
   const refreshUser = async () => {
+    if (!supabase) {
+      setUser(null)
+      return
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
@@ -29,6 +43,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
     // Get initial session
     const initializeAuth = async () => {
       try {
