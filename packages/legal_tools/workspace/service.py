@@ -826,11 +826,13 @@ class WorkspaceService:
             project_id=project_id,
             title=request.title or "New Chat",
             created_by=user_id,
+            added_by=user_id,
         )
         self.session.add(chat)
+        self.session.flush()  # Flush to get DB-generated timestamps
         self.session.commit()
         self._log_audit(
-            project_id, user_id, "chat.created", "chat", str(chat.chat_id)
+            project_id, user_id, "chat.created", "chat", str(chat.id)
         )
         return chat
 

@@ -569,16 +569,17 @@ class SnapshotFile(Base):
 
 
 class ProjectChat(Base):
-    """Association between projects and existing chats."""
+    """Chat sessions within a project."""
 
     __tablename__ = "project_chats"
 
-    # Primary keys - order matches database
-    chat_id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=func.gen_random_uuid()
+    # Single primary key for the chat
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
     )
     project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
     
     # Chat metadata

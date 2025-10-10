@@ -286,11 +286,11 @@ class ChatResponse(BaseModel):
     def from_orm(cls, obj):
         """ORM 객체로부터 생성."""
         return cls(
-            id=obj.chat_id,
+            id=obj.id,  # Changed from chat_id to id
             project_id=obj.project_id,
-            title=f"Chat {obj.chat_id}",  # ProjectChat에는 title이 없으므로 임시
-            created_at=obj.added_at,
-            updated_at=obj.added_at,
+            title=obj.title,
+            created_at=obj.created_at,
+            updated_at=obj.updated_at,
         )
 
 
