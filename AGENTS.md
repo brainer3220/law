@@ -1,35 +1,36 @@
 # Repository Guidelines
 
+This guide helps new contributors navigate the legal agent stack and deliver consistent changes.
+
 ## Project Structure & Module Organization
-- `main.py` orchestrates CLI commands (`preview`, `stats`, `ask`, `serve`) and wires core services.
-- Domain logic, LangChain adapters, and HTTP handlers live in `packages/legal_tools/`; statute and 해석례 flows center on `packages/legal_tools/law_go_kr.py` and `packages/legal_tools/agent_graph.py`.
-- Shared schemas stay in `packages/legal_schemas/`; increment the version field whenever payloads change.
-- Offline corpora, fixtures, and indexes belong under `data/`; keep large binaries out of Git.
-- Tests reside in `tests/`, scripts in `scripts/`, and automation/config assets are grouped accordingly.
+- `main.py` exposes CLI entry points (`preview`, `stats`, `ask`, `serve`) and wires shared services.
+- Core agent flows live under `packages/legal_tools/`; statute retrieval centers on `law_go_kr.py`, orchestration on `agent_graph.py`.
+- Shared Pydantic schemas reside in `packages/legal_schemas/`; bump their versions whenever payloads change.
+- Offline corpora, retrieval artifacts, and fixtures belong in `data/`; tests live in `tests/`; helper scripts sit in `scripts/`.
 
 ## Build, Test, and Development Commands
-- `uv venv && uv sync` — provision the Python ≥3.10 environment with LangChain/LangGraph dependencies.
-- `uv run main.py ask "질문" --offline` — exercise the agent locally without invoking remote APIs.
-- `uv run main.py serve --host 127.0.0.1 --port 8080` — launch the OpenAI-compatible HTTP endpoint.
-- `pytest -q` — run the offline unit and integration suite; add `-k pattern` for targeted runs.
-- `ruff check .` / `ruff format .` — lint and format codebase-wide.
+- `uv venv && uv sync` sets up Python ≥3.10 with LangChain/LangGraph dependencies.
+- `uv run main.py ask "질문" --offline` runs the agent on local corpora; append `--trace` for verbose debugging.
+- `uv run main.py serve --host 127.0.0.1 --port 8080` serves the OpenAI-compatible HTTP interface for manual QA.
+- `pytest -q` executes unit and integration suites; pass `-k pattern` to scope scenarios.
+- `ruff check .` and `ruff format .` ensure lint and formatting compliance; run both before committing.
 
 ## Coding Style & Naming Conventions
-- Adopt Black-style formatting (≈100 columns, 4-space indentation) enforced by `ruff format`.
-- Use snake_case modules, PascalCase classes, UPPER_SNAKE_CASE constants, and SCREAMING_SNAKE_CASE environment variables.
-- Annotate public functions, avoid wildcard imports, and keep comments focused on intent.
+- Follow Black conventions (4-space indentation, ~100 columns) via `ruff format`.
+- Use snake_case for modules and functions, PascalCase for classes, and UPPER_SNAKE_CASE for constants and env vars.
+- Type-annotate public APIs, avoid wildcard imports, and reserve comments for intent or edge cases.
 
 ## Testing Guidelines
-- Author pytest cases under `tests/test_*.py`; mirror fixtures in `data/` when expanding coverage.
-- Mock external LLM and network calls so test runs remain deterministic.
-- When updating retrieval flows, assert snippet ranking or citation payloads to prevent regressions.
+- Add pytest modules as `tests/test_*.py`; mirror new fixtures in `data/` to keep offline runs deterministic.
+- Mock network/LLM calls and assert retrieval ranks or statute citations when altering agent flows.
+- Prefer regression tests covering schema version changes, prompt templates, or ranking heuristics.
 
 ## Commit & Pull Request Guidelines
-- Follow Conventional Commits (e.g., `feat(agent): add statute parser fallback`).
-- PRs should summarize intent, main touch points, linked issues, and note `pytest`/`uv run` commands executed.
-- Include before/after CLI or API samples when behavior or logging changes; highlight schema bumps in `packages/legal_schemas/`.
+- Follow Conventional Commits (`feat(agent): …`, `fix(schema): …`) and group related edits logically.
+- PRs should capture intent, major touch points, linked issues, and commands executed (`uv run`, `pytest`).
+- Include CLI/API before/after snippets for behavior changes and call out schema bumps explicitly.
 
 ## Security & Configuration Tips
-- Never commit secrets; document defaults in `.env.example` and rely on environment variables like `LAW_OFFLINE`, `LAW_LLM_PROVIDER`, and `OPENAI_*`.
-- Install `psycopg[binary]` or system `libpq` for Postgres BM25 search, ensuring DSNs enforce SSL.
-- Keep retrieval indexes under `data/`; regenerate via project scripts rather than manual edits.
+- Never commit secrets; document defaults in `.env` or `.env.example` and rely on `LAW_OFFLINE`, `LAW_LLM_PROVIDER`, `OPENAI_*`.
+- Install `psycopg[binary]` or system `libpq` for Postgres-backed BM25 search and enforce SSL in DSNs.
+- Regenerate retrieval indexes via project scripts rather than manual edits to keep deployments reproducible.

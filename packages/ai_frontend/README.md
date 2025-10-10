@@ -1,101 +1,313 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Next.js 14 and App Router-ready AI chatbot." src="app/(chat)/opengraph-image.png">
-  <h1 align="center">Chat SDK</h1>
-</a>
+# 법률 LLM 에이전트 프론트엔드
 
-<p align="center">
-    Chat SDK is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
+법률 LLM 에이전트를 위한 [ChatKit](http://openai.github.io/chatkit-js/) 기반 프론트엔드 애플리케이션. 근거 기반 법률 문서 생성, 인용 검증, 정책 검토 등을 지원하는 UI 컴포넌트 라이브러리를 포함합니다.
+
+## 주요 기능
+
+- **ChatKit 통합**: OpenAI의 ChatKit 웹 컴포넌트와 테마 제어
+- **법률 전용 UI 컴포넌트**: 근거 카드, 조항 비교, 인용 팝오버, 정책 위반 알림 등
+- **RAG-First 아키텍처**: 검색 기반 근거 제시 및 인용 검증
+- **투명성 & Provenance**: 모델/프롬프트/인덱스 버전 추적
+- **다크 모드 지원**: 색맹 친화적 디자인
+
+## Getting Started
+
+Follow every step below to run the app locally and configure it for your preferred backend.
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Create your environment file
+
+Copy the example file and fill in the required values:
+
+```bash
+cp .env.example .env.local
+```
+
+### 3. Configure ChatKit credentials
+
+Update `.env.local` with the variables that match your setup.
+
+- `OPENAI_API_KEY` — API key with access to ChatKit.
+- `NEXT_PUBLIC_CHATKIT_WORKFLOW_ID` — the workflow you created in the ChatKit dashboard.
+- (optional) `CHATKIT_API_BASE` - customizable base URL for the ChatKit API endpoint
+
+### 4. Run the app
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000` and start chatting. Use the prompts on the start screen to verify your workflow connection, then customize the UI or prompt list in [`lib/config.ts`](lib/config.ts) and [`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx).
+
+### 5. Build for production (optional)
+
+```bash
+npm run build
+npm start
+```
+
+## 공유 UI 컴포넌트 라이브러리
+
+### 근거 & 인용 컴포넌트
+
+#### `<EvidenceCard />`
+법령/판례/문서 근거를 표시하는 카드. 출처 유형, 제목/번호, 스니펫, pin-cite 포함.
+
+```tsx
+import { EvidenceCard } from "@/components/EvidenceCard";
+
+<EvidenceCard
+  evidence={{
+    id: "ev1",
+    type: "statute",
+    title: "민법",
+    number: "제750조",
+    snippet: "고의 또는 과실로 인한 위법행위로...",
+    pinCite: "제750조",
+    confidence: 0.95,
+  }}
+  onOpenSource={(ev) => console.log(ev)}
+/>
+```
+
+#### `<CitationPopover />`
+문단 내 주장에 호버/클릭 시 근거를 팝오버로 표시.
+
+```tsx
+import { CitationPopover } from "@/components/CitationPopover";
+
+<p>
+  계약 당사자는{" "}
+  <CitationPopover
+    text="불법행위에 대해 손해배상책임을 진다"
+    evidence={evidenceList}
+    status="verified"
+  />
 </p>
-
-<p align="center">
-  <a href="https://chat-sdk.dev"><strong>Read Docs</strong></a> ·
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#model-providers"><strong>Model Providers</strong></a> ·
-  <a href="#deploy-your-own"><strong>Deploy Your Own</strong></a> ·
-  <a href="#running-locally"><strong>Running locally</strong></a>
-</p>
-<br/>
-
-## Features
-
-- [Next.js](https://nextjs.org) App Router
-  - Advanced routing for seamless navigation and performance
-  - React Server Components (RSCs) and Server Actions for server-side rendering and increased performance
-- [AI SDK](https://ai-sdk.dev/docs/introduction)
-  - Unified API for generating text, structured objects, and tool calls with LLMs
-  - Hooks for building dynamic chat and generative user interfaces
-  - Supports xAI (default), OpenAI, Fireworks, and other model providers
-- [shadcn/ui](https://ui.shadcn.com)
-  - Styling with [Tailwind CSS](https://tailwindcss.com)
-  - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
-- Data Persistence
-  - [Neon Serverless Postgres](https://vercel.com/marketplace/neon) for saving chat history and user data
-  - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
-- [Auth.js](https://authjs.dev)
-  - Simple and secure authentication
-- Law MCP integration for Korean legal research (keyword search, statute detail, 법령해석례 조회)
-
-## Model Providers
-
-This template targets the local OpenAI-compatible gateway served by `uv run main.py serve --host 127.0.0.1 --port 8080`. By default the frontend sends requests to `http://127.0.0.1:8080/v1`. Override or secure the endpoint with the following environment variables:
-
-- `OPENAI_COMPATIBLE_BASE_URL` – optional base URL override when the gateway is hosted elsewhere.
-- `OPENAI_COMPATIBLE_API_KEY` – optional bearer token if the gateway enforces authentication.
-- `OPENAI_COMPATIBLE_MODEL` (plus the `*_REASONING`, `*_TITLE`, `*_ARTIFACT` variants) – optional model IDs forwarded in the `model` field.
-
-You can still swap in any other provider supported by the [AI SDK](https://ai-sdk.dev/providers/ai-sdk-providers) by editing `lib/ai/providers.ts`.
-
-### Manual Gateway Check
-
-Once the backend gateway is running you can issue a quick curl to confirm streaming responses:
-
-```bash
-curl -s http://127.0.0.1:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gpt-5-mini-2025-08-07",
-    "messages": [{"role":"user","content":"근로시간 면제업무 관련 판례 알려줘"}],
-    "stream": true
-  }'
 ```
 
-## Deploy Your Own
+#### `<ClaimEvidenceMatrix />`
+주장 × 근거 매트릭스 테이블. 관련도를 시각화.
 
-You can deploy your own version of the Next.js AI Chatbot to Vercel with one click:
+```tsx
+import { ClaimEvidenceMatrix } from "@/components/ClaimEvidenceMatrix";
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/nextjs-ai-chatbot)
-
-## Running locally
-
-You will need to use the environment variables [defined in `.env.example`](.env.example) to run Next.js AI Chatbot. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
-
-> Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
-
-1. Install Vercel CLI: `npm i -g vercel`
-2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
-3. Download your environment variables: `vercel env pull`
-
-### Law MCP server dependency
-
-The chat assistant now expects a running [`law-mcp-server`](../../packages/legal_tools/mcp_server.py) instance for legal research tools. Start it in a separate terminal before launching the Next.js dev server:
-
-```bash
-uv run law-mcp-server  # defaults to http://127.0.0.1:8000/mcp
+<ClaimEvidenceMatrix
+  claims={claims}
+  evidence={evidence}
+  cells={cells}
+  onCellClick={(claimId, evidenceId) => {...}}
+/>
 ```
 
-Override the target endpoint with the `LAW_MCP_BASE_URL` environment variable if the server runs on another host/port.
+### 문서 검토 컴포넌트
 
-- Use `LAW_MCP_TRANSPORT` to select the transports that should be merged by the `/api/completion` route. Provide a comma-separated list such as `streamable-http,sse` or `stdio,streamable-http`. The default is `streamable-http`.
-- When launching the stdio transport locally, set `LAW_MCP_STDIO_COMMAND` and `LAW_MCP_STDIO_ARGS` if you need to customize the spawn command (defaults to `uv` and `run law-mcp-server`).
-- Override derived URLs for additional transports with `LAW_MCP_HTTP_URL` or `LAW_MCP_SSE_URL` when the MCP server exposes different endpoints.
+#### `<ClauseDiffCard />`
+계약서 조항 before/after 비교 카드. 위험 태그, 인용 각주, 승인/거부/수정 액션 포함.
 
-```bash
-pnpm install
-pnpm dev
+```tsx
+import { ClauseDiffCard } from "@/components/ClauseDiffCard";
+
+<ClauseDiffCard
+  diff={{
+    before: "원래 조항...",
+    after: "수정된 조항...",
+    riskLevel: "medium",
+    citations: [...],
+  }}
+  onAccept={(id) => {...}}
+  onReject={(id) => {...}}
+  onRevise={(id) => {...}}
+/>
 ```
 
-The dev server listens on [http://127.0.0.1:8080](http://127.0.0.1:8080) by default.
+#### `<PolicyViolationAlert />`
+UPL, 개인정보, Hallucination 등 정책 위반 알림.
 
-> ⚠️ The chat UI now requires an authenticated session. After launching the dev server, visit [`/register`](http://localhost:3000/register) to create an account before opening the chat interface. Any API requests made without a session cookie will return a `401 Unauthorized` response or redirect you back to the login page.
+```tsx
+import { PolicyViolationAlert } from "@/components/PolicyViolationAlert";
 
-After signing in you can visit [`/mcp`](http://localhost:3000/mcp) to trigger the MCP-enabled completion demo without disturbing existing chat threads.
+<PolicyViolationAlert
+  violations={violations}
+  onResolve={(id) => {...}}
+  onViewGuide={(violation) => {...}}
+/>
+```
+
+### 상태 & 메타데이터 컴포넌트
+
+#### `<StatusBadge />`
+문서 상태(Draft → CiteCheck → PolicyCheck → Approved) 뱃지.
+
+```tsx
+import { StatusBadge } from "@/components/StatusBadge";
+
+<StatusBadge status="cite_check" />
+```
+
+#### `<RiskBadge />`
+위험도(High/Medium/Low) 뱃지.
+
+```tsx
+import { RiskBadge } from "@/components/RiskBadge";
+
+<RiskBadge level="high" />
+```
+
+#### `<ProvenanceFooter />`
+모델/프롬프트/인덱스/정책 버전 정보 푸터.
+
+```tsx
+import { ProvenanceFooter } from "@/components/ProvenanceFooter";
+
+<ProvenanceFooter
+  provenance={{
+    modelVersion: "gpt-4-turbo-2024-04-09",
+    promptVersion: "v2.3.1",
+    indexVersion: "idx-20240815",
+    policyVersion: "policy-v1.2",
+    timestamp: new Date().toISOString(),
+  }}
+  auditId="audit-20241008-001"
+/>
+```
+
+### 검색 & 입력 컴포넌트
+
+#### `<SearchBar />`
+법령/판례/문서 검색 바. Debounce, 필터(분야/출처/날짜) 포함.
+
+```tsx
+import { SearchBar } from "@/components/SearchBar";
+
+<SearchBar
+  onSearch={(filter) => console.log(filter)}
+  showFilters
+/>
+```
+
+#### `<LoadingSpinner />`
+로딩 상태 표시.
+
+```tsx
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+
+<LoadingSpinner size="md" label="검색 중..." />
+```
+
+## 공유 로직 & Hooks
+
+### `lib/utils.ts`
+- `cn()`: Tailwind 클래스 병합
+- `formatDate()`, `formatLegalReference()`: 날짜/법령 포맷팅
+- `highlightText()`, `truncate()`: 텍스트 처리
+- `parsePinCite()`: Pin cite 파싱 (예: "제10조 제2항")
+- `getRiskColorClass()`, `getCiteStatusColorClass()`: 색상 유틸
+- `maskPII()`: 개인정보 마스킹
+- `debounce()`, `deepClone()`, `chunkArray()`: 일반 유틸
+
+### `lib/types.ts`
+공용 타입 정의:
+- `EvidenceSource`, `Claim`, `ClauseDiff`, `ClaimEvidenceCell`
+- `PolicyViolation`, `CitationVerificationResult`
+- `DocumentMetadata`, `Matter`, `SearchFilter`
+- `Provenance`, `AuditLogEntry`, `UserPermissions`
+
+### Custom Hooks
+
+#### `useDebounce(value, delay)`
+값 변경을 지연시켜 빈번한 업데이트 방지.
+
+```tsx
+import { useDebounce } from "@/hooks/useDebounce";
+
+const [query, setQuery] = useState("");
+const debouncedQuery = useDebounce(query, 500);
+```
+
+#### `useLocalStorage(key, initialValue)`
+localStorage와 React state 동기화.
+
+```tsx
+import { useLocalStorage } from "@/hooks/useLocalStorage";
+
+const [settings, setSettings] = useLocalStorage("legal-settings", {});
+```
+
+#### `useColorScheme()`
+다크/라이트 모드 전환.
+
+```tsx
+import { useColorScheme } from "@/hooks/useColorScheme";
+
+const { scheme, setScheme } = useColorScheme();
+```
+
+## 데모 페이지
+
+모든 컴포넌트의 사용 예시는 `/demo` 경로에서 확인:
+
+```bash
+npm run dev
+# http://localhost:3000/demo
+```
+
+## 아키텍처 원칙
+
+1. **근거 우선 (RAG-First)**: 모든 주장에 인용 근거 필수
+2. **투명성 (Transparency)**: Provenance 정보 추적
+3. **정책 준수 (Compliance)**: UPL/PII/Scope 자동 검증
+4. **접근성 (Accessibility)**: ARIA 레이블, 키보드 탐색, 색맹 친화적
+5. **타입 안정성 (Type Safety)**: TypeScript strict 모드
+
+## 프로젝트 구조
+
+```
+ai_frontend/
+├── app/
+│   ├── api/create-session/    # ChatKit 세션 생성 API
+│   ├── demo/                   # 컴포넌트 데모 페이지
+│   ├── App.tsx                 # 메인 앱 컴포넌트
+│   └── page.tsx                # 홈 페이지
+├── components/
+│   ├── ChatKitPanel.tsx        # ChatKit 통합 패널
+│   ├── EvidenceCard.tsx        # 근거 카드
+│   ├── CitationPopover.tsx     # 인용 팝오버
+│   ├── ClaimEvidenceMatrix.tsx # 주장×근거 매트릭스
+│   ├── ClauseDiffCard.tsx      # 조항 비교 카드
+│   ├── PolicyViolationAlert.tsx # 정책 위반 알림
+│   ├── ProvenanceFooter.tsx    # Provenance 푸터
+│   ├── SearchBar.tsx           # 검색 바
+│   ├── StatusBadge.tsx         # 상태 뱃지
+│   ├── RiskBadge.tsx           # 위험도 뱃지
+│   ├── LoadingSpinner.tsx      # 로딩 스피너
+│   └── ErrorOverlay.tsx        # 에러 오버레이
+├── hooks/
+│   ├── useColorScheme.ts       # 다크모드 hook
+│   ├── useDebounce.ts          # Debounce hook
+│   └── useLocalStorage.ts      # LocalStorage hook
+├── lib/
+│   ├── config.ts               # ChatKit 설정
+│   ├── types.ts                # 공용 타입 정의
+│   └── utils.ts                # 유틸리티 함수
+└── README.md
+```
+
+## 라이선스
+
+이 프로젝트는 법률 LLM 에이전트 프로젝트의 일부입니다.
+
+## Customization Tips
+
+- Adjust starter prompts, greeting text, and placeholder copy in [`lib/config.ts`](lib/config.ts).
+- Update the theme defaults or event handlers inside[`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx) to integrate with your product analytics or storage.
+
+## References
+
+- [ChatKit JavaScript Library](http://openai.github.io/chatkit-js/)
+- [Advanced Self-Hosting Examples](https://github.com/openai/openai-chatkit-advanced-samples)

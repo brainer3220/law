@@ -1,79 +1,179 @@
-import type { InferUITool, UIMessage } from "ai";
-import { z } from "zod";
-import type { ArtifactKind } from "@/components/artifact";
-import type { createDocument } from "./ai/tools/create-document";
-import type { getWeather } from "./ai/tools/get-weather";
-import type { requestSuggestions } from "./ai/tools/request-suggestions";
-import type { updateDocument } from "./ai/tools/update-document";
-import type {
-  lawInterpretationDetail,
-  lawInterpretationSearch,
-  lawKeywordSearch,
-  lawStatuteDetail,
-  lawStatuteSearch,
-} from "./ai/tools/law";
-import type { Suggestion } from "./db/schema";
-import type { AppUsage } from "./usage";
+/**
+ * 법률 LLM 에이전트 - 공용 타입 정의
+ */
 
-export type DataPart = { type: "append-message"; message: string };
+/**
+ * 근거 타입 (법령/판례/문서)
+ */
+export type EvidenceType = "statute" | "case" | "doc";
 
-export const messageMetadataSchema = z.object({
-  createdAt: z.string(),
-});
+/**
+ * 위험도 레벨
+ */
+export type RiskLevel = "high" | "medium" | "low";
 
-export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+/**
+ * 인용 검증 상태
+ */
+export type CitationStatus = "unverified" | "verified" | "error";
 
-type weatherTool = InferUITool<typeof getWeather>;
-type createDocumentTool = InferUITool<ReturnType<typeof createDocument>>;
-type updateDocumentTool = InferUITool<ReturnType<typeof updateDocument>>;
-type requestSuggestionsTool = InferUITool<
-  ReturnType<typeof requestSuggestions>
->;
-type lawKeywordSearchTool = InferUITool<typeof lawKeywordSearch>;
-type lawStatuteSearchTool = InferUITool<typeof lawStatuteSearch>;
-type lawStatuteDetailTool = InferUITool<typeof lawStatuteDetail>;
-type lawInterpretationSearchTool = InferUITool<
-  typeof lawInterpretationSearch
->;
-type lawInterpretationDetailTool = InferUITool<
-  typeof lawInterpretationDetail
->;
+/**
+ * 법률 도메인
+ */
+export type LegalDomain = "civil" | "criminal" | "administrative" | "ip";
 
-export type ChatTools = {
-  getWeather: weatherTool;
-  createDocument: createDocumentTool;
-  updateDocument: updateDocumentTool;
-  requestSuggestions: requestSuggestionsTool;
-  lawKeywordSearch: lawKeywordSearchTool;
-  lawStatuteSearch: lawStatuteSearchTool;
-  lawStatuteDetail: lawStatuteDetailTool;
-  lawInterpretationSearch: lawInterpretationSearchTool;
-  lawInterpretationDetail: lawInterpretationDetailTool;
-};
+/**
+ * 근거 소스
+ */
+export interface EvidenceSource {
+  id: string;
+  type: EvidenceType;
+  title: string;
+  number?: string; // 법령 번호 또는 사건 번호
+  snippet: string; // 관련 스니펫
+  pinCite?: string; // 예: "제10조 제2항"
+  url?: string; // 원문 URL
+  date?: string; // 공포일 또는 선고일
+  confidence?: number; // 0-1 사이 신뢰도
+}
 
-export type CustomUIDataTypes = {
-  textDelta: string;
-  imageDelta: string;
-  sheetDelta: string;
-  codeDelta: string;
-  suggestion: Suggestion;
-  appendMessage: string;
+/**
+ * 조항 비교 (Diff)
+ */
+export interface ClauseDiff {
+  id: string;
+  before: string;
+  after: string;
+  riskLevel: RiskLevel;
+  riskTags: string[];
+  citations: EvidenceSource[];
+  comments?: string;
+}
+
+/**
+ * 주장 (Claim)
+ */
+export interface Claim {
+  id: string;
+  text: string;
+  paragraph: number;
+  evidenceIds: string[]; // 연결된 근거 ID 목록
+  status: CitationStatus;
+  confidence?: number;
+}
+
+/**
+ * 주장 × 근거 매트릭스 셀
+ */
+export interface ClaimEvidenceCell {
+  claimId: string;
+  evidenceId: string;
+  relevance: number; // 0-1 사이 관련도
+  isSupporting: boolean; // 주장을 뒷받침하는가
+}
+
+/**
+ * 문서 메타데이터
+ */
+export interface DocumentMetadata {
   id: string;
   title: string;
-  kind: ArtifactKind;
-  clear: null;
-  finish: null;
-  usage: AppUsage;
-};
+  type: "contract" | "brief" | "research" | "evidence";
+  createdAt: string;
+  updatedAt: string;
+  matterId?: string; // 사건 ID
+  version: string;
+  status: "draft" | "cite_check" | "policy_check" | "approved";
+  author?: string;
+}
 
-export type ChatMessage = UIMessage<
-  MessageMetadata,
-  CustomUIDataTypes,
-  ChatTools
->;
-
-export type Attachment = {
+/**
+ * Matter (사건) 정보
+ */
+export interface Matter {
+  id: string;
   name: string;
-  url: string;
-  contentType: string;
-};
+  domain: LegalDomain;
+  description?: string;
+  clientName?: string;
+  createdAt: string;
+  status: "active" | "closed" | "archived";
+}
+
+/**
+ * 검색 필터
+ */
+export interface SearchFilter {
+  query: string;
+  domain?: LegalDomain;
+  corpus?: EvidenceType[];
+  dateFrom?: string;
+  dateTo?: string;
+  caseNumber?: string;
+}
+
+/**
+ * 정책 위반
+ */
+export interface PolicyViolation {
+  id: string;
+  type: "upl" | "privacy" | "scope" | "hallucination";
+  severity: RiskLevel;
+  message: string;
+  location?: {
+    paragraph: number;
+    start: number;
+    end: number;
+  };
+  suggestion?: string;
+  guideUrl?: string;
+}
+
+/**
+ * 인용 검증 결과
+ */
+export interface CitationVerificationResult {
+  claimId: string;
+  status: CitationStatus;
+  evidence: EvidenceSource[];
+  unsupportedReasons?: string[];
+  alternativeEvidence?: EvidenceSource[];
+}
+
+/**
+ * 사용자 권한
+ */
+export interface UserPermissions {
+  canViewMatter: boolean;
+  canEditDocument: boolean;
+  canApproveDocument: boolean;
+  canExportDocument: boolean;
+  canViewAudit: boolean;
+}
+
+/**
+ * 감사 로그 엔트리
+ */
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  matterId?: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Provenance (출처 정보)
+ */
+export interface Provenance {
+  modelVersion: string;
+  promptVersion: string;
+  indexVersion: string;
+  policyVersion: string;
+  corpusHash?: string;
+  timestamp: string;
+}

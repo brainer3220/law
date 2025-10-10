@@ -1,78 +1,19 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { getAuthSecret } from "./lib/auth";
+import { updateSession } from '@/lib/supabase/middleware'
+import { type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  /*
-   * Playwright starts the dev server and requires a 200 status to
-   * begin the tests, so this ensures that the tests can start
-   */
-  if (pathname.startsWith("/ping")) {
-    return new Response("pong", { status: 200 });
-  }
-
-  if (pathname.startsWith("/api/auth")) {
-    return NextResponse.next();
-  }
-
-  const forwardedProto = request.headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    .trim();
-  const isSecure =
-    request.nextUrl.protocol === "https:" || forwardedProto === "https";
-
-  const token = await getToken({
-    req: request,
-    secret: getAuthSecret(),
-    secureCookie: isSecure,
-  });
-
-  const authRoutes = ["/login", "/register"];
-
-  if (!token) {
-    if (authRoutes.includes(pathname)) {
-      return NextResponse.next();
-    }
-
-    if (pathname.startsWith("/api")) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
-    const safeRedirect = redirectPath || "/";
-
-    return NextResponse.redirect(
-      new URL(
-        `/login?redirectUrl=${encodeURIComponent(safeRedirect)}`,
-        request.url
-      )
-    );
-  }
-
-  if (authRoutes.includes(pathname)) {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
-
-  return NextResponse.next();
+  return await updateSession(request)
 }
 
 export const config = {
   matcher: [
-    "/",
-    "/chat/:id",
-    "/api/:path*",
-    "/login",
-    "/register",
-
     /*
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico, sitemap.xml, robots.txt (metadata files)
+     * - favicon.ico (favicon file)
+     * Feel free to modify this pattern to include more paths.
      */
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
-};
+}
