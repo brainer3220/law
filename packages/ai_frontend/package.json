@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@openai/chatkit-react": "^0",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.75.0",
     "clsx": "^2.1.1",
     "next": "^15.5.4",
     "react": "^19.2.0",
