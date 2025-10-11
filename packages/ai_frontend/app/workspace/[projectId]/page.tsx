@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useCallback, useEffect, useMemo, useState } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
@@ -24,6 +24,7 @@ import {
   PencilSquareIcon,
   TrashIcon,
   ChatBubbleLeftRightIcon,
+  EllipsisVerticalIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 
@@ -52,7 +53,9 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const [deletingProject, setDeletingProject] = useState(false)
   const [deletingUpdateId, setDeletingUpdateId] = useState<string | null>(null)
   const [updateDeleteError, setUpdateDeleteError] = useState<string | null>(null)
-  
+  const [isProjectActionsOpen, setProjectActionsOpen] = useState(false)
+  const projectActionsRef = useRef<HTMLDivElement | null>(null)
+
   // Wide screen에서 기본적으로 ChatKit 열기
   const [chatSidebarOpen, setChatSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -77,6 +80,27 @@ export default function ProjectDetailPage({ params }: PageProps) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [chatSidebarOpen])
+
+  useEffect(() => {
+    if (!isProjectActionsOpen) {
+      return
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        projectActionsRef.current &&
+        event.target instanceof Node &&
+        !projectActionsRef.current.contains(event.target)
+      ) {
+        setProjectActionsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isProjectActionsOpen])
 
   const sortedUpdates = useMemo(() => {
     return [...updates].sort((a, b) => {
@@ -139,6 +163,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
     try {
       setDeletingProject(true)
       setProjectDeleteError(null)
+      setProjectActionsOpen(false)
       workspaceClient.setUserId(userId)
       await workspaceClient.deleteProject(project.id)
       await reloadProjects()
@@ -265,14 +290,6 @@ export default function ProjectDetailPage({ params }: PageProps) {
       <div className={`material-project ${chatSidebarOpen ? 'material-project--sidebar-open' : ''}`}>
         <header className="material-project__bar">
           <div className="material-project__breadcrumbs">
-            <button
-              type="button"
-              aria-label="프로젝트 목록으로 이동"
-              onClick={() => router.push('/workspace')}
-              className="material-icon-button material-icon-button--tonal"
-            >
-              <ArrowLeftIcon className="material-icon" aria-hidden="true" />
-            </button>
             <div className="material-project__overview">
               <h1 className="material-title material-project__title">{project.name}</h1>
               {project.description && (
@@ -282,7 +299,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
               )}
             </div>
           </div>
-          <div className="material-project__actions">
+          <div className="material-project__actions" ref={projectActionsRef}>
             {projectDeleteError && (
               <div className="material-alert material-alert--error material-project__error-alert">
                 {projectDeleteError}
@@ -296,111 +313,125 @@ export default function ProjectDetailPage({ params }: PageProps) {
             >
               <ChatBubbleLeftRightIcon className="material-icon" aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              disabled={deletingProject}
-              onClick={handleDeleteProject}
-              className="material-outlined-button material-outlined-button--error"
-            >
-            <TrashIcon className="material-icon" aria-hidden="true" />
-            <span>{deletingProject ? '삭제 중…' : '프로젝트 삭제'}</span>
-          </button>
-        </div>
-      </header>
-
-      <section className="material-project__stats">
-        <StatTile
-          icon={<DocumentTextIcon className="material-icon" aria-hidden="true" />}
-          label="업데이트"
-          value={`${sortedUpdates.length}개`}
-        />
-        <StatTile
-          icon={<ClockIcon className="material-icon" aria-hidden="true" />}
-          label="최근 활동"
-          value={
-            latestUpdate?.created_at
-              ? format(new Date(latestUpdate.created_at), 'yyyy.MM.dd HH:mm', {
-                  locale: ko,
-                })
-              : '없음'
-          }
-        />
-        <StatTile
-          icon={<UserGroupIcon className="material-icon" aria-hidden="true" />}
-          label="멤버"
-          value={`${members.length}명`}
-        />
-      </section>
-
-      <main className="material-project__content">
-        <section className="material-project__composer">
-          <header className="material-project__section-header">
-            <h2 className="material-title material-project__section-title">
-              <PencilSquareIcon className="material-icon" aria-hidden="true" />
-              프로젝트 업데이트 작성
-            </h2>
-            <p className="material-caption">
-              진행 상황, 결정 사항, 다음 액션 등을 간단히 기록하세요.
-            </p>
-          </header>
-
-          <form onSubmit={handleUpdateSubmit} className="material-project__form">
-            <textarea
-              value={newUpdate}
-              onChange={(event) => setNewUpdate(event.target.value)}
-              rows={6}
-              placeholder="예: 주간 브리핑, 장애 대응 현황, 이해관계자에게 공유할 메시지 등을 기록합니다."
-              className="material-textarea"
-              disabled={creatingUpdate}
-            />
-            {updateError && (
-              <div className="material-alert material-alert--error">{updateError}</div>
-            )}
-            <div className="material-project__form-footer">
-              <span className="material-support-text">
-                새로운 업데이트는 타임라인 상단에 바로 노출됩니다.
-              </span>
+            <div className="material-project__actions-menu">
               <button
-                type="submit"
-                disabled={creatingUpdate || !newUpdate.trim()}
-                className="material-filled-button"
+                type="button"
+                className="material-icon-button"
+                aria-label="프로젝트 작업 열기"
+                onClick={() => setProjectActionsOpen((open) => !open)}
               >
-                <span>{creatingUpdate ? '기록 중…' : '업데이트 남기기'}</span>
+                <EllipsisVerticalIcon className="material-icon" aria-hidden="true" />
               </button>
+              {isProjectActionsOpen && (
+                <div className="material-project__actions-popover">
+                  <button
+                    type="button"
+                    className="material-outlined-button material-outlined-button--error material-project__delete"
+                    disabled={deletingProject}
+                    onClick={handleDeleteProject}
+                  >
+                    <TrashIcon className="material-icon" aria-hidden="true" />
+                    <span>{deletingProject ? '삭제 중…' : '프로젝트 삭제'}</span>
+                  </button>
+                </div>
+              )}
             </div>
-          </form>
+          </div>
+        </header>
+
+        <section className="material-project__stats">
+          <StatTile
+            icon={<DocumentTextIcon className="material-icon" aria-hidden="true" />}
+            label="업데이트"
+            value={`${sortedUpdates.length}개`}
+          />
+          <StatTile
+            icon={<ClockIcon className="material-icon" aria-hidden="true" />}
+            label="최근 활동"
+            value={
+              latestUpdate?.created_at
+                ? format(new Date(latestUpdate.created_at), 'yyyy.MM.dd HH:mm', {
+                    locale: ko,
+                  })
+                : '없음'
+            }
+          />
+          <StatTile
+            icon={<UserGroupIcon className="material-icon" aria-hidden="true" />}
+            label="멤버"
+            value={`${members.length}명`}
+          />
         </section>
 
-        <section className="material-project__timeline">
-          <header className="material-project__section-header">
-            <h2 className="material-title material-project__section-title">
-              업데이트 타임라인
-            </h2>
-            <p className="material-caption">
-              가장 최근 업데이트가 상단에 표시됩니다.
-            </p>
-          </header>
+        <main className="material-project__content">
+          <section className="material-project__composer">
+            <header className="material-project__section-header">
+              <h2 className="material-title material-project__section-title">
+                <PencilSquareIcon className="material-icon" aria-hidden="true" />
+                프로젝트 업데이트 작성
+              </h2>
+              <p className="material-caption">
+                진행 상황, 결정 사항, 다음 액션 등을 간단히 기록하세요.
+              </p>
+            </header>
 
-          {updateDeleteError && (
-            <div className="material-alert material-alert--error">{updateDeleteError}</div>
-          )}
-
-          {sortedUpdates.length === 0 ? (
-            <div className="material-placeholder">
-              아직 등록된 업데이트가 없습니다. 상단에서 첫 업데이트를 기록해보세요.
-            </div>
-          ) : (
-            sortedUpdates.map((update) => (
-              <UpdateCard
-                key={update.id}
-                update={update}
-                onDelete={() => handleDeleteUpdate(update.id)}
-                deleting={deletingUpdateId === update.id}
+            <form onSubmit={handleUpdateSubmit} className="material-project__form">
+              <textarea
+                value={newUpdate}
+                onChange={(event) => setNewUpdate(event.target.value)}
+                rows={6}
+                placeholder="예: 주간 브리핑, 장애 대응 현황, 이해관계자에게 공유할 메시지 등을 기록합니다."
+                className="material-textarea"
+                disabled={creatingUpdate}
               />
-            ))
-          )}
-        </section>
-      </main>
+              {updateError && (
+                <div className="material-alert material-alert--error">{updateError}</div>
+              )}
+              <div className="material-project__form-footer">
+                <span className="material-support-text">
+                  새로운 업데이트는 타임라인 상단에 바로 노출됩니다.
+                </span>
+                <button
+                  type="submit"
+                  disabled={creatingUpdate || !newUpdate.trim()}
+                  className="material-filled-button"
+                >
+                  <span>{creatingUpdate ? '기록 중…' : '업데이트 남기기'}</span>
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="material-project__timeline">
+            <header className="material-project__section-header">
+              <h2 className="material-title material-project__section-title">
+                업데이트 타임라인
+              </h2>
+              <p className="material-caption">
+                가장 최근 업데이트가 상단에 표시됩니다.
+              </p>
+            </header>
+
+            {updateDeleteError && (
+              <div className="material-alert material-alert--error">{updateDeleteError}</div>
+            )}
+
+            {sortedUpdates.length === 0 ? (
+              <div className="material-placeholder">
+                아직 등록된 업데이트가 없습니다. 상단에서 첫 업데이트를 기록해보세요.
+              </div>
+            ) : (
+              sortedUpdates.map((update) => (
+                <UpdateCard
+                  key={update.id}
+                  update={update}
+                  onDelete={() => handleDeleteUpdate(update.id)}
+                  deleting={deletingUpdateId === update.id}
+                />
+              ))
+            )}
+          </section>
+        </main>
       </div>
 
       {/* Chat Sidebar */}

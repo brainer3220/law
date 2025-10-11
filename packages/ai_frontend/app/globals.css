@@ -691,6 +691,10 @@ body {
   align-items: flex-start;
 }
 
+.material-workspace__back-inline {
+  padding: 10px;
+}
+
 .material-workspace__navigation--collapsed {
   padding: 24px 16px;
   gap: 16px;
@@ -1375,6 +1379,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative;
 }
 
 .material-project__error {
@@ -1401,6 +1406,31 @@ body {
 .material-project__delete {
   --md-outlined-button-outline-color: color-mix(in srgb, var(--md-sys-color-error, #e11d48) 45%, transparent);
   color: var(--md-sys-color-error, #e11d48);
+}
+
+.material-project__actions-menu {
+  position: relative;
+}
+
+.material-project__actions-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--md-sys-color-surface, #ffffff);
+  border-radius: 16px;
+  box-shadow: 0 22px 40px rgba(15, 23, 42, 0.18);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant, #cbd5f5) 65%, transparent);
+  z-index: 24;
+  min-width: 220px;
+}
+
+.material-project__actions-popover button {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 /* Custom Button Styles */

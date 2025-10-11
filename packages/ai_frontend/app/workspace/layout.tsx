@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   workspaceClient,
   type Project,
@@ -24,6 +24,7 @@ import {
   PlusIcon,
   RocketLaunchIcon,
   SparklesIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline'
 
 const FALLBACK_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -53,6 +54,7 @@ export function useWorkspaceLayout() {
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth()
   const pathname = usePathname()
+  const router = useRouter()
 
   const [projects, setProjects] = useState<Project[]>([])
   const [projectsLoading, setProjectsLoading] = useState(true)
@@ -198,6 +200,16 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
                   />
                   <span className="material-visually-hidden">사이드바 닫기</span>
                 </button>
+                {isProjectRoute && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/workspace')}
+                    className="material-icon-button material-icon-button--tonal material-workspace__back-inline"
+                    aria-label="프로젝트 목록으로 이동"
+                  >
+                    <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={openCreateModal}
@@ -228,6 +240,16 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
                   />
                   <span className="material-visually-hidden">사이드바 열기</span>
                 </button>
+                {isProjectRoute && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/workspace')}
+                    className="material-workspace__compact-action"
+                    aria-label="프로젝트 목록으로 이동"
+                  >
+                    <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={openCreateModal}
