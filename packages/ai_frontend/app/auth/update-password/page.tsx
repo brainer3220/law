@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
+import { ArrowLeftIcon, SparklesIcon, KeyIcon } from '@heroicons/react/24/outline'
 
 export default function UpdatePasswordPage() {
   const router = useRouter()
@@ -53,70 +55,93 @@ export default function UpdatePasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight">새 비밀번호 설정</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            새로운 비밀번호를 입력해주세요.
-          </p>
+    <div className="material-auth">
+      <div className="material-auth__wrapper">
+        <div className="material-auth__container">
+          <Link href="/auth/login" className="material-auth__back">
+            <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+            <span>로그인으로</span>
+          </Link>
+          
+          <div className="material-auth__brand">
+            <div className="material-auth__brand-icon">
+              <SparklesIcon className="material-icon" aria-hidden="true" />
+            </div>
+            <h1 className="material-auth__brand-text">법률 AI 에이전트</h1>
+          </div>
+
+          <div className="material-auth__form">
+            <div className="material-auth__header">
+              <div className="material-auth__icon-wrapper">
+                <KeyIcon className="material-auth__icon" aria-hidden="true" />
+              </div>
+              <h2 className="material-auth__title">새 비밀번호 설정</h2>
+              <p className="material-auth__description">
+                새로운 비밀번호를 입력해주세요.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="material-form">
+              {error && (
+                <div className="material-alert material-alert--error">
+                  {error}
+                </div>
+              )}
+
+              {message && (
+                <div className="material-alert material-alert--success">
+                  {message}
+                </div>
+              )}
+
+              <div className="material-form__field">
+                <label htmlFor="password" className="material-form__label">
+                  새 비밀번호
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="material-form__input"
+                  placeholder="최소 6자"
+                />
+              </div>
+
+              <div className="material-form__field">
+                <label htmlFor="confirmPassword" className="material-form__label">
+                  비밀번호 확인
+                </label>
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="material-form__input"
+                  placeholder="비밀번호 재입력"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="material-filled-button material-form__submit"
+              >
+                <span>{loading ? '변경 중...' : '비밀번호 변경'}</span>
+              </button>
+            </form>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-
-          {message && (
-            <div className="rounded-md bg-green-50 p-4">
-              <p className="text-sm text-green-800">{message}</p>
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              새 비밀번호
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-              placeholder="최소 6자"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-              비밀번호 확인
-            </label>
-            <input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-              placeholder="비밀번호 재입력"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? '변경 중...' : '비밀번호 변경'}
-          </button>
-        </form>
+        <div className="material-auth__visual">
+          <div className="material-auth__pattern"></div>
+        </div>
       </div>
     </div>
   )

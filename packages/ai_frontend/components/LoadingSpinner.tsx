@@ -13,9 +13,9 @@ export interface LoadingSpinnerProps {
 }
 
 const SIZE_CLASSES = {
-  sm: "h-4 w-4 border-2",
-  md: "h-8 w-8 border-3",
-  lg: "h-12 w-12 border-4",
+  sm: "w-5 h-5",
+  md: "w-8 h-8",
+  lg: "w-11 h-11",
 };
 
 export function LoadingSpinner({
@@ -32,17 +32,9 @@ export function LoadingSpinner({
       aria-live="polite"
       aria-label={label}
     >
-      <div
-        className={cn(
-          "animate-spin rounded-full border-blue-600 border-t-transparent dark:border-blue-400",
-          sizeClass
-        )}
-        aria-hidden="true"
-      />
+      <div className={cn("spinner-ring", sizeClass)} aria-hidden="true" />
       {label && (
-        <span className="text-sm text-gray-600 dark:text-gray-400">
-          {label}
-        </span>
+        <span className="material-support-text">{label}</span>
       )}
     </div>
   );

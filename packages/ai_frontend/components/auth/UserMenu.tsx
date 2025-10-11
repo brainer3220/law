@@ -1,65 +1,72 @@
-'use client'
+'use client';
 
-import { useAuth } from '@/lib/auth/AuthContext'
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useAuth } from '@/lib/auth/AuthContext';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 export function UserMenu() {
-  const { user, signOut } = useAuth()
-  const router = useRouter()
-  const [isOpen, setIsOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const { user, signOut } = useAuth();
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (!user) {
-    return null
+    return null;
   }
+
+  const initials = user.email?.[0]?.toUpperCase() ?? '?';
 
   const handleSignOut = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      await signOut()
-      router.push('/auth/login')
-      router.refresh()
+      await signOut();
+      router.push('/auth/login');
+      router.refresh();
     } catch (error) {
-      console.error('Error signing out:', error)
+      console.error('Error signing out:', error);
     } finally {
-      setLoading(false)
-      setIsOpen(false)
+      setLoading(false);
+      setIsOpen(false);
     }
-  }
+  };
 
   return (
-    <div className="relative">
+    <div className="material-user-menu">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-gray-100"
+        onClick={() => setIsOpen((open) => !open)}
+        className="material-user-chip"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        type="button"
       >
-        <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
-          {user.email?.[0].toUpperCase()}
-        </div>
-        <span>{user.email}</span>
+        <span className="material-user-chip__avatar" aria-hidden="true">
+          {initials}
+        </span>
+        <span className="material-user-chip__label">{user.email}</span>
       </button>
 
       {isOpen && (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="material-user-menu__scrim"
             onClick={() => setIsOpen(false)}
+            aria-hidden="true"
           />
-          <div className="absolute right-0 z-20 mt-2 w-48 rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
-            <div className="px-4 py-2 text-sm text-gray-700 border-b">
+          <div className="material-user-menu__surface" role="menu">
+            <div className="material-user-menu__headline">
               {user.user_metadata?.full_name || user.email}
             </div>
             <button
+              type="button"
               onClick={handleSignOut}
               disabled={loading}
-              className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+              className="material-user-menu__item"
             >
-              {loading ? '로그아웃 중...' : '로그아웃'}
+              {loading ? '로그아웃 중…' : '로그아웃'}
             </button>
           </div>
         </>
       )}
     </div>
-  )
+  );
 }
