@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * 프로젝트 상세 페이지 - 지침 버전 관리 중심 뷰
+ * 프로젝트 상세 페이지 - 업데이트 타임라인 중심 뷰
  */
 
 import { use, useCallback, useEffect, useState } from 'react'
@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import {
-  type Instruction,
+  type Update,
   type Member,
   type Project,
   workspaceClient,
@@ -31,14 +31,14 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const resolvedParams = use(params)
   const { user } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
-  const [instructions, setInstructions] = useState<Instruction[]>([])
+  const [updates, setUpdates] = useState<Update[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [newInstruction, setNewInstruction] = useState('')
-  const [instructionError, setInstructionError] = useState<string | null>(null)
-  const [creatingInstruction, setCreatingInstruction] = useState(false)
+  const [newUpdate, setNewUpdate] = useState('')
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [creatingUpdate, setCreatingUpdate] = useState(false)
 
   const loadProjectData = useCallback(async () => {
     if (!user?.id) return
@@ -47,19 +47,21 @@ export default function ProjectDetailPage({ params }: PageProps) {
       setLoading(true)
       workspaceClient.setUserId(user.id)
 
-      const [projectData, instructionData, membersData] = await Promise.all([
+      const [projectData, updateData, membersData] = await Promise.all([
         workspaceClient.getProject(resolvedParams.projectId),
-        workspaceClient.listInstructions(resolvedParams.projectId),
+        workspaceClient.listUpdates(resolvedParams.projectId),
         workspaceClient
           .listMembers(resolvedParams.projectId)
           .catch(() => [] as Member[]),
       ])
 
       setProject(projectData)
-      const sortedInstructions = [...instructionData].sort(
-        (a, b) => b.version - a.version
-      )
-      setInstructions(sortedInstructions)
+      const sortedUpdates = [...updateData].sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
+        return bTime - aTime
+      })
+      setUpdates(sortedUpdates)
       setMembers(membersData ?? [])
     } catch (err) {
       console.error('Failed to load project:', err)
@@ -73,25 +75,25 @@ export default function ProjectDetailPage({ params }: PageProps) {
     void loadProjectData()
   }, [loadProjectData])
 
-  const handleInstructionSubmit = async (event: React.FormEvent) => {
+  const handleUpdateSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!project || !newInstruction.trim()) return
+    if (!project || !newUpdate.trim()) return
 
     try {
-      setCreatingInstruction(true)
-      setInstructionError(null)
-      await workspaceClient.createInstruction(project.id, {
-        content: newInstruction.trim(),
+      setCreatingUpdate(true)
+      setUpdateError(null)
+      await workspaceClient.createUpdate(project.id, {
+        body: newUpdate.trim(),
       })
-      setNewInstruction('')
+      setNewUpdate('')
       await loadProjectData()
     } catch (err) {
-      console.error('Failed to create instruction:', err)
-      setInstructionError(
-        err instanceof Error ? err.message : '지침을 저장하지 못했습니다.'
+      console.error('Failed to create update:', err)
+      setUpdateError(
+        err instanceof Error ? err.message : '업데이트를 저장하지 못했습니다.'
       )
     } finally {
-      setCreatingInstruction(false)
+      setCreatingUpdate(false)
     }
   }
 
@@ -128,7 +130,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
     )
   }
 
-  const latestInstruction = instructions[0] ?? null
+  const latestUpdate = updates[0] ?? null
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
@@ -165,20 +167,22 @@ export default function ProjectDetailPage({ params }: PageProps) {
             <div className="flex items-center gap-2">
               <DocumentTextIcon className="h-4 w-4 text-blue-500" />
               <span>
-                지침 버전{' '}
+                업데이트{' '}
                 <strong className="text-gray-900 dark:text-white">
-                  {latestInstruction ? `v${latestInstruction.version}` : '없음'}
+                  {updates.length}개
                 </strong>
               </span>
             </div>
             <div className="flex items-center gap-2">
               <ClockIcon className="h-4 w-4 text-gray-400" />
               <span>
-                마지막 업데이트:{' '}
+                최근 활동:{' '}
                 <strong className="text-gray-900 dark:text-white">
-                  {format(new Date(project.updated_at), 'yyyy.MM.dd HH:mm', {
-                    locale: ko,
-                  })}
+                  {latestUpdate?.created_at
+                    ? format(new Date(latestUpdate.created_at), 'yyyy.MM.dd HH:mm', {
+                        locale: ko,
+                      })
+                    : '없음'}
                 </strong>
               </span>
             </div>
@@ -194,65 +198,65 @@ export default function ProjectDetailPage({ params }: PageProps) {
 
       {/* Main content */}
       <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Instruction composer */}
+        {/* Update composer */}
         <section className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-slate-900">
           <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
               <PencilSquareIcon className="h-4 w-4" />
-              새 지침 버전 작성
+              프로젝트 업데이트 작성
             </h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              시스템 프롬프트를 업데이트하면 새로운 버전이 생성됩니다.
+              진행 상황, 결정 사항, 다음 액션 등을 간단히 기록하세요.
             </p>
           </div>
-          <form onSubmit={handleInstructionSubmit} className="space-y-3 px-4 py-4">
+          <form onSubmit={handleUpdateSubmit} className="space-y-3 px-4 py-4">
             <textarea
-              value={newInstruction}
-              onChange={(event) => setNewInstruction(event.target.value)}
+              value={newUpdate}
+              onChange={(event) => setNewUpdate(event.target.value)}
               rows={6}
-              placeholder="예: 답변은 존댓말로 작성하고, 근거 법령/판례를 반드시 명시합니다."
+              placeholder="예: 주간 브리핑, 장애 대응 현황, 이해관계자에게 공유할 메시지 등을 기록합니다."
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-slate-800 dark:text-white dark:placeholder-gray-500"
-              disabled={creatingInstruction}
+              disabled={creatingUpdate}
             />
-            {instructionError && (
+            {updateError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
-                {instructionError}
+                {updateError}
               </div>
             )}
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                현재 버전은 수정되지 않으며, 항상 새로운 버전을 추가합니다.
+                새로운 업데이트는 타임라인 상단에 바로 노출됩니다.
               </span>
               <button
                 type="submit"
-                disabled={creatingInstruction || !newInstruction.trim()}
+                disabled={creatingUpdate || !newUpdate.trim()}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
               >
-                {creatingInstruction ? '저장 중...' : '새 버전 저장'}
+                {creatingUpdate ? '기록 중...' : '업데이트 남기기'}
               </button>
             </div>
           </form>
         </section>
 
-        {/* Instruction history */}
+        {/* Update timeline */}
         <section className="space-y-4">
           <header>
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-              지침 변경 이력
+              업데이트 타임라인
             </h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              가장 최근 버전이 상단에 표시됩니다.
+              가장 최근 업데이트가 상단에 표시됩니다.
             </p>
           </header>
 
-          {instructions.length === 0 ? (
+          {updates.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-600 dark:border-gray-700 dark:bg-slate-900 dark:text-gray-400">
-              아직 등록된 지침이 없습니다. 상단 입력창에서 첫 지침을 작성해보세요.
+              아직 등록된 업데이트가 없습니다. 상단 입력창에서 첫 업데이트를 기록해보세요.
             </div>
           ) : (
             <div className="space-y-3">
-              {instructions.map((instruction) => (
-                <InstructionCard key={instruction.version} instruction={instruction} />
+              {updates.map((update) => (
+                <UpdateCard key={update.id} update={update} />
               ))}
             </div>
           )}
@@ -262,27 +266,32 @@ export default function ProjectDetailPage({ params }: PageProps) {
   )
 }
 
-function InstructionCard({ instruction }: { instruction: Instruction }) {
+function UpdateCard({ update }: { update: Update }) {
+  const createdAt = update.created_at ? new Date(update.created_at) : null
   return (
     <article className="group relative rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md dark:border-gray-800 dark:bg-slate-900 dark:hover:border-blue-800/40">
       <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg bg-blue-500 opacity-0 transition-opacity group-hover:opacity-100" />
       <header className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-            v{instruction.version}
+            Update
           </span>
           <span>
-            {format(new Date(instruction.created_at), 'yyyy년 M월 d일 HH:mm', {
-              locale: ko,
-            })}
+            {createdAt
+              ? format(createdAt, 'yyyy년 M월 d일 HH:mm', {
+                  locale: ko,
+                })
+              : '시간 정보 없음'}
           </span>
         </div>
-        <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          작성자 {instruction.created_by.slice(0, 8)}…
-        </span>
+        {update.created_by && (
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            작성자 {update.created_by.slice(0, 8)}…
+          </span>
+        )}
       </header>
       <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
-        {instruction.content}
+        {update.body || '내용이 비어 있습니다.'}
       </div>
     </article>
   )

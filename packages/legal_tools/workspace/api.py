@@ -307,6 +307,57 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         except PermissionError as e:
             raise HTTPException(status_code=403, detail=str(e)) from None
 
+    # ========================================================================
+    # 프로젝트 업데이트
+    # ========================================================================
+
+    @app.post("/v1/projects/{project_id}/updates", response_model=schemas.UpdateResponse, status_code=201)
+    def create_update(
+        project_id: uuid.UUID,
+        request: schemas.UpdateCreateRequest,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.UpdateResponse:
+        """프로젝트 업데이트 생성."""
+        try:
+            update = service.create_update(project_id, request, user_id)
+            return schemas.UpdateResponse.from_orm(update)
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.get("/v1/projects/{project_id}/updates", response_model=list[schemas.UpdateResponse])
+    def list_updates(
+        project_id: uuid.UUID,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> list[schemas.UpdateResponse]:
+        """프로젝트 업데이트 목록 조회."""
+        try:
+            updates = service.list_updates(project_id, user_id)
+            return [schemas.UpdateResponse.from_orm(u) for u in updates]
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
+    @app.get("/v1/projects/{project_id}/updates/{update_id}", response_model=schemas.UpdateResponse)
+    def get_update(
+        project_id: uuid.UUID,
+        update_id: uuid.UUID,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.UpdateResponse:
+        """프로젝트 업데이트 단건 조회."""
+        try:
+            update = service.get_update(project_id, update_id, user_id)
+            return schemas.UpdateResponse.from_orm(update)
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="Update not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
 
     # ========================================================================
     # LEGACY ENDPOINTS REMOVED - Models removed in migration 007

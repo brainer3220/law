@@ -82,6 +82,30 @@ export const InstructionCreateSchema = z.object({
   content: z.string().min(1),
 })
 
+export const UpdateSchema = z.object({
+  id: z.string().uuid(),
+  project_id: z.string().uuid().nullable(),
+  body: z.string().nullable(),
+  created_by: z.string().uuid().nullable(),
+  created_at: z.string().datetime().nullable(),
+  project_update_file_id: z.string().uuid().nullable(),
+})
+
+export const UpdateCreateSchema = z
+  .object({
+    body: z.string().min(1).optional(),
+    project_update_file_id: z.string().uuid().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.body && !data.project_update_file_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'body or project_update_file_id is required',
+        path: ['body'],
+      })
+    }
+  })
+
 // ========================================================================
 // Types
 // ========================================================================
@@ -97,6 +121,8 @@ export type MemberAdd = z.infer<typeof MemberAddSchema>
 export type MemberUpdate = z.infer<typeof MemberUpdateSchema>
 export type Instruction = z.infer<typeof InstructionSchema>
 export type InstructionCreate = z.infer<typeof InstructionCreateSchema>
+export type Update = z.infer<typeof UpdateSchema>
+export type UpdateCreate = z.infer<typeof UpdateCreateSchema>
 
 // ========================================================================
 // Client
@@ -259,6 +285,38 @@ export class WorkspaceClient {
     await this.request<void>(`/v1/projects/${projectId}/members/${memberUserId}`, {
       method: 'DELETE',
     })
+  }
+
+  // ======================================================================
+  // Updates
+  // ======================================================================
+
+  async listUpdates(projectId: string): Promise<Update[]> {
+    return this.request(
+      `/v1/projects/${projectId}/updates`,
+      {},
+      z.array(UpdateSchema)
+    )
+  }
+
+  async getUpdate(projectId: string, updateId: string): Promise<Update> {
+    return this.request(
+      `/v1/projects/${projectId}/updates/${updateId}`,
+      {},
+      UpdateSchema
+    )
+  }
+
+  async createUpdate(projectId: string, data: UpdateCreate): Promise<Update> {
+    const payload = UpdateCreateSchema.parse(data)
+    return this.request(
+      `/v1/projects/${projectId}/updates`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      UpdateSchema
+    )
   }
 
   // ======================================================================

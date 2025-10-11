@@ -22,6 +22,8 @@ __all__ = [
     "MemberResponse",
     "InstructionCreateRequest",
     "InstructionResponse",
+    "UpdateCreateRequest",
+    "UpdateResponse",
     # Legacy schemas commented out - models removed in migration 007
     # "MemoryCreateRequest",
     # "MemoryUpdateRequest",
@@ -151,3 +153,28 @@ class InstructionResponse(BaseModel):
     content: str
     created_by: uuid.UUID
     created_at: dt.datetime
+
+
+# ========================================================================
+# 업데이트
+# ========================================================================
+
+
+class UpdateCreateRequest(BaseModel):
+    """프로젝트 업데이트 생성 요청."""
+
+    body: Optional[str] = None
+    project_update_file_id: Optional[uuid.UUID] = None
+
+
+class UpdateResponse(BaseModel):
+    """프로젝트 업데이트 응답."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: Optional[uuid.UUID]
+    body: Optional[str]
+    created_by: Optional[uuid.UUID]
+    created_at: Optional[dt.datetime]
+    project_update_file_id: Optional[uuid.UUID]

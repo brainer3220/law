@@ -24,6 +24,7 @@ from .models import (
     Project,
     ProjectMember,
     Instruction,
+    Update,
     PermissionRole,
 )
 
@@ -493,3 +494,75 @@ class WorkspaceService:
         if not instruction:
             raise NoResultFound()
         return instruction
+
+    # ========================================================================
+    # 프로젝트 업데이트
+    # ========================================================================
+
+    def create_update(
+        self,
+        project_id: uuid.UUID,
+        request: schemas.UpdateCreateRequest,
+        user_id: uuid.UUID,
+    ) -> Update:
+        """프로젝트 업데이트 생성."""
+        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
+        if not request.body and not request.project_update_file_id:
+            raise ValueError("Update body or attachment is required")
+
+        project = self.session.get(Project, project_id)
+        if not project:
+            raise NoResultFound()
+
+        update = Update(
+            project_id=project_id,
+            body=request.body,
+            created_by=user_id,
+            project_update_file_id=request.project_update_file_id,
+        )
+        self.session.add(update)
+        project.updated_at = func.now()
+        self.session.commit()
+        self._log_audit(
+            project_id,
+            user_id,
+            "update.created",
+            "update",
+            str(update.id),
+        )
+        return update
+
+    def list_updates(self, project_id: uuid.UUID, user_id: uuid.UUID) -> list[Update]:
+        """프로젝트 업데이트 목록."""
+        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
+        return list(
+            self.session.execute(
+                select(Update)
+                .where(Update.project_id == project_id)
+                .order_by(Update.created_at.desc())
+            ).scalars()
+        )
+
+    def get_update(
+        self,
+        project_id: uuid.UUID,
+        update_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Update:
+        """프로젝트 업데이트 단건 조회."""
+        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
+        update = (
+            self.session.execute(
+                select(Update).where(
+                    and_(
+                        Update.project_id == project_id,
+                        Update.id == update_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if not update:
+            raise NoResultFound()
+        return update

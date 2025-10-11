@@ -205,3 +205,62 @@ def test_instruction_queries_require_membership(temp_db_path):
             service.list_instructions(project.id, outsider)
     finally:
         cleanup()
+
+
+def test_create_update_records_entry(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        creator = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Updated project"),
+            creator,
+        )
+
+        update = service.create_update(
+            project.id,
+            schemas.UpdateCreateRequest(body="Initial release planned"),
+            creator,
+        )
+
+        assert update.body == "Initial release planned"
+        updates = service.list_updates(project.id, creator)
+        assert updates[0].id == update.id
+    finally:
+        cleanup()
+
+
+def test_create_update_requires_body_or_attachment(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        creator = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Update validation"),
+            creator,
+        )
+
+        with pytest.raises(ValueError):
+            service.create_update(project.id, schemas.UpdateCreateRequest(), creator)
+    finally:
+        cleanup()
+
+
+def test_updates_require_membership(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        owner = uuid.uuid4()
+        outsider = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Restricted updates"),
+            owner,
+        )
+
+        service.create_update(
+            project.id,
+            schemas.UpdateCreateRequest(body="Owner only"),
+            owner,
+        )
+
+        with pytest.raises(PermissionError):
+            service.list_updates(project.id, outsider)
+    finally:
+        cleanup()
