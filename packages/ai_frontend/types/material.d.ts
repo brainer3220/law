@@ -12,6 +12,7 @@ declare global {
     interface IntrinsicElements {
       "md-filled-button": MaterialElementProps;
       "md-filled-tonal-button": MaterialElementProps;
+      "md-filled-tonal-icon-button": MaterialElementProps;
       "md-outlined-button": MaterialElementProps;
       "md-elevated-button": MaterialElementProps;
       "md-icon-button": MaterialElementProps;

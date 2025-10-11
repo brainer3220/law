@@ -7,6 +7,10 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import App from './App';
 import SoftrHero from '@/components/SoftrHero';
 import { useRouter } from 'next/navigation';
+import {
+  ArrowRightOnRectangleIcon,
+  UserPlusIcon,
+} from '@heroicons/react/24/outline';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -36,12 +40,14 @@ export default function Home() {
             type="button"
             onClick={() => router.push('/auth/login')}
           >
+            <ArrowRightOnRectangleIcon slot="icon" className="material-icon" />
             로그인
           </md-filled-tonal-button>
           <md-filled-button
             type="button"
             onClick={() => router.push('/auth/signup')}
           >
+            <UserPlusIcon slot="icon" className="material-icon" />
             회원가입
           </md-filled-button>
         </div>
