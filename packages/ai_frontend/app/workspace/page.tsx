@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/lib/auth/AuthContext'
 import ProjectTimeline from '@/components/workspace/ProjectTimeline'
 import CreateProjectModal from '@/components/workspace/CreateProjectModal'
@@ -14,15 +14,57 @@ import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon
 } from '@heroicons/react/24/outline'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import {
+  workspaceClient,
+  type Project
+} from '@/lib/workspace/client'
 
 export default function WorkspacePage() {
   const { user, loading } = useAuth()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const pathname = usePathname()
+
+  const requestUserId = useMemo(
+    () => user?.id || '00000000-0000-0000-0000-000000000001',
+    [user?.id]
+  )
+
+  const loadProjects = useCallback(async () => {
+    try {
+      setProjectsLoading(true)
+      setProjectsError(null)
+      workspaceClient.setUserId(requestUserId)
+      const { projects: projectList } = await workspaceClient.listProjects({
+        archived: false,
+        limit: 50,
+      })
+      const sorted = [...projectList].sort(
+        (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      )
+      setProjects(sorted)
+    } catch (err) {
+      console.error('Failed to load projects:', err)
+      setProjectsError(err instanceof Error ? err.message : '프로젝트를 불러오는 데 실패했습니다.')
+    } finally {
+      setProjectsLoading(false)
+    }
+  }, [requestUserId])
+
+  useEffect(() => {
+    if (loading || !user) {
+      return
+    }
+    void loadProjects()
+  }, [loading, user, loadProjects])
 
   const handleProjectCreated = () => {
-    setRefreshKey((prev) => prev + 1)
+    void loadProjects()
   }
 
   if (loading) {
@@ -117,6 +159,56 @@ export default function WorkspacePage() {
               <p className="material-caption">프로젝트 중심 컨텍스트 관리</p>
             </div>
           )}
+
+          <nav
+            aria-label="프로젝트 목록"
+            className="material-workspace__project-list-wrapper"
+          >
+            {projectsLoading ? (
+              <div className="material-workspace__project-loading">
+                <LoadingSpinner size="sm" label="프로젝트 로딩 중" />
+              </div>
+            ) : projectsError ? (
+              <p className="material-workspace__project-error">
+                {projectsError}
+              </p>
+            ) : projects.length === 0 ? (
+              <p className="material-workspace__project-empty">
+                아직 생성된 프로젝트가 없습니다.
+              </p>
+            ) : (
+              <ul className="material-workspace__project-list">
+                {projects.map((project) => {
+                  const isActive = pathname === `/workspace/${project.id}`
+                  const initial = project.name?.charAt(0)?.toUpperCase() || '#'
+
+                  return (
+                    <li key={project.id}>
+                      <Link
+                        href={`/workspace/${project.id}`}
+                        className={`material-workspace__project-link${isActive ? ' is-active' : ''}`}
+                        aria-label={project.name}
+                      >
+                        <span className="material-workspace__project-avatar" aria-hidden="true">
+                          {initial}
+                        </span>
+                        <span className="material-workspace__project-meta">
+                          <span className="material-workspace__project-name">
+                            {project.name}
+                          </span>
+                          {project.description && (
+                            <span className="material-workspace__project-description">
+                              {project.description}
+                            </span>
+                          )}
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </nav>
         </aside>
 
         <main className="material-workspace__content">
@@ -127,7 +219,12 @@ export default function WorkspacePage() {
                 <span className="material-caption">On track</span>
               </div>
             </div>
-            <ProjectTimeline key={refreshKey} />
+            <ProjectTimeline
+              projects={projects}
+              loading={projectsLoading}
+              error={projectsError}
+              userId={requestUserId}
+            />
           </section>
 
           <aside className="material-workspace__sidebar">
