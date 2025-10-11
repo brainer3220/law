@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,9 +58,8 @@ class ProjectCreateRequest(BaseModel):
 
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
-    visibility: str = Field(default="private")
+    status: Optional[str] = Field(default="active")
     org_id: Optional[uuid.UUID] = None
-    budget_quota: Optional[int] = None
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -68,18 +67,15 @@ class ProjectUpdateRequest(BaseModel):
 
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
-    visibility: Optional[str] = None
+    status: Optional[str] = None
     archived: Optional[bool] = None
-    budget_quota: Optional[int] = None
+    org_id: Optional[uuid.UUID] = None
 
 
 class ProjectCloneRequest(BaseModel):
     """프로젝트 복제 요청."""
 
     name: str = Field(..., max_length=255)
-    include_members: bool = Field(default=False)
-    include_files: bool = Field(default=True)
-    include_memories: bool = Field(default=True)
 
 
 class ProjectResponse(BaseModel):
@@ -90,7 +86,7 @@ class ProjectResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: Optional[str]
-    visibility: str
+    status: Optional[str]
     org_id: Optional[uuid.UUID]
     archived: bool
     created_at: dt.datetime
@@ -155,5 +151,3 @@ class InstructionResponse(BaseModel):
     content: str
     created_by: uuid.UUID
     created_at: dt.datetime
-
-

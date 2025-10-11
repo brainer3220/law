@@ -1,21 +1,19 @@
 """Service layer for workspace management.
 
 비즈니스 로직:
-- 권한 검사 (ABAC/RBAC)
-- 컨텍스트 주입 (지침 + 메모리 + 파일)
-- 감사 로깅
-- 예산 체크
+- 권한 검사 (RBAC)
+- 프로젝트/멤버 수명주기
+- 지침 버전 관리
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import os
 import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import create_engine, select, and_, or_, func
+from sqlalchemy import create_engine, select, and_, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoResultFound, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -26,12 +24,10 @@ from .models import (
     Project,
     ProjectMember,
     Instruction,
-    ProjectUpdateFile,
-    Update,
     PermissionRole,
 )
+
 from . import schemas
-from .storage import R2Client, R2Config
 
 __all__ = ["WorkspaceSettings", "WorkspaceDatabase", "WorkspaceService", "init_engine"]
 
@@ -42,8 +38,7 @@ class WorkspaceSettings:
 
     database_url: str
     enable_audit: bool = True
-    enable_budget_check: bool = True
-    r2_config: Optional[R2Config] = None
+    auto_create_default_org: bool = False
 
     @classmethod
     def from_env(cls) -> WorkspaceSettings:
@@ -52,21 +47,13 @@ class WorkspaceSettings:
             raise ValueError(
                 "PostgreSQL connection required: set LAW_SHARE_DB_URL or DATABASE_URL"
             )
-        
-        # R2 설정 (선택)
-        r2_config = None
-        try:
-            r2_config = R2Config.from_env()
-        except ValueError:
-            # R2 설정이 없으면 None (파일 업로드 비활성화)
-            pass
-        
         return cls(
             database_url=database_url,
             enable_audit=os.getenv("LAW_ENABLE_AUDIT", "true").lower() == "true",
-            enable_budget_check=os.getenv("LAW_ENABLE_BUDGET_CHECK", "true").lower()
+            auto_create_default_org=os.getenv(
+                "LAW_WORKSPACE_AUTO_CREATE_DEFAULT_ORG", "false"
+            ).lower()
             == "true",
-            r2_config=r2_config,
         )
 
 
@@ -111,7 +98,6 @@ class WorkspaceService:
     def __init__(self, session: Session, settings: WorkspaceSettings):
         self.session = session
         self.settings = settings
-        self.r2_client = R2Client(settings.r2_config) if settings.r2_config else None
 
     # ========================================================================
     # 권한 체크
@@ -162,19 +148,8 @@ class WorkspaceService:
         resource_id: Optional[str] = None,
         meta: Optional[dict] = None,
     ):
-        """감사 로그 기록."""
-        if not self.settings.enable_audit:
-            return
-
-        log = AuditLog(
-            project_id=project_id,
-            actor_user_id=actor_id,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            meta=meta or {},
-        )
-        self.session.add(log)
+        """감사 로그 기록 (migration 007 이후 비활성화)."""
+        return
 
     # ========================================================================
     # 프로젝트
@@ -186,12 +161,15 @@ class WorkspaceService:
         """프로젝트 생성."""
         # org_id가 없으면 기본 organization 사용
         org_id = request.org_id
-        if not org_id:
+        if not org_id and self.settings.auto_create_default_org:
             stmt = select(Organization).where(Organization.name == "Default Organization")
             default_org = self.session.execute(stmt).scalar_one_or_none()
             if not default_org:
                 # 기본 organization 생성
-                default_org = Organization(name="Default Organization")
+                default_org = Organization(
+                    name="Default Organization",
+                    created_by=user_id,
+                )
                 self.session.add(default_org)
                 self.session.flush()
             org_id = default_org.id
@@ -199,9 +177,8 @@ class WorkspaceService:
         project = Project(
             name=request.name,
             description=request.description,
-            visibility=request.visibility,
+            status=request.status or "active",
             org_id=org_id,
-            budget_quota=request.budget_quota,
             created_by=user_id,
         )
         self.session.add(project)
@@ -265,12 +242,12 @@ class WorkspaceService:
             project.name = request.name
         if request.description is not None:
             project.description = request.description
-        if request.visibility is not None:
-            project.visibility = request.visibility
+        if request.status is not None:
+            project.status = request.status
         if request.archived is not None:
             project.archived = request.archived
-        if request.budget_quota is not None:
-            project.budget_quota = request.budget_quota
+        if request.org_id is not None:
+            project.org_id = request.org_id
 
         project.updated_at = func.now()
         self.session.commit()
@@ -289,7 +266,8 @@ class WorkspaceService:
         if hard_delete:
             self.session.delete(project)
         else:
-            project.deleted_at = dt.datetime.now(dt.timezone.utc)
+            project.archived = True
+            project.updated_at = func.now()
 
         self.session.commit()
         action = "project.hard_deleted" if hard_delete else "project.soft_deleted"
@@ -310,9 +288,9 @@ class WorkspaceService:
         clone = Project(
             name=request.name,
             description=original.description,
-            visibility=original.visibility,
+            status=original.status,
             org_id=original.org_id,
-            template_id=project_id,
+            archived=False,
             created_by=user_id,
         )
         self.session.add(clone)
@@ -325,19 +303,6 @@ class WorkspaceService:
             role=PermissionRole.OWNER,
         )
         self.session.add(clone_member)
-
-        # 메모리 복제
-        if request.include_memories:
-            for memory in original.memories:
-                clone_memory = Memory(
-                    project_id=clone.id,
-                    k=memory.k,
-                    v=memory.v,
-                    source=memory.source,
-                    confidence=memory.confidence,
-                    created_by=user_id,
-                )
-                self.session.add(clone_memory)
 
         self.session.commit()
         self._log_audit(clone.id, user_id, "project.cloned", "project", str(clone.id))
@@ -528,420 +493,3 @@ class WorkspaceService:
         if not instruction:
             raise NoResultFound()
         return instruction
-
-    # ========================================================================
-    # 메모리
-    # ========================================================================
-
-    def create_memory(
-        self,
-        project_id: uuid.UUID,
-        request: schemas.MemoryCreateRequest,
-        user_id: uuid.UUID,
-    ) -> Memory:
-        """메모리 항목 생성."""
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-
-        memory = Memory(
-            project_id=project_id,
-            k=request.k,
-            v=request.v,
-            source=request.source,
-            confidence=request.confidence,
-            expires_at=request.expires_at,
-            created_by=user_id,
-        )
-        self.session.add(memory)
-        try:
-            self.session.commit()
-        except IntegrityError:
-            raise ValueError("Memory key already exists")
-
-        self._log_audit(
-            project_id, user_id, "memory.created", "memory", str(memory.id)
-        )
-        return memory
-
-    def list_memories(
-        self, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> list[Memory]:
-        """메모리 목록."""
-        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-        return list(
-            self.session.execute(
-                select(Memory).where(Memory.project_id == project_id)
-            ).scalars()
-        )
-
-    def get_memory(
-        self, project_id: uuid.UUID, memory_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Memory:
-        """메모리 조회."""
-        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-        memory = self.session.get(Memory, memory_id)
-        if not memory or memory.project_id != project_id:
-            raise NoResultFound()
-        return memory
-
-    def update_memory(
-        self,
-        project_id: uuid.UUID,
-        memory_id: uuid.UUID,
-        request: schemas.MemoryUpdateRequest,
-        user_id: uuid.UUID,
-    ) -> Memory:
-        """메모리 수정."""
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-        memory = self.session.get(Memory, memory_id)
-        if not memory or memory.project_id != project_id:
-            raise NoResultFound()
-
-        if request.v is not None:
-            memory.v = request.v
-        if request.source is not None:
-            memory.source = request.source
-        if request.expires_at is not None:
-            memory.expires_at = request.expires_at
-        if request.confidence is not None:
-            memory.confidence = request.confidence
-
-        self.session.commit()
-        self._log_audit(project_id, user_id, "memory.updated", "memory", str(memory_id))
-        return memory
-
-    def delete_memory(
-        self, project_id: uuid.UUID, memory_id: uuid.UUID, user_id: uuid.UUID
-    ):
-        """메모리 삭제."""
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-        memory = self.session.get(Memory, memory_id)
-        if not memory or memory.project_id != project_id:
-            raise NoResultFound()
-
-        self.session.delete(memory)
-        self.session.commit()
-        self._log_audit(project_id, user_id, "memory.deleted", "memory", str(memory_id))
-
-    # ========================================================================
-    # 파일 (스텁)
-    # ========================================================================
-
-    def create_file(
-        self,
-        project_id: uuid.UUID,
-        request: schemas.FileUploadRequest,
-        user_id: uuid.UUID,
-        file_content: Optional[bytes] = None,
-    ) -> File:
-        """파일 메타 생성 및 R2 업로드.
-        
-        Args:
-            project_id: 프로젝트 ID
-            request: 파일 업로드 요청
-            user_id: 사용자 ID
-            file_content: 파일 내용 (바이너리, 직접 업로드 시)
-        
-        Returns:
-            생성된 File 객체
-        """
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-
-        # R2 업로드 (file_content가 제공된 경우)
-        if file_content and self.r2_client:
-            upload_result = self.r2_client.upload_file(
-                file_content=file_content,
-                key=request.r2_key,
-                content_type=request.mime,
-                metadata={
-                    "project_id": str(project_id),
-                    "uploaded_by": str(user_id),
-                },
-            )
-            # R2 업로드 결과로 체크섬 업데이트
-            if not request.checksum:
-                request.checksum = upload_result["checksum"]
-            if not request.size_bytes:
-                request.size_bytes = upload_result["size"]
-
-        file = File(
-            project_id=project_id,
-            r2_key=request.r2_key,
-            name=request.name,
-            mime=request.mime,
-            size_bytes=request.size_bytes,
-            sensitivity=request.sensitivity,
-            checksum=request.checksum,
-            created_by=user_id,
-        )
-        self.session.add(file)
-        self.session.commit()
-        self._log_audit(project_id, user_id, "file.uploaded", "file", str(file.id))
-        return file
-
-    def list_files(self, project_id: uuid.UUID, user_id: uuid.UUID) -> list[File]:
-        """파일 목록."""
-        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-        return list(
-            self.session.execute(
-                select(File).where(File.project_id == project_id)
-            ).scalars()
-        )
-
-    def get_file(self, file_id: uuid.UUID, user_id: uuid.UUID) -> File:
-        """파일 조회."""
-        file = self.session.get(File, file_id)
-        if not file:
-            raise NoResultFound()
-        self._check_permission(file.project_id, user_id, PermissionRole.VIEWER)
-        return file
-
-    def reindex_file(self, file_id: uuid.UUID, user_id: uuid.UUID):
-        """파일 재인덱싱 (큐 전송 등)."""
-        file = self.get_file(file_id, user_id)
-        self._check_permission(file.project_id, user_id, PermissionRole.EDITOR)
-        # TODO: 실제 인덱싱 큐 전송
-        self._log_audit(file.project_id, user_id, "file.reindex", "file", str(file_id))
-
-    def delete_file(self, file_id: uuid.UUID, user_id: uuid.UUID):
-        """파일 삭제 (DB 및 R2)."""
-        file = self.get_file(file_id, user_id)
-        self._check_permission(file.project_id, user_id, PermissionRole.EDITOR)
-        
-        # R2에서 파일 삭제
-        if self.r2_client:
-            try:
-                self.r2_client.delete_file(file.r2_key)
-            except Exception as e:
-                # R2 삭제 실패해도 DB 레코드는 삭제 (로그만 남김)
-                import logging
-                logging.error(f"Failed to delete file from R2: {file.r2_key}", exc_info=e)
-        
-        self.session.delete(file)
-        self.session.commit()
-        self._log_audit(file.project_id, user_id, "file.deleted", "file", str(file_id))
-
-    def generate_upload_url(
-        self,
-        project_id: uuid.UUID,
-        key: str,
-        content_type: Optional[str],
-        user_id: uuid.UUID,
-    ) -> str:
-        """파일 업로드용 Presigned URL 생성.
-        
-        클라이언트가 직접 R2에 업로드할 수 있는 임시 URL을 생성합니다.
-        
-        Args:
-            project_id: 프로젝트 ID
-            key: R2 객체 키
-            content_type: MIME 타입
-            user_id: 사용자 ID
-        
-        Returns:
-            Presigned upload URL
-        
-        Raises:
-            ValueError: R2가 설정되지 않은 경우
-        """
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-        
-        if not self.r2_client:
-            raise ValueError("R2 storage is not configured")
-        
-        return self.r2_client.generate_presigned_upload_url(
-            key=key,
-            content_type=content_type,
-        )
-
-    def generate_download_url(
-        self,
-        file_id: uuid.UUID,
-        user_id: uuid.UUID,
-        expiry: Optional[int] = None,
-    ) -> str:
-        """파일 다운로드용 Presigned URL 생성.
-        
-        Args:
-            file_id: 파일 ID
-            user_id: 사용자 ID
-            expiry: URL 유효 시간 (초)
-        
-        Returns:
-            Presigned download URL
-        
-        Raises:
-            ValueError: R2가 설정되지 않은 경우
-        """
-        file = self.get_file(file_id, user_id)
-        
-        if not self.r2_client:
-            raise ValueError("R2 storage is not configured")
-        
-        return self.r2_client.generate_presigned_download_url(
-            key=file.r2_key,
-            expiry=expiry,
-            filename=file.name,
-        )
-
-    # ========================================================================
-    # 검색 (스텁)
-    # ========================================================================
-
-    def search(
-        self, request: schemas.SearchRequest, user_id: uuid.UUID
-    ) -> list[schemas.SearchResult]:
-        """하이브리드 검색."""
-        self._check_permission(request.project_id, user_id, PermissionRole.VIEWER)
-        # TODO: 실제 BM25 + 벡터 검색
-        return []
-
-    # ========================================================================
-    # 채팅
-    # ========================================================================
-
-    def list_chats(self, project_id: uuid.UUID, user_id: uuid.UUID) -> list[ProjectChat]:
-        """프로젝트의 채팅 목록."""
-        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-        return list(
-            self.session.execute(
-                select(ProjectChat).where(ProjectChat.project_id == project_id)
-            ).scalars()
-        )
-
-    def create_chat(
-        self,
-        project_id: uuid.UUID,
-        request: schemas.ChatCreateRequest,
-        user_id: uuid.UUID,
-    ) -> ProjectChat:
-        """채팅 생성."""
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-
-        chat = ProjectChat(
-            project_id=project_id,
-            title=request.title or "New Chat",
-            created_by=user_id,
-            added_by=user_id,
-        )
-        self.session.add(chat)
-        self.session.flush()  # Flush to get DB-generated timestamps
-        self.session.commit()
-        self._log_audit(
-            project_id, user_id, "chat.created", "chat", str(chat.id)
-        )
-        return chat
-
-    # ========================================================================
-    # 스냅샷
-    # ========================================================================
-
-    def create_snapshot(
-        self,
-        project_id: uuid.UUID,
-        request: schemas.SnapshotCreateRequest,
-        user_id: uuid.UUID,
-    ) -> Snapshot:
-        """스냅샷 생성."""
-        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
-
-        # 현재 지침 버전
-        latest_instr = (
-            self.session.execute(
-                select(Instruction)
-                .where(Instruction.project_id == project_id)
-                .order_by(Instruction.version.desc())
-            )
-            .scalars()
-            .first()
-        )
-
-        snapshot = Snapshot(
-            project_id=project_id,
-            name=request.name,
-            instruction_ver=latest_instr.version if latest_instr else None,
-            created_by=user_id,
-        )
-        self.session.add(snapshot)
-        self.session.commit()
-        self._log_audit(
-            project_id, user_id, "snapshot.created", "snapshot", str(snapshot.id)
-        )
-        return snapshot
-
-    def list_snapshots(
-        self, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> list[Snapshot]:
-        """스냅샷 목록."""
-        self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-        return list(
-            self.session.execute(
-                select(Snapshot).where(Snapshot.project_id == project_id)
-            ).scalars()
-        )
-
-    # ========================================================================
-    # 감사/비용 (스텁)
-    # ========================================================================
-
-    def list_audit_logs(
-        self,
-        user_id: uuid.UUID,
-        project_id: Optional[uuid.UUID] = None,
-        action: Optional[str] = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[AuditLog]:
-        """감사 로그 조회."""
-        if project_id:
-            self._check_permission(project_id, user_id, PermissionRole.MAINTAINER)
-
-        stmt = select(AuditLog)
-        if project_id:
-            stmt = stmt.where(AuditLog.project_id == project_id)
-        if action:
-            stmt = stmt.where(AuditLog.action == action)
-
-        stmt = stmt.order_by(AuditLog.at.desc()).limit(limit).offset(offset)
-        return list(self.session.execute(stmt).scalars())
-
-    def get_usage(
-        self,
-        user_id: uuid.UUID,
-        project_id: Optional[uuid.UUID] = None,
-        period: str = "current_month",
-    ) -> schemas.UsageResponse:
-        """사용량 조회."""
-        if project_id:
-            self._check_permission(project_id, user_id, PermissionRole.VIEWER)
-
-        # TODO: 실제 집계 로직
-        return schemas.UsageResponse(
-            project_id=project_id,
-            period=period,
-            tokens_in=0,
-            tokens_out=0,
-            cost_cents=0,
-        )
-
-    def update_budget(
-        self,
-        project_id: uuid.UUID,
-        request: schemas.BudgetUpdateRequest,
-        user_id: uuid.UUID,
-    ) -> ProjectBudget:
-        """예산 설정."""
-        self._check_permission(project_id, user_id, PermissionRole.MAINTAINER)
-
-        budget = self.session.get(ProjectBudget, project_id)
-        if not budget:
-            budget = ProjectBudget(project_id=project_id)
-            self.session.add(budget)
-
-        if request.token_limit is not None:
-            budget.token_limit = request.token_limit
-        if request.hardcap is not None:
-            budget.hardcap = request.hardcap
-
-        self.session.commit()
-        self._log_audit(project_id, user_id, "budget.updated", "budget", str(project_id))
-        return budget

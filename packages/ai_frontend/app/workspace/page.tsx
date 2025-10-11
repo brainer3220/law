@@ -93,7 +93,7 @@ export default function WorkspacePage() {
             💡 프로젝트 기반 작업
           </h3>
           <p className="mt-1 text-sm text-blue-800 dark:text-blue-300">
-            각 프로젝트는 독립적인 컨텍스트를 가지며, 파일, 메모리, 채팅 기록을 관리합니다.
+            각 프로젝트는 독립적인 컨텍스트와 지침 버전 이력을 관리하며, 정책 변경 사항을 추적합니다.
           </p>
         </div>
       </main>

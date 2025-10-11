@@ -16,8 +16,8 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from .base import Base
 
@@ -29,6 +29,20 @@ __all__ = [
     "ProjectUpdateFile",
     "Update",
 ]
+
+
+class TSVectorCompat(TypeDecorator):
+    """Fallback TSVECTOR type for non-Postgres engines used in tests."""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":  # pragma: no cover - exercised in production
+            from sqlalchemy.dialects.postgresql import TSVECTOR
+
+            return dialect.type_descriptor(TSVECTOR())
+        return dialect.type_descriptor(Text())
 
 
 class Instruction(Base):
@@ -46,7 +60,7 @@ class Instruction(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    tsv: Mapped[str | None] = mapped_column(TSVECTOR)
+    tsv: Mapped[str | None] = mapped_column(TSVectorCompat())
 
     project: Mapped["Project"] = relationship(back_populates="instructions")
 

@@ -1,14 +1,9 @@
 """FastAPI application for project workspace management.
 
-프로젝트 중심 컨텍스트 관리 API:
+프로젝트 중심 컨텍스트 관리 API (migration 007 호환):
 - 프로젝트 수명주기 (생성/복제/보관/삭제)
+- 권한/멤버십 관리
 - 지침(Instructions) 버전 관리
-- 메모리(Memory) CRUD
-- 파일 업로드/인덱싱
-- 채팅/메시지
-- 권한/멤버십
-- 스냅샷/재현성
-- 감사/비용 추적
 """
 
 from __future__ import annotations
@@ -16,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Generator, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, File as FastAPIFile, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
