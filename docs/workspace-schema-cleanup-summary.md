@@ -36,6 +36,20 @@ Removed legacy enums from `packages/legal_tools/workspace/schema/enums.py`:
 - `packages/legal_tools/workspace/schema/enums.py` - Removed legacy enums
 - `packages/legal_tools/workspace/service.py` - Updated imports (methods still need refactoring)
 
+## API Layer Cleanup
+
+### API Endpoints (api.py)
+- **Removed 500+ lines** of legacy endpoints (line 315-815)
+- **Kept 17 core routes** matching migration 007:
+  - Projects: CRUD + clone
+  - Members: add, list, update, remove
+  - Instructions: create, list, get by version
+  - Plus OpenAPI docs routes
+
+### Before vs After
+- `schemas.py`: 428 → 159 lines (removed 269 lines)
+- `api.py`: 815 → 321 lines (removed 494 lines)
+
 ## Known Issues / TODO
 
 ### Service Layer Needs Refactoring
