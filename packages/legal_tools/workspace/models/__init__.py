@@ -1,57 +1,30 @@
-"""Workspace SQLAlchemy models organized by domain."""
+"""Workspace SQLAlchemy models organized by domain.
+
+This module reflects the simplified schema from migration 007_project_workspace_schema.sql.
+Only the core workspace tables are included:
+- organizations, projects, project_members
+- instructions, project_update_files, updates
+"""
 
 from .base import (
     Base,
     PermissionRole,
-    SensitivityLevel,
-    ShareMode,
-    PrincipalType,
-    ResourceType,
     permission_role_enum,
-    sensitivity_level_enum,
-    share_mode_enum,
-    principal_type_enum,
-    resource_type_enum,
 )
+from .content import Instruction, ProjectUpdateFile, Update
 from .projects import Organization, Project, ProjectMember
-from .content import Instruction, Memory, File, Document, DocumentChunk
-from .sharing import Permission, ShareLink
-from .redaction import RedactionRule, RedactionRun, RedactionRunItem
-from .snapshots import Snapshot, SnapshotFile
-from .chats import ProjectChat
-from .audit import AuditLog
-from .budget import ProjectBudget
-from .usage import UsageLedger
 
 __all__ = [
+    # Base & Enums
     "Base",
+    "PermissionRole",
+    "permission_role_enum",
+    # Projects
     "Organization",
     "Project",
     "ProjectMember",
+    # Content
     "Instruction",
-    "Memory",
-    "File",
-    "Document",
-    "DocumentChunk",
-    "Permission",
-    "ShareLink",
-    "RedactionRule",
-    "RedactionRun",
-    "RedactionRunItem",
-    "Snapshot",
-    "SnapshotFile",
-    "ProjectChat",
-    "AuditLog",
-    "ProjectBudget",
-    "UsageLedger",
-    "PermissionRole",
-    "SensitivityLevel",
-    "ShareMode",
-    "PrincipalType",
-    "ResourceType",
-    "permission_role_enum",
-    "sensitivity_level_enum",
-    "share_mode_enum",
-    "principal_type_enum",
-    "resource_type_enum",
+    "ProjectUpdateFile",
+    "Update",
 ]

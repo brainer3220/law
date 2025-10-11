@@ -7,36 +7,15 @@ from typing import Any
 
 __all__ = [
     # Models
-    "AuditLog",
     "Base",
-    "Document",
-    "DocumentChunk",
-    "File",
     "Instruction",
-    "Memory",
     "Organization",
-    "Permission",
     "PermissionRole",
-    "PrincipalType",
     "Project",
-    "ProjectBudget",
-    "ProjectChat",
     "ProjectMember",
-    "RedactionRule",
-    "RedactionRun",
-    "RedactionRunItem",
-    "ResourceType",
-    "SensitivityLevel",
-    "ShareLink",
-    "ShareMode",
-    "Snapshot",
-    "SnapshotFile",
-    "UsageLedger",
+    "ProjectUpdateFile",
+    "Update",
     "permission_role_enum",
-    "principal_type_enum",
-    "resource_type_enum",
-    "sensitivity_level_enum",
-    "share_mode_enum",
     # API
     "create_app",
     "WorkspaceSettings",
@@ -50,13 +29,9 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - thin import shim
     if name in __all__:
         # Models
         if name in [
-            "AuditLog", "Base", "Document", "DocumentChunk", "File", "Instruction",
-            "Memory", "Organization", "Permission", "PermissionRole", "PrincipalType",
-            "Project", "ProjectBudget", "ProjectChat", "ProjectMember", "RedactionRule",
-            "RedactionRun", "RedactionRunItem", "ResourceType", "SensitivityLevel",
-            "ShareLink", "ShareMode", "Snapshot", "SnapshotFile", "UsageLedger",
-            "permission_role_enum", "principal_type_enum", "resource_type_enum",
-            "sensitivity_level_enum", "share_mode_enum",
+            "Base", "Instruction", "Organization", "PermissionRole",
+            "Project", "ProjectMember", "ProjectUpdateFile", "Update",
+            "permission_role_enum",
         ]:
             module = import_module(".models", __name__)
         # API
