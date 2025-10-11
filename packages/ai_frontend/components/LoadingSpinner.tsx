@@ -4,7 +4,9 @@
  * 데이터 로딩, 비동기 작업 진행 중 표시.
  */
 
+import "@material/web/progress/circular-progress.js";
 import { cn } from "@/lib/utils";
+import type { CSSProperties } from "react";
 
 export interface LoadingSpinnerProps {
   size?: "sm" | "md" | "lg";
@@ -12,10 +14,13 @@ export interface LoadingSpinnerProps {
   className?: string;
 }
 
-const SIZE_CLASSES = {
-  sm: "h-4 w-4 border-2",
-  md: "h-8 w-8 border-3",
-  lg: "h-12 w-12 border-4",
+const SIZE_STYLES: Record<
+  NonNullable<LoadingSpinnerProps["size"]>,
+  CSSProperties
+> = {
+  sm: { width: "20px", height: "20px" },
+  md: { width: "32px", height: "32px" },
+  lg: { width: "44px", height: "44px" },
 };
 
 export function LoadingSpinner({
@@ -23,7 +28,7 @@ export function LoadingSpinner({
   label = "로딩 중...",
   className,
 }: LoadingSpinnerProps) {
-  const sizeClass = SIZE_CLASSES[size];
+  const sizeStyle = SIZE_STYLES[size];
 
   return (
     <div
@@ -32,17 +37,13 @@ export function LoadingSpinner({
       aria-live="polite"
       aria-label={label}
     >
-      <div
-        className={cn(
-          "animate-spin rounded-full border-blue-600 border-t-transparent dark:border-blue-400",
-          sizeClass
-        )}
+      <md-circular-progress
+        indeterminate
+        style={sizeStyle}
         aria-hidden="true"
       />
       {label && (
-        <span className="text-sm text-gray-600 dark:text-gray-400">
-          {label}
-        </span>
+        <span className="material-support-text">{label}</span>
       )}
     </div>
   );

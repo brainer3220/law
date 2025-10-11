@@ -1,13 +1,16 @@
 "use client";
 
+import "@material/web/button/elevated-button.js";
+import "@material/web/button/filled-tonal-button.js";
 import { useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { ChatKitPanel, type FactAction } from "@/components/ChatKitPanel";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { UserMenu } from "@/components/auth/UserMenu";
-import Link from "next/link";
 
 export default function App() {
   const { scheme, setScheme } = useColorScheme();
+  const router = useRouter();
 
   const handleWidgetAction = useCallback(async (action: FactAction) => {
     if (process.env.NODE_ENV !== "production") {
@@ -22,36 +25,28 @@ export default function App() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col bg-slate-100 dark:bg-slate-950">
-      {/* Header with User Menu */}
-      <header className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-              법률 AI 에이전트
-            </h1>
-            <nav className="flex items-center gap-4">
-              <Link
-                href="/"
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
-              >
-                채팅
-              </Link>
-              <Link
-                href="/workspace"
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
-              >
-                프로젝트
-              </Link>
-            </nav>
-          </div>
-          <UserMenu />
-        </div>
+    <main className="material-app-shell">
+      <header className="material-app-shell__bar">
+        <div className="material-app-shell__headline">법률 AI 에이전트</div>
+        <nav className="material-app-shell__nav">
+          <md-filled-tonal-button
+            type="button"
+            onClick={() => router.push("/")}
+          >
+            채팅
+          </md-filled-tonal-button>
+          <md-filled-tonal-button
+            type="button"
+            onClick={() => router.push("/workspace")}
+          >
+            프로젝트
+          </md-filled-tonal-button>
+        </nav>
+        <UserMenu />
       </header>
 
-      {/* Main Content */}
-      <div className="flex flex-1 items-center justify-center px-6 py-6">
-        <div className="mx-auto w-full max-w-5xl">
+      <div className="material-app-shell__content">
+        <div className="material-app-shell__canvas">
           <ChatKitPanel
             theme={scheme}
             onWidgetAction={handleWidgetAction}
