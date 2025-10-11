@@ -6,6 +6,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import {
@@ -21,6 +22,7 @@ import {
   ClockIcon,
   UserGroupIcon,
   PencilSquareIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline'
 
 interface PageProps {
@@ -30,6 +32,7 @@ interface PageProps {
 export default function ProjectDetailPage({ params }: PageProps) {
   const resolvedParams = use(params)
   const { user } = useAuth()
+  const router = useRouter()
   const [project, setProject] = useState<Project | null>(null)
   const [updates, setUpdates] = useState<Update[]>([])
   const [members, setMembers] = useState<Member[]>([])
@@ -39,6 +42,8 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const [newUpdate, setNewUpdate] = useState('')
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [creatingUpdate, setCreatingUpdate] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingProject, setDeletingProject] = useState(false)
 
   const loadProjectData = useCallback(async () => {
     if (!user?.id) return
@@ -74,6 +79,31 @@ export default function ProjectDetailPage({ params }: PageProps) {
   useEffect(() => {
     void loadProjectData()
   }, [loadProjectData])
+
+  const handleDeleteProject = async () => {
+    if (!project || !user?.id) return
+    if (
+      !window.confirm(
+        '이 프로젝트를 삭제하면 모든 멤버의 접근이 차단됩니다. 계속하시겠습니까?'
+      )
+    ) {
+      return
+    }
+    try {
+      setDeletingProject(true)
+      setDeleteError(null)
+      workspaceClient.setUserId(user.id)
+      await workspaceClient.deleteProject(project.id)
+      router.push('/workspace')
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+      setDeleteError(
+        err instanceof Error ? err.message : '프로젝트를 삭제하지 못했습니다.'
+      )
+    } finally {
+      setDeletingProject(false)
+    }
+  }
 
   const handleUpdateSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -137,7 +167,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200 dark:bg-slate-900/80 dark:border-gray-800">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
+          <div className="flex h-16 items-center justify-between gap-4">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <Link
                 href="/workspace"
@@ -155,6 +185,22 @@ export default function ProjectDetailPage({ params }: PageProps) {
                   </p>
                 )}
               </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {deleteError && (
+                <span className="text-xs text-red-500 dark:text-red-400">
+                  {deleteError}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleDeleteProject}
+                disabled={deletingProject}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {deletingProject ? '삭제 중...' : '프로젝트 삭제'}
+              </button>
             </div>
           </div>
         </div>
