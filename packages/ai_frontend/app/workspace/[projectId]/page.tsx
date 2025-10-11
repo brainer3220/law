@@ -1,7 +1,6 @@
 'use client'
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
@@ -284,6 +283,11 @@ export default function ProjectDetailPage({ params }: PageProps) {
   }
 
   const latestUpdate = sortedUpdates[0] ?? null
+  const latestActivityLabel = latestUpdate?.created_at
+    ? format(new Date(latestUpdate.created_at), 'yyyy.MM.dd HH:mm', {
+        locale: ko,
+      })
+    : '없음'
 
   return (
     <div className="material-project-layout">
@@ -324,6 +328,29 @@ export default function ProjectDetailPage({ params }: PageProps) {
               </button>
               {isProjectActionsOpen && (
                 <div className="material-project__actions-popover">
+                  <div className="material-project__actions-info">
+                    <div className="material-project__actions-info-item">
+                      <DocumentTextIcon className="material-project__actions-info-icon" aria-hidden="true" />
+                      <div>
+                        <span className="material-project__actions-info-label">업데이트</span>
+                        <span className="material-project__actions-info-value">{sortedUpdates.length}개</span>
+                      </div>
+                    </div>
+                    <div className="material-project__actions-info-item">
+                      <ClockIcon className="material-project__actions-info-icon" aria-hidden="true" />
+                      <div>
+                        <span className="material-project__actions-info-label">최근 활동</span>
+                        <span className="material-project__actions-info-value">{latestActivityLabel}</span>
+                      </div>
+                    </div>
+                    <div className="material-project__actions-info-item">
+                      <UserGroupIcon className="material-project__actions-info-icon" aria-hidden="true" />
+                      <div>
+                        <span className="material-project__actions-info-label">멤버</span>
+                        <span className="material-project__actions-info-value">{members.length}명</span>
+                      </div>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     className="material-outlined-button material-outlined-button--error material-project__delete"
@@ -338,30 +365,6 @@ export default function ProjectDetailPage({ params }: PageProps) {
             </div>
           </div>
         </header>
-
-        <section className="material-project__stats">
-          <StatTile
-            icon={<DocumentTextIcon className="material-icon" aria-hidden="true" />}
-            label="업데이트"
-            value={`${sortedUpdates.length}개`}
-          />
-          <StatTile
-            icon={<ClockIcon className="material-icon" aria-hidden="true" />}
-            label="최근 활동"
-            value={
-              latestUpdate?.created_at
-                ? format(new Date(latestUpdate.created_at), 'yyyy.MM.dd HH:mm', {
-                    locale: ko,
-                  })
-                : '없음'
-            }
-          />
-          <StatTile
-            icon={<UserGroupIcon className="material-icon" aria-hidden="true" />}
-            label="멤버"
-            value={`${members.length}명`}
-          />
-        </section>
 
         <main className="material-project__content">
           <section className="material-project__composer">
@@ -459,18 +462,6 @@ export default function ProjectDetailPage({ params }: PageProps) {
           />
         </div>
       </aside>
-    </div>
-  )
-}
-
-function StatTile({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="material-project__stat">
-      <span className="material-project__stat-icon">{icon}</span>
-      <div>
-        <span className="material-caption">{label}</span>
-        <p className="material-stat-value">{value}</p>
-      </div>
     </div>
   )
 }

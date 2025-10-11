@@ -1433,6 +1433,39 @@ body {
   justify-content: flex-start;
 }
 
+.material-project__actions-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant, #cbd5f5) 70%, transparent);
+}
+
+.material-project__actions-info-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.material-project__actions-info-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--md-sys-color-primary, #2563eb);
+}
+
+.material-project__actions-info-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--md-sys-color-on-surface-variant, #475569);
+}
+
+.material-project__actions-info-value {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface, #0f172a);
+}
+
 /* Custom Button Styles */
 .material-filled-button,
 .material-outlined-button,
