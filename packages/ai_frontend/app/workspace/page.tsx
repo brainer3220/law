@@ -10,13 +10,16 @@ import {
   PlusIcon, 
   SparklesIcon,
   RocketLaunchIcon,
-  LightBulbIcon
+  LightBulbIcon,
+  ChevronDoubleLeftIcon,
+  ChevronDoubleRightIcon
 } from '@heroicons/react/24/outline'
 
 export default function WorkspacePage() {
   const { user, loading } = useAuth()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const handleProjectCreated = () => {
     setRefreshKey((prev) => prev + 1)
@@ -52,23 +55,68 @@ export default function WorkspacePage() {
 
   return (
     <>
-      <div className="material-workspace">
-        <aside className="material-workspace__navigation">
-          <div className="material-workspace__heading">
-            <div className="material-workspace__title-group">
-              <SparklesIcon className="material-workspace__title-icon" aria-hidden="true" />
-              <h1 className="material-title">프로젝트</h1>
-            </div>
-            <p className="material-caption">프로젝트 중심 컨텍스트 관리</p>
+      <div className={`material-workspace${isSidebarOpen ? '' : ' material-workspace--collapsed'}`}>
+        <aside
+          id="workspace-navigation"
+          className={`material-workspace__navigation${isSidebarOpen ? '' : ' material-workspace__navigation--collapsed'}`}
+          aria-expanded={isSidebarOpen}
+        >
+          <div className="material-workspace__pinned">
+            {isSidebarOpen ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="material-workspace__toggle"
+                  aria-label="사이드바 닫기"
+                  aria-controls="workspace-navigation"
+                >
+                  <ChevronDoubleLeftIcon className="material-workspace__toggle-icon" aria-hidden="true" />
+                  <span className="material-visually-hidden">사이드바 닫기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="material-workspace__create-inline"
+                >
+                  <span className="material-workspace__create-inline-icon" aria-hidden="true">
+                    <PlusIcon className="material-icon" />
+                  </span>
+                  <span className="material-workspace__create-inline-label">새 프로젝트</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="material-workspace__compact-toggle"
+                  aria-label="사이드바 열기"
+                >
+                  <ChevronDoubleRightIcon className="material-workspace__compact-toggle-icon" aria-hidden="true" />
+                  <span className="material-visually-hidden">사이드바 열기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="material-workspace__compact-action"
+                  aria-label="새 프로젝트 만들기"
+                >
+                  <PlusIcon className="material-icon" aria-hidden="true" />
+                </button>
+              </>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="material-filled-button material-workspace__create-button"
-          >
-            <PlusIcon className="material-icon" aria-hidden="true" />
-            <span>새 프로젝트</span>
-          </button>
+
+          {isSidebarOpen && (
+            <div className="material-workspace__heading">
+              <div className="material-workspace__title-group">
+                <SparklesIcon className="material-workspace__title-icon" aria-hidden="true" />
+                <h1 className="material-title">프로젝트</h1>
+              </div>
+              <p className="material-caption">프로젝트 중심 컨텍스트 관리</p>
+            </div>
+          )}
         </aside>
 
         <main className="material-workspace__content">
