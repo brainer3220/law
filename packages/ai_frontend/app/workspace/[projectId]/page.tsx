@@ -207,13 +207,14 @@ export default function ProjectDetailPage({ params }: PageProps) {
         <p className="material-body material-empty__body">
           {error || '선택한 프로젝트가 삭제되었거나 접근 권한이 없습니다.'}
         </p>
-        <md-filled-tonal-button
+        <button
           type="button"
           onClick={() => router.push('/workspace')}
+          className="material-filled-button material-filled-button--tonal"
         >
-          <ArrowLeftIcon slot="icon" className="material-icon" />
-          프로젝트 목록으로
-        </md-filled-tonal-button>
+          <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+          <span>프로젝트 목록으로</span>
+        </button>
       </div>
     )
   }
@@ -224,13 +225,14 @@ export default function ProjectDetailPage({ params }: PageProps) {
     <div className="material-project">
       <header className="material-project__bar">
         <div className="material-project__breadcrumbs">
-          <md-filled-tonal-icon-button
+          <button
             type="button"
             aria-label="프로젝트 목록으로 이동"
             onClick={() => router.push('/workspace')}
+            className="material-icon-button material-icon-button--tonal"
           >
-            <ArrowLeftIcon slot="icon" className="material-icon" />
-          </md-filled-tonal-icon-button>
+            <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+          </button>
           <div className="material-project__overview">
             <h1 className="material-title material-project__title">{project.name}</h1>
             {project.description && (
@@ -242,19 +244,19 @@ export default function ProjectDetailPage({ params }: PageProps) {
         </div>
         <div className="material-project__actions">
           {projectDeleteError && (
-            <span className="material-support-text material-project__error">
+            <div className="material-alert material-alert--error material-project__error-alert">
               {projectDeleteError}
-            </span>
+            </div>
           )}
-          <md-outlined-button
+          <button
             type="button"
             disabled={deletingProject}
             onClick={handleDeleteProject}
-            className="material-project__delete"
+            className="material-outlined-button material-outlined-button--error"
           >
-            <TrashIcon slot="icon" className="material-icon" />
-            {deletingProject ? '삭제 중…' : '프로젝트 삭제'}
-          </md-outlined-button>
+            <TrashIcon className="material-icon" aria-hidden="true" />
+            <span>{deletingProject ? '삭제 중…' : '프로젝트 삭제'}</span>
+          </button>
         </div>
       </header>
 
@@ -310,12 +312,13 @@ export default function ProjectDetailPage({ params }: PageProps) {
               <span className="material-support-text">
                 새로운 업데이트는 타임라인 상단에 바로 노출됩니다.
               </span>
-              <md-filled-button
+              <button
                 type="submit"
                 disabled={creatingUpdate || !newUpdate.trim()}
+                className="material-filled-button"
               >
-                {creatingUpdate ? '기록 중…' : '업데이트 남기기'}
-              </md-filled-button>
+                <span>{creatingUpdate ? '기록 중…' : '업데이트 남기기'}</span>
+              </button>
             </div>
           </form>
         </section>
@@ -395,15 +398,15 @@ function UpdateCard({
             작성자 {update.created_by.slice(0, 8)}…
           </span>
         )}
-        <md-outlined-button
+        <button
           type="button"
-          className="material-update-card__delete"
+          className="material-outlined-button material-outlined-button--small material-update-card__delete"
           disabled={deleting}
           onClick={onDelete}
         >
-          <TrashIcon slot="icon" className="material-icon" />
-          {deleting ? '삭제 중…' : '삭제'}
-        </md-outlined-button>
+          <TrashIcon className="material-icon" aria-hidden="true" />
+          <span>{deleting ? '삭제 중…' : '삭제'}</span>
+        </button>
       </header>
       <div className="material-update-card__body">
         {update.body && update.body.trim().length > 0

@@ -79,12 +79,10 @@ export default function ProjectTimeline() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-          <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
-            프로젝트를 불러오는 중...
-          </p>
+      <div className="project-timeline-loading">
+        <div className="project-timeline-spinner">
+          <div className="spinner-ring"></div>
+          <p className="spinner-text">프로젝트를 불러오는 중...</p>
         </div>
       </div>
     )
@@ -92,20 +90,23 @@ export default function ProjectTimeline() {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
-        <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+      <div className="project-timeline-error">
+        <svg className="error-icon" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <p className="error-text">{error}</p>
       </div>
     )
   }
 
   if (projects.length === 0) {
     return (
-      <div className="text-center py-12">
-        <FolderIcon className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
-          프로젝트가 없습니다
-        </h3>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <div className="project-timeline-empty">
+        <div className="empty-icon-wrapper">
+          <FolderIcon className="empty-icon" />
+        </div>
+        <h3 className="empty-title">프로젝트가 없습니다</h3>
+        <p className="empty-body">
           새 프로젝트를 만들어 시작하세요.
         </p>
       </div>
