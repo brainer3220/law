@@ -2,11 +2,7 @@
 
 from .enums import (
     EnumDefinition,
-    PrincipalType,
-    ResourceType,
-    SensitivityLevel,
     PermissionRole,
-    ShareMode,
     ENUM_DEFINITIONS,
     ENUM_DEFINITION_BY_NAME,
     render_enum_sql,
@@ -16,10 +12,6 @@ from .enums import (
 __all__ = [
     "EnumDefinition",
     "PermissionRole",
-    "SensitivityLevel",
-    "ShareMode",
-    "PrincipalType",
-    "ResourceType",
     "ENUM_DEFINITIONS",
     "ENUM_DEFINITION_BY_NAME",
     "render_enum_sql",
