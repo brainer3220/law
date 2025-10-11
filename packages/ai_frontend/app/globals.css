@@ -1261,10 +1261,11 @@ body {
 
 /* Project Layout with Sidebar */
 .material-project-layout {
+  --material-project-sidebar-width: 480px;
   display: flex;
   min-height: 100vh;
+  height: 100vh;
   width: 100%;
-  overflow: hidden;
   background: var(--md-sys-color-surface, #f8fafc);
   position: relative;
 }
@@ -1276,26 +1277,39 @@ body {
   flex-direction: column;
   background: var(--md-sys-color-surface, #f8fafc);
   color: var(--md-sys-color-on-surface, #0f172a);
-  transition: all 0.3s ease;
+  transition: padding-right 0.3s ease;
   overflow-y: auto;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.material-project--sidebar-open {
+  padding-right: var(--material-project-sidebar-width);
 }
 
 .material-project-sidebar {
-  width: 0;
-  height: 100%;
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: var(--material-project-sidebar-width);
+  max-width: 100%;
+  height: 100vh;
+  height: 100dvh;
   background: var(--md-sys-color-surface-container-lowest, #ffffff);
   border-left: 1px solid var(--md-sys-color-outline-variant, #e2e8f0);
   box-shadow: -4px 0 24px rgba(15, 23, 42, 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.3s ease;
-  flex-shrink: 0;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  pointer-events: none;
+  z-index: 30;
 }
 
 .material-project-sidebar--open {
-  width: 480px;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 .material-project-sidebar__header {
@@ -2391,44 +2405,50 @@ body {
 
 /* Project Sidebar Responsive */
 @media (min-width: 1280px) {
-  /* Wide screen에서 ChatKit이 열려있을 때 최적화 */
-  .material-project-sidebar--open {
-    width: 520px;
+  .material-project-layout {
+    --material-project-sidebar-width: 520px;
   }
 }
 
 @media (max-width: 1280px) {
-  .material-project-sidebar--open {
-    width: 400px;
+  .material-project-layout {
+    --material-project-sidebar-width: 400px;
   }
 }
 
 @media (max-width: 1024px) {
   .material-project-layout {
     flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    --material-project-sidebar-width: 100%;
+  }
+
+  .material-project {
+    height: auto;
+    padding-right: 0;
+    overflow-y: visible;
   }
 
   .material-project-sidebar {
-    height: 0;
+    top: auto;
+    bottom: 0;
+    right: 0;
     width: 100%;
+    height: 50vh;
+    transform: translateY(100%);
     border-left: none;
     border-top: 1px solid var(--md-sys-color-outline-variant, #e2e8f0);
     box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.12);
   }
 
   .material-project-sidebar--open {
-    height: 50vh;
-    width: 100%;
-  }
-
-  .material-project {
-    height: 100%;
-    flex: 1;
+    transform: translateY(0);
   }
 }
 
 @media (max-width: 768px) {
-  .material-project-sidebar--open {
+  .material-project-sidebar {
     height: 60vh;
   }
 
