@@ -981,6 +981,14 @@ body {
   position: relative;
 }
 
+.material-workspace__content--project {
+  display: block;
+  padding: 0;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+}
+
 @media (max-width: 1024px) {
   .material-workspace__content {
     grid-template-columns: 1fr;
@@ -1254,14 +1262,11 @@ body {
 /* Project Layout with Sidebar */
 .material-project-layout {
   display: flex;
-  height: 100vh;
+  min-height: 100vh;
+  width: 100%;
   overflow: hidden;
   background: var(--md-sys-color-surface, #f8fafc);
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
 }
 
 .material-project {

@@ -15,6 +15,7 @@ import { useAuth } from '@/lib/auth/AuthContext'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { ChatKitPanel, type FactAction } from '@/components/ChatKitPanel'
 import { useColorScheme } from '@/hooks/useColorScheme'
+import { useWorkspaceLayout } from '../layout'
 import {
   ArrowLeftIcon,
   DocumentTextIcon,
@@ -36,6 +37,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const router = useRouter()
   const userId = user?.id ?? null
   const { scheme, setScheme } = useColorScheme()
+  const { reloadProjects } = useWorkspaceLayout()
 
   const [project, setProject] = useState<Project | null>(null)
   const [updates, setUpdates] = useState<Update[]>([])
@@ -139,6 +141,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
       setProjectDeleteError(null)
       workspaceClient.setUserId(userId)
       await workspaceClient.deleteProject(project.id)
+      await reloadProjects()
       router.push('/workspace')
     } catch (err) {
       console.error('Failed to delete project:', err)
