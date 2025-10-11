@@ -9,10 +9,6 @@ from typing import Mapping
 __all__ = [
     "EnumDefinition",
     "PermissionRole",
-    "SensitivityLevel",
-    "ShareMode",
-    "PrincipalType",
-    "ResourceType",
     "ENUM_DEFINITIONS",
     "ENUM_DEFINITION_BY_NAME",
     "render_enum_sql",
@@ -36,38 +32,6 @@ class PermissionRole(WorkspaceEnum):
     VIEWER = "viewer"
 
 
-class SensitivityLevel(WorkspaceEnum):
-    PUBLIC = "public"
-    INTERNAL = "internal"
-    RESTRICTED = "restricted"
-    SECRET = "secret"
-
-
-class ShareMode(WorkspaceEnum):
-    PRIVATE = "private"
-    ORG = "org"
-    LINK = "link"
-    DOMAIN = "domain"
-
-
-class PrincipalType(WorkspaceEnum):
-    USER = "user"
-    ORG = "org"
-    DOMAIN = "domain"
-    GROUP = "group"
-    LINK = "link"
-
-
-class ResourceType(WorkspaceEnum):
-    PROJECT = "project"
-    FILE = "file"
-    DOCUMENT = "document"
-    MEMORY = "memory"
-    INSTRUCTION = "instruction"
-    CHAT = "chat"
-    SNAPSHOT = "snapshot"
-
-
 @dataclass(frozen=True)
 class EnumDefinition:
     """Metadata describing a PostgreSQL enum type."""
@@ -87,10 +51,6 @@ class EnumDefinition:
 
 ENUM_DEFINITIONS: tuple[EnumDefinition, ...] = (
     EnumDefinition("permission_role", PermissionRole.values(), PermissionRole),
-    EnumDefinition("sensitivity_level", SensitivityLevel.values(), SensitivityLevel),
-    EnumDefinition("share_mode", ShareMode.values(), ShareMode),
-    EnumDefinition("principal_type", PrincipalType.values(), PrincipalType),
-    EnumDefinition("resource_type", ResourceType.values(), ResourceType),
 )
 
 ENUM_DEFINITION_BY_NAME: Mapping[str, EnumDefinition] = {

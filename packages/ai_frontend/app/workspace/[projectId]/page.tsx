@@ -1,40 +1,27 @@
 'use client'
 
 /**
- * 프로젝트 상세 페이지 - 타임라인 스타일
- * 글 작성 및 파일 업로드 기능 포함
+ * 프로젝트 상세 페이지 - 지침 버전 관리 중심 뷰
  */
 
-import { use, useEffect, useState, useRef, useCallback } from 'react'
-import { useAuth } from '@/lib/auth/AuthContext'
-import {
-  workspaceClient,
-  type Project,
-  type File,
-  type Chat,
-  type Memory,
-} from '@/lib/workspace/client'
+import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  ArrowLeftIcon,
-  DocumentIcon,
-  ChatBubbleLeftIcon,
-  LightBulbIcon,
-  PaperClipIcon,
-  PaperAirplaneIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
-
-type TimelineItem = {
-  id: string
-  type: 'file' | 'chat' | 'memory'
-  title: string
-  description?: string
-  timestamp: Date
-  data: File | Chat | Memory
-}
+import {
+  type Instruction,
+  type Member,
+  type Project,
+  workspaceClient,
+} from '@/lib/workspace/client'
+import { useAuth } from '@/lib/auth/AuthContext'
+import {
+  ArrowLeftIcon,
+  DocumentTextIcon,
+  ClockIcon,
+  UserGroupIcon,
+  PencilSquareIcon,
+} from '@heroicons/react/24/outline'
 
 interface PageProps {
   params: Promise<{ projectId: string }>
@@ -44,16 +31,14 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const resolvedParams = use(params)
   const { user } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
-  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([])
+  const [instructions, setInstructions] = useState<Instruction[]>([])
+  const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | 'file' | 'chat' | 'memory'>('all')
-  
-  // 입력 상태
-  const [inputText, setInputText] = useState('')
-  const [selectedFiles, setSelectedFiles] = useState<globalThis.File[]>([])
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [newInstruction, setNewInstruction] = useState('')
+  const [instructionError, setInstructionError] = useState<string | null>(null)
+  const [creatingInstruction, setCreatingInstruction] = useState(false)
 
   const loadProjectData = useCallback(async () => {
     if (!user?.id) return
@@ -62,123 +47,52 @@ export default function ProjectDetailPage({ params }: PageProps) {
       setLoading(true)
       workspaceClient.setUserId(user.id)
 
-      const [projectData, filesData, chatsData, memoriesData] = await Promise.all([
+      const [projectData, instructionData, membersData] = await Promise.all([
         workspaceClient.getProject(resolvedParams.projectId),
-        workspaceClient.listFiles(resolvedParams.projectId),
-        workspaceClient.listChats(resolvedParams.projectId),
-        workspaceClient.listMemories(resolvedParams.projectId),
+        workspaceClient.listInstructions(resolvedParams.projectId),
+        workspaceClient
+          .listMembers(resolvedParams.projectId)
+          .catch(() => [] as Member[]),
       ])
 
       setProject(projectData)
-
-      // 타임라인 아이템 생성
-      const items: TimelineItem[] = []
-
-      // 파일 추가
-      filesData.forEach((file) => {
-        items.push({
-          id: file.id,
-          type: 'file',
-          title: file.filename,
-          description: `${(file.size_bytes / 1024 / 1024).toFixed(2)} MB`,
-          timestamp: new Date(file.uploaded_at),
-          data: file,
-        })
-      })
-
-      // 채팅 추가
-      chatsData.forEach((chat) => {
-        items.push({
-          id: chat.id,
-          type: 'chat',
-          title: chat.title || '채팅',
-          timestamp: new Date(chat.created_at),
-          data: chat,
-        })
-      })
-
-      // 메모리 추가
-      memoriesData.forEach((memory) => {
-        items.push({
-          id: memory.id,
-          type: 'memory',
-          title: memory.key,
-          description: memory.value,
-          timestamp: new Date(memory.created_at),
-          data: memory,
-        })
-      })
-
-      // 최신순 정렬
-      items.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      setTimelineItems(items)
+      const sortedInstructions = [...instructionData].sort(
+        (a, b) => b.version - a.version
+      )
+      setInstructions(sortedInstructions)
+      setMembers(membersData ?? [])
     } catch (err) {
       console.error('Failed to load project:', err)
       setError(err instanceof Error ? err.message : 'Failed to load project')
     } finally {
       setLoading(false)
     }
-  }, [user, resolvedParams.projectId])
+  }, [resolvedParams.projectId, user])
 
   useEffect(() => {
-    loadProjectData()
+    void loadProjectData()
   }, [loadProjectData])
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSelectedFiles(Array.from(e.target.files))
-    }
-  }
-
-  const handleRemoveFile = (index: number) => {
-    setSelectedFiles(selectedFiles.filter((_, i) => i !== index))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!inputText.trim() && selectedFiles.length === 0) return
+  const handleInstructionSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!project || !newInstruction.trim()) return
 
     try {
-      setUploading(true)
-
-      // 파일 업로드
-      if (selectedFiles.length > 0) {
-        for (const file of selectedFiles) {
-          await workspaceClient.uploadFile(resolvedParams.projectId, file)
-        }
-      }
-
-      // 텍스트가 있으면 채팅으로 저장
-      if (inputText.trim()) {
-        await workspaceClient.createChat(resolvedParams.projectId, inputText)
-      }
-
-      // 입력 초기화
-      setInputText('')
-      setSelectedFiles([])
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-
-      // 데이터 새로고침 (페이지 리로드 없이)
+      setCreatingInstruction(true)
+      setInstructionError(null)
+      await workspaceClient.createInstruction(project.id, {
+        content: newInstruction.trim(),
+      })
+      setNewInstruction('')
       await loadProjectData()
     } catch (err) {
-      console.error('Failed to submit:', err)
-      alert('업로드 실패: ' + (err instanceof Error ? err.message : '알 수 없는 오류'))
+      console.error('Failed to create instruction:', err)
+      setInstructionError(
+        err instanceof Error ? err.message : '지침을 저장하지 못했습니다.'
+      )
     } finally {
-      setUploading(false)
+      setCreatingInstruction(false)
     }
-  }
-
-  const filteredItems =
-    filter === 'all'
-      ? timelineItems
-      : timelineItems.filter((item) => item.type === filter)
-
-  const stats = {
-    files: timelineItems.filter((i) => i.type === 'file').length,
-    chats: timelineItems.filter((i) => i.type === 'chat').length,
-    memories: timelineItems.filter((i) => i.type === 'memory').length,
   }
 
   if (loading) {
@@ -214,6 +128,8 @@ export default function ProjectDetailPage({ params }: PageProps) {
     )
   }
 
+  const latestInstruction = instructions[0] ?? null
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
       {/* Header */}
@@ -245,272 +161,129 @@ export default function ProjectDetailPage({ params }: PageProps) {
       {/* Stats bar */}
       <div className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-slate-900">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <button
-              onClick={() => setFilter('all')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
-                filter === 'all'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span>전체</span>
-              <span className="font-medium">{timelineItems.length}</span>
-            </button>
-            <button
-              onClick={() => setFilter('file')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
-                filter === 'file'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
-              }`}
-            >
-              <DocumentIcon className="h-4 w-4" />
-              <span>{stats.files}</span>
-            </button>
-            <button
-              onClick={() => setFilter('chat')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
-                filter === 'chat'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
-              }`}
-            >
-              <ChatBubbleLeftIcon className="h-4 w-4" />
-              <span>{stats.chats}</span>
-            </button>
-            <button
-              onClick={() => setFilter('memory')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
-                filter === 'memory'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800'
-              }`}
-            >
-              <LightBulbIcon className="h-4 w-4" />
-              <span>{stats.memories}</span>
-            </button>
+          <div className="flex items-center gap-4 flex-wrap text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-2">
+              <DocumentTextIcon className="h-4 w-4 text-blue-500" />
+              <span>
+                지침 버전{' '}
+                <strong className="text-gray-900 dark:text-white">
+                  {latestInstruction ? `v${latestInstruction.version}` : '없음'}
+                </strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ClockIcon className="h-4 w-4 text-gray-400" />
+              <span>
+                마지막 업데이트:{' '}
+                <strong className="text-gray-900 dark:text-white">
+                  {format(new Date(project.updated_at), 'yyyy.MM.dd HH:mm', {
+                    locale: ko,
+                  })}
+                </strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <UserGroupIcon className="h-4 w-4 text-gray-400" />
+              <span>
+                멤버 <strong className="text-gray-900 dark:text-white">{members.length}</strong>명
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main content */}
-      <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6">
-        {/* Input area */}
-        <form onSubmit={handleSubmit} className="mb-6">
-          <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
-            {/* Selected files */}
-            {selectedFiles.length > 0 && (
-              <div className="border-b border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-slate-800/50">
-                <div className="flex flex-wrap gap-2">
-                  {selectedFiles.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 text-sm"
-                    >
-                      <DocumentIcon className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-700 dark:text-gray-300 max-w-[200px] truncate">
-                        {file.name}
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400 text-xs">
-                        ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(index)}
-                        className="ml-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
-                      >
-                        <XMarkIcon className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+      <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Instruction composer */}
+        <section className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-slate-900">
+          <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+              <PencilSquareIcon className="h-4 w-4" />
+              새 지침 버전 작성
+            </h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              시스템 프롬프트를 업데이트하면 새로운 버전이 생성됩니다.
+            </p>
+          </div>
+          <form onSubmit={handleInstructionSubmit} className="space-y-3 px-4 py-4">
+            <textarea
+              value={newInstruction}
+              onChange={(event) => setNewInstruction(event.target.value)}
+              rows={6}
+              placeholder="예: 답변은 존댓말로 작성하고, 근거 법령/판례를 반드시 명시합니다."
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-slate-800 dark:text-white dark:placeholder-gray-500"
+              disabled={creatingInstruction}
+            />
+            {instructionError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+                {instructionError}
               </div>
             )}
-
-            {/* Text input */}
-            <div className="relative">
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                placeholder="프로젝트에 대해 작성하거나 파일을 업로드하세요..."
-                className="w-full px-4 py-3 bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                rows={3}
-                disabled={uploading}
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-slate-800/50">
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  id="file-upload"
-                  disabled={uploading}
-                />
-                <label
-                  htmlFor="file-upload"
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium transition-colors ${
-                    uploading
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer'
-                  }`}
-                >
-                  <PaperClipIcon className="h-4 w-4" />
-                  파일 첨부
-                </label>
-              </div>
-
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                현재 버전은 수정되지 않으며, 항상 새로운 버전을 추가합니다.
+              </span>
               <button
                 type="submit"
-                disabled={uploading || (!inputText.trim() && selectedFiles.length === 0)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                disabled={creatingInstruction || !newInstruction.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
               >
-                {uploading ? (
-                  <>
-                    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent" />
-                    업로드 중...
-                  </>
-                ) : (
-                  <>
-                    <PaperAirplaneIcon className="h-4 w-4" />
-                    작성
-                  </>
-                )}
+                {creatingInstruction ? '저장 중...' : '새 버전 저장'}
               </button>
             </div>
-          </div>
-        </form>
+          </form>
+        </section>
 
-        {/* Timeline */}
-        {filteredItems.length === 0 ? (
-          <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-gray-800">
-            <div className="flex justify-center mb-4">
-              {filter === 'file' && <DocumentIcon className="h-16 w-16 text-gray-300 dark:text-gray-700" />}
-              {filter === 'chat' && <ChatBubbleLeftIcon className="h-16 w-16 text-gray-300 dark:text-gray-700" />}
-              {filter === 'memory' && <LightBulbIcon className="h-16 w-16 text-gray-300 dark:text-gray-700" />}
-              {filter === 'all' && <DocumentIcon className="h-16 w-16 text-gray-300 dark:text-gray-700" />}
+        {/* Instruction history */}
+        <section className="space-y-4">
+          <header>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+              지침 변경 이력
+            </h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              가장 최근 버전이 상단에 표시됩니다.
+            </p>
+          </header>
+
+          {instructions.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-600 dark:border-gray-700 dark:bg-slate-900 dark:text-gray-400">
+              아직 등록된 지침이 없습니다. 상단 입력창에서 첫 지침을 작성해보세요.
             </div>
-            <p className="text-gray-600 dark:text-gray-400">
-              {filter === 'all' ? '아직 활동이 없습니다' : '해당 항목이 없습니다'}
-            </p>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-500">
-              위의 입력창에서 글을 작성하거나 파일을 업로드해보세요
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredItems.map((item) => (
-              <TimelineItemCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
+          ) : (
+            <div className="space-y-3">
+              {instructions.map((instruction) => (
+                <InstructionCard key={instruction.version} instruction={instruction} />
+              ))}
+            </div>
+          )}
+        </section>
       </main>
     </div>
   )
 }
 
-function TimelineItemCard({ item }: { item: TimelineItem }) {
-  const icon = {
-    file: DocumentIcon,
-    chat: ChatBubbleLeftIcon,
-    memory: LightBulbIcon,
-  }[item.type]
-
-  const bgColor = {
-    file: 'bg-blue-100 dark:bg-blue-900/30',
-    chat: 'bg-green-100 dark:bg-green-900/30',
-    memory: 'bg-purple-100 dark:bg-purple-900/30',
-  }[item.type]
-
-  const iconColor = {
-    file: 'text-blue-600 dark:text-blue-400',
-    chat: 'text-green-600 dark:text-green-400',
-    memory: 'text-purple-600 dark:text-purple-400',
-  }[item.type]
-
-  const typeLabel = {
-    file: '파일',
-    chat: '채팅',
-    memory: '메모리',
-  }[item.type]
-
-  const Icon = icon
-
+function InstructionCard({ instruction }: { instruction: Instruction }) {
   return (
-    <div className="group relative bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 hover:shadow-md transition-all duration-200">
-      {/* Hover indicator */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-blue-600 rounded-l-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-
-      <div className="flex items-start gap-3">
-        {/* Icon */}
-        <div className={`flex-shrink-0 rounded-lg p-2 ${bgColor}`}>
-          <Icon className={`h-5 w-5 ${iconColor}`} />
+    <article className="group relative rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md dark:border-gray-800 dark:bg-slate-900 dark:hover:border-blue-800/40">
+      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg bg-blue-500 opacity-0 transition-opacity group-hover:opacity-100" />
+      <header className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+            v{instruction.version}
+          </span>
+          <span>
+            {format(new Date(instruction.created_at), 'yyyy년 M월 d일 HH:mm', {
+              locale: ko,
+            })}
+          </span>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-              {typeLabel}
-            </span>
-            <span className="text-xs text-gray-400 dark:text-gray-600">•</span>
-            <time className="text-xs text-gray-500 dark:text-gray-400">
-              {format(item.timestamp, 'yyyy년 M월 d일 HH:mm', { locale: ko })}
-            </time>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
-            {item.title}
-          </h3>
-          {item.description && (
-            <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-              {item.description}
-            </p>
-          )}
-          {item.type === 'file' && <FileDetails file={item.data as File} />}
-          {item.type === 'memory' && <MemoryDetails memory={item.data as Memory} />}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FileDetails({ file }: { file: File }) {
-  return (
-    <div className="mt-2 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-      {file.indexed && (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-green-600 dark:bg-green-400" />
-          인덱싱됨
+        <span className="text-[11px] text-gray-400 dark:text-gray-500">
+          작성자 {instruction.created_by.slice(0, 8)}…
         </span>
-      )}
-    </div>
-  )
-}
-
-function MemoryDetails({ memory }: { memory: Memory }) {
-  const typeColors: Record<string, string> = {
-    fact: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-    preference:
-      'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-    context: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-    decision:
-      'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  }
-
-  return (
-    <div className="mt-2">
-      <span
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-          typeColors[memory.memory_type] || typeColors.fact
-        }`}
-      >
-        {memory.memory_type}
-      </span>
-    </div>
+      </header>
+      <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+        {instruction.content}
+      </div>
+    </article>
   )
 }

@@ -24,7 +24,7 @@ export default function CreateProjectModal({
   const [formData, setFormData] = useState<ProjectCreate>({
     name: '',
     description: '',
-    visibility: 'private',
+    status: 'active',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export default function CreateProjectModal({
       setError(null)
       workspaceClient.setUserId(user.id)
       await workspaceClient.createProject(formData)
-      setFormData({ name: '', description: '', visibility: 'private' })
+      setFormData({ name: '', description: '', status: 'active' })
       onSuccess()
       onClose()
     } catch (err) {
@@ -120,28 +120,28 @@ export default function CreateProjectModal({
             />
           </div>
 
-          {/* Visibility */}
+          {/* Status */}
           <div>
             <label
-              htmlFor="visibility"
+              htmlFor="status"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
-              공개 범위
+              진행 상태
             </label>
             <select
-              id="visibility"
-              value={formData.visibility}
+              id="status"
+              value={formData.status ?? 'active'}
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  visibility: e.target.value as 'private' | 'team' | 'public',
+                  status: e.target.value,
                 })
               }
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-700 dark:bg-slate-800 dark:text-white"
             >
-              <option value="private">비공개 (본인만)</option>
-              <option value="team">팀 공유</option>
-              <option value="public">공개</option>
+              <option value="active">진행 중</option>
+              <option value="planning">계획 단계</option>
+              <option value="blocked">보류</option>
             </select>
           </div>
 

@@ -8,14 +8,22 @@ import { z } from 'zod'
 const API_BASE = process.env.NEXT_PUBLIC_WORKSPACE_API_URL || 'http://localhost:8001'
 
 // ========================================================================
-// Schemas (Zod validation matching backend Pydantic models)
+// Schemas (align with backend Pydantic models)
 // ========================================================================
+
+export const PermissionRoleSchema = z.enum([
+  'owner',
+  'maintainer',
+  'editor',
+  'commenter',
+  'viewer',
+])
 
 export const ProjectSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
-  visibility: z.string(),
+  status: z.string().nullable().optional(),
   org_id: z.string().uuid().nullable(),
   archived: z.boolean(),
   created_at: z.string().datetime(),
@@ -23,81 +31,72 @@ export const ProjectSchema = z.object({
   created_by: z.string().uuid(),
 })
 
-export const ProjectListItemSchema = ProjectSchema.extend({
-  member_count: z.number().optional(),
-  file_count: z.number().optional(),
-  message_count: z.number().optional(),
+export const ProjectListResponseSchema = z.object({
+  projects: z.array(ProjectSchema),
+  total: z.number(),
 })
 
 export const ProjectCreateSchema = z.object({
   name: z.string().max(255),
   description: z.string().optional(),
-  visibility: z.enum(['private', 'team', 'public']).default('private'),
+  status: z.string().default('active'),
   org_id: z.string().uuid().optional(),
-  budget_quota: z.number().optional(),
 })
 
-export const MessageSchema = z.object({
-  id: z.string().uuid(),
-  chat_id: z.string().uuid(),
-  role: z.enum(['user', 'assistant', 'system']),
+export const ProjectUpdateSchema = z.object({
+  name: z.string().max(255).optional(),
+  description: z.string().optional(),
+  status: z.string().optional(),
+  org_id: z.string().uuid().optional(),
+})
+
+export const ProjectCloneSchema = z.object({
+  name: z.string().max(255),
+})
+
+export const MemberSchema = z.object({
+  user_id: z.string().uuid(),
+  role: PermissionRoleSchema,
+  invited_by: z.string().uuid().nullable(),
+  created_at: z.string().datetime(),
+})
+
+export const MemberAddSchema = z.object({
+  user_id: z.string().uuid(),
+  role: PermissionRoleSchema,
+})
+
+export const MemberUpdateSchema = z.object({
+  role: PermissionRoleSchema,
+})
+
+export const InstructionSchema = z.object({
+  project_id: z.string().uuid(),
+  version: z.number(),
   content: z.string(),
+  created_by: z.string().uuid(),
   created_at: z.string().datetime(),
-  metadata: z.record(z.string(), z.any()).nullable(),
 })
 
-export const ChatSchema = z.object({
-  id: z.string().uuid(),
-  project_id: z.string().uuid(),
-  title: z.string().nullable(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-})
-
-export const FileSchema = z.object({
-  id: z.string().uuid(),
-  project_id: z.string().uuid(),
-  filename: z.string(),
-  size_bytes: z.number(),
-  mime_type: z.string().nullable(),
-  uploaded_at: z.string().datetime(),
-  uploaded_by: z.string().uuid(),
-  indexed: z.boolean(),
-})
-
-export const MemorySchema = z.object({
-  id: z.string().uuid(),
-  project_id: z.string().uuid(),
-  key: z.string(),
-  value: z.string(),
-  memory_type: z.enum(['fact', 'preference', 'context', 'decision']),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-})
-
-export const ActivitySchema = z.object({
-  id: z.string().uuid(),
-  project_id: z.string().uuid(),
-  actor_id: z.string().uuid(),
-  action: z.string(),
-  resource_type: z.string(),
-  resource_id: z.string().uuid().nullable(),
-  metadata: z.record(z.string(), z.any()).nullable(),
-  created_at: z.string().datetime(),
+export const InstructionCreateSchema = z.object({
+  content: z.string().min(1),
 })
 
 // ========================================================================
 // Types
 // ========================================================================
 
+export type PermissionRole = z.infer<typeof PermissionRoleSchema>
 export type Project = z.infer<typeof ProjectSchema>
-export type ProjectListItem = z.infer<typeof ProjectListItemSchema>
+export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>
 export type ProjectCreate = z.infer<typeof ProjectCreateSchema>
-export type Message = z.infer<typeof MessageSchema>
-export type Chat = z.infer<typeof ChatSchema>
-export type File = z.infer<typeof FileSchema>
-export type Memory = z.infer<typeof MemorySchema>
-export type Activity = z.infer<typeof ActivitySchema>
+export type ProjectUpdate = z.infer<typeof ProjectUpdateSchema>
+export type ProjectClone = z.infer<typeof ProjectCloneSchema>
+export type Member = z.infer<typeof MemberSchema>
+export type MemberAdd = z.infer<typeof MemberAddSchema>
+export type MemberUpdate = z.infer<typeof MemberUpdateSchema>
+export type Instruction = z.infer<typeof InstructionSchema>
+export type InstructionCreate = z.infer<typeof InstructionCreateSchema>
 
 // ========================================================================
 // Client
@@ -115,15 +114,19 @@ export class WorkspaceClient {
     this.userId = userId
   }
 
-  private async fetch<T>(
+  private async request<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    schema?: z.ZodType<T>
   ): Promise<T> {
     const headers = new Headers(options.headers)
     if (this.userId) {
       headers.set('X-User-ID', this.userId)
     }
-    headers.set('Content-Type', 'application/json')
+    const isFormData = options.body instanceof FormData
+    if (!headers.has('Content-Type') && !isFormData) {
+      headers.set('Content-Type', 'application/json')
+    }
 
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
@@ -131,208 +134,162 @@ export class WorkspaceClient {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      throw new Error(error.detail || `HTTP ${response.status}`)
+      const errorPayload = await response
+        .json()
+        .catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorPayload.detail || `HTTP ${response.status}`)
     }
 
-    return response.json()
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      return undefined as T
+    }
+
+    const data = (await response.json()) as unknown
+    return schema ? schema.parse(data) : (data as T)
   }
 
-  // ========================================================================
+  // ======================================================================
   // Projects
-  // ========================================================================
+  // ======================================================================
 
   async listProjects(params?: {
     archived?: boolean
     org_id?: string
     limit?: number
     offset?: number
-  }): Promise<ProjectListItem[]> {
+  }): Promise<ProjectListResponse> {
     const query = new URLSearchParams()
     if (params?.archived !== undefined) query.set('archived', String(params.archived))
     if (params?.org_id) query.set('org_id', params.org_id)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
 
-    const data = await this.fetch<{ projects: ProjectListItem[] }>(
-      `/v1/projects?${query.toString()}`
-    )
-    return data.projects || []
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return this.request(`/v1/projects${suffix}`, {}, ProjectListResponseSchema)
   }
 
   async getProject(projectId: string): Promise<Project> {
-    return this.fetch<Project>(`/v1/projects/${projectId}`)
+    return this.request(`/v1/projects/${projectId}`, {}, ProjectSchema)
   }
 
   async createProject(data: ProjectCreate): Promise<Project> {
-    return this.fetch<Project>('/v1/projects', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    })
-  }
-
-  async updateProject(
-    projectId: string,
-    data: Partial<ProjectCreate>
-  ): Promise<Project> {
-    return this.fetch<Project>(`/v1/projects/${projectId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    })
-  }
-
-  async archiveProject(projectId: string): Promise<void> {
-    await this.fetch<void>(`/v1/projects/${projectId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ archived: true }),
-    })
-  }
-
-  async deleteProject(projectId: string): Promise<void> {
-    await this.fetch<void>(`/v1/projects/${projectId}`, {
-      method: 'DELETE',
-    })
-  }
-
-  // ========================================================================
-  // Chats & Messages
-  // ========================================================================
-
-  async listChats(projectId: string): Promise<Chat[]> {
-    const data = await this.fetch<Chat[]>(
-      `/v1/projects/${projectId}/chats`
-    )
-    return data || []
-  }
-
-  async createChat(projectId: string, title?: string): Promise<Chat> {
-    return this.fetch<Chat>(`/v1/projects/${projectId}/chats`, {
-      method: 'POST',
-      body: JSON.stringify({ title }),
-    })
-  }
-
-  async listMessages(chatId: string): Promise<Message[]> {
-    const data = await this.fetch<Message[]>(
-      `/v1/chats/${chatId}/messages`
-    )
-    return data || []
-  }
-
-  async sendMessage(
-    chatId: string,
-    content: string,
-    role: 'user' | 'assistant' = 'user'
-  ): Promise<Message> {
-    return this.fetch<Message>(`/v1/chats/${chatId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content, role }),
-    })
-  }
-
-  // ========================================================================
-  // Files
-  // ========================================================================
-
-  async listFiles(projectId: string): Promise<File[]> {
-    const data = await this.fetch<File[]>(
-      `/v1/projects/${projectId}/files`
-    )
-    return data || []
-  }
-
-  async uploadFile(
-    projectId: string,
-    file: globalThis.File
-  ): Promise<File> {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const headers = new Headers()
-    if (this.userId) {
-      headers.set('X-User-ID', this.userId)
-    }
-
-    const response = await fetch(
-      `${this.baseUrl}/v1/projects/${projectId}/files`,
+    return this.request(
+      '/v1/projects',
       {
         method: 'POST',
-        headers,
-        body: formData,
-      }
+        body: JSON.stringify(data),
+      },
+      ProjectSchema
     )
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Upload failed' }))
-      throw new Error(error.detail || `HTTP ${response.status}`)
-    }
-
-    return response.json()
   }
 
-  async deleteFile(fileId: string): Promise<void> {
-    await this.fetch<void>(`/v1/files/${fileId}`, {
+  async updateProject(projectId: string, data: ProjectUpdate): Promise<Project> {
+    return this.request(
+      `/v1/projects/${projectId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+      ProjectSchema
+    )
+  }
+
+  async deleteProject(projectId: string, options?: { hardDelete?: boolean }): Promise<void> {
+    const suffix = options?.hardDelete ? '?hard_delete=true' : ''
+    await this.request<void>(`/v1/projects/${projectId}${suffix}`, {
       method: 'DELETE',
     })
   }
 
-  // ========================================================================
-  // Memories
-  // ========================================================================
-
-  async listMemories(projectId: string): Promise<Memory[]> {
-    const data = await this.fetch<Memory[]>(
-      `/v1/projects/${projectId}/memories`
+  async cloneProject(projectId: string, data: ProjectClone): Promise<Project> {
+    return this.request(
+      `/v1/projects/${projectId}/clone`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      ProjectSchema
     )
-    return data || []
   }
 
-  async createMemory(
+  // ======================================================================
+  // Project members
+  // ======================================================================
+
+  async listMembers(projectId: string): Promise<Member[]> {
+    return this.request(
+      `/v1/projects/${projectId}/members`,
+      {},
+      z.array(MemberSchema)
+    )
+  }
+
+  async addMember(projectId: string, data: MemberAdd): Promise<Member> {
+    return this.request(
+      `/v1/projects/${projectId}/members`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      MemberSchema
+    )
+  }
+
+  async updateMemberRole(
     projectId: string,
-    data: {
-      key: string
-      value: string
-      memory_type: 'fact' | 'preference' | 'context' | 'decision'
-    }
-  ): Promise<Memory> {
-    return this.fetch<Memory>(`/v1/projects/${projectId}/memories`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    })
+    memberUserId: string,
+    data: MemberUpdate
+  ): Promise<Member> {
+    return this.request(
+      `/v1/projects/${projectId}/members/${memberUserId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+      MemberSchema
+    )
   }
 
-  async updateMemory(
-    memoryId: string,
-    data: { value: string }
-  ): Promise<Memory> {
-    return this.fetch<Memory>(`/v1/memories/${memoryId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    })
-  }
-
-  async deleteMemory(memoryId: string): Promise<void> {
-    await this.fetch<void>(`/v1/memories/${memoryId}`, {
+  async removeMember(projectId: string, memberUserId: string): Promise<void> {
+    await this.request<void>(`/v1/projects/${projectId}/members/${memberUserId}`, {
       method: 'DELETE',
     })
   }
 
-  // ========================================================================
-  // Activity (Audit logs)
-  // ========================================================================
+  // ======================================================================
+  // Instructions
+  // ======================================================================
 
-  async listActivities(
-    projectId: string,
-    params?: { limit?: number; offset?: number }
-  ): Promise<Activity[]> {
-    const query = new URLSearchParams()
-    if (params?.limit) query.set('limit', String(params.limit))
-    if (params?.offset) query.set('offset', String(params.offset))
-
-    const data = await this.fetch<{ activities: Activity[] }>(
-      `/v1/projects/${projectId}/activities?${query.toString()}`
+  async listInstructions(projectId: string): Promise<Instruction[]> {
+    return this.request(
+      `/v1/projects/${projectId}/instructions`,
+      {},
+      z.array(InstructionSchema)
     )
-    return data.activities
+  }
+
+  async getInstruction(projectId: string, version: number): Promise<Instruction> {
+    return this.request(
+      `/v1/projects/${projectId}/instructions/${version}`,
+      {},
+      InstructionSchema
+    )
+  }
+
+  async createInstruction(projectId: string, data: InstructionCreate): Promise<Instruction> {
+    return this.request(
+      `/v1/projects/${projectId}/instructions`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      InstructionSchema
+    )
   }
 }
 

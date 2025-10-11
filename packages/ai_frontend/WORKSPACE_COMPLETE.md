@@ -4,18 +4,17 @@ Backend의 workspace API가 frontend에 성공적으로 통합되었습니다!
 
 ## ✅ 해결된 문제
 
-### 1. Backend 모델 수정
-- `Project` 모델에 `archived` 및 `description` 컬럼 추가
-- 데이터베이스 마이그레이션 스크립트 생성 및 실행
+### 1. Workspace API 정합성 확보
+- 프론트엔드 클라이언트가 `projects`, `members`, `instructions` 엔드포인트와 1:1 매핑
+- 모델 Export(`Organization`, `Project`, `ProjectMember`, `Instruction`, `ProjectUpdateFile`, `Update`) 기반으로 타입 정비
 
-### 2. 초기 데이터 설정
-- Default Organization 생성
-- Demo User 생성 (ID: `00000000-0000-0000-0000-000000000001`)
-- Demo Project 생성
+### 2. 지침 중심 UX 구현
+- `/workspace` 타임라인에서 최신 지침 버전과 요약을 노출
+- `/workspace/[projectId]` 화면을 지침 히스토리/작성 플로우에 맞춰 재구성
 
-### 3. Frontend 개발 모드 개선
-- 로그인 없이도 테스트 가능하도록 demo user ID 자동 사용
-- 에러 메시지 개선
+### 3. 문서 & 개발 모드 개선
+- 빠른 시작/통합/완료 문서를 현재 스키마에 맞게 갱신
+- 데모 사용자 자동 설정, 오류 메시지 개선
 
 ## 🚀 현재 실행 중
 
@@ -37,27 +36,21 @@ npm run dev
 ### Backend
 ```
 packages/legal_tools/workspace/
-├── migrations/
-│   └── 001_add_archived_description.sql    ✅ 마이그레이션
-└── models/
-    └── projects.py                         ✅ archived, description 추가
-
-scripts/
-├── run_workspace_migrations.py             ✅ 마이그레이션 실행기
-└── init_workspace_db.py                    ✅ DB 초기화
+├── models/__init__.py                      ✅ Workspace 도메인 모델 Export
+└── api.py                                  ✅ 프로젝트/멤버/지침 엔드포인트
 ```
 
 ### Frontend
 ```
 packages/ai_frontend/
 ├── lib/workspace/
-│   └── client.ts                           ✅ API 클라이언트
+│   └── client.ts                           ✅ projects/members/instructions 클라이언트
 ├── components/workspace/
-│   ├── ProjectTimeline.tsx                 ✅ 타임라인 UI
+│   ├── ProjectTimeline.tsx                 ✅ 최신 지침 요약 타임라인
 │   └── CreateProjectModal.tsx              ✅ 생성 모달
 ├── app/workspace/
 │   ├── page.tsx                            ✅ 메인 페이지
-│   └── [projectId]/page.tsx                ✅ 상세 페이지
+│   └── [projectId]/page.tsx                ✅ 지침 히스토리 상세 페이지
 ├── WORKSPACE_INTEGRATION.md                ✅ 상세 문서
 └── WORKSPACE_QUICKSTART.md                 ✅ 빠른 시작
 ```
@@ -86,14 +79,14 @@ open http://localhost:8082/docs
 
 ### 필수
 - [ ] 실제 인증 시스템과 통합 (현재는 demo user 사용)
-- [ ] 파일 업로드 기능 구현
-- [ ] 채팅 기능 구현
+- [ ] 멤버 역할/권한 관리 UI
+- [ ] 지침 버전 Diff 및 승격 워크플로우
 
 ### 선택
 - [ ] 프로젝트 편집/삭제 UI
-- [ ] 멤버 관리 UI
-- [ ] 검색 및 필터
-- [ ] 실시간 업데이트 (WebSocket)
+- [ ] 지침 검색 및 필터링
+- [ ] 실시간 업데이트 (WebSocket/SSE)
+- [ ] 활동 로그/알림 채널 연동
 
 ## 📚 참고 문서
 
@@ -103,14 +96,11 @@ open http://localhost:8082/docs
 
 ## 🐛 트러블슈팅
 
-### Backend 500 에러
+### 인증 누락
 ```
-AttributeError: type object 'Project' has no attribute 'archived'
+HTTP 401: Authentication required
 ```
-**해결**: 마이그레이션 실행
-```bash
-uv run python scripts/run_workspace_migrations.py
-```
+**해결**: `X-User-ID` 헤더가 전달되는지 확인하거나, 데모 사용자 ID(`00000000-0000-0000-0000-000000000001`)를 설정하세요.
 
 ### Frontend fetch 에러
 ```
@@ -121,10 +111,10 @@ Failed to fetch
 curl http://localhost:8082/v1/projects
 ```
 
-### 프로젝트 목록이 비어있음
-**해결**: DB 초기화 실행
+### 지침 목록이 비어있음
+**해결**: 상단 입력창에서 지침을 작성해 첫 버전을 생성하세요.
 ```bash
-uv run python scripts/init_workspace_db.py
+uv run python scripts/init_workspace_db.py  # 데모 데이터 재생성이 필요할 때
 ```
 
 ---

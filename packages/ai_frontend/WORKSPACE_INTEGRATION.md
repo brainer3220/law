@@ -8,24 +8,22 @@ Workspace API를 ai_frontend에 통합하여 프로젝트 중심의 컨텍스트
 
 ### 1. 프로젝트 타임라인 (`/workspace`)
 
-- **최신 순 정렬**: `created_at` 기준으로 최신 프로젝트가 상단에 표시
-- **프로젝트 카드**: 각 프로젝트는 이름, 설명, 메타 정보(멤버 수, 파일 수, 생성 시간) 포함
-- **상태 표시**: "On track" 뱃지 및 진행 상태 시각화
-- **반응형 디자인**: 다크 모드 지원
+- **최신 업데이트 순 정렬**: `updated_at` 기준으로 최신 프로젝트가 상단에 표시
+- **지침 스냅샷**: 카드에서 최신 지침 버전과 본문 요약 제공
+- **상태 표시**: Active/Archived 상태 뱃지, 다크 모드 대응
 
 ### 2. 프로젝트 생성 모달
 
-- 프로젝트 이름, 설명, 공개 범위 설정
+- 프로젝트 이름, 설명, 진행 상태 설정
 - 실시간 유효성 검증
 - 에러 핸들링 및 사용자 피드백
 
 ### 3. 프로젝트 상세 페이지 (`/workspace/[projectId]`)
 
-탭 기반 인터페이스:
-
-- **파일 탭**: 업로드된 파일 목록, 인덱싱 상태 표시
-- **채팅 탭**: 프로젝트 내 채팅 세션 목록
-- **메모리 탭**: 저장된 메모리 항목 (fact, preference, context, decision 타입별 색상 구분)
+- 지침 버전 히스토리를 타임라인으로 표시
+- 새 지침 버전을 작성할 수 있는 에디터 제공
+- 작성자, 작성 시각, 본문이 한 카드에 정리되어 감사 추적이 간편
+- 프로젝트 멤버 수, 마지막 업데이트 시각을 상단에서 확인
 
 ## 파일 구조
 
@@ -36,13 +34,13 @@ packages/ai_frontend/
 │       └── client.ts              # Workspace API 클라이언트 (zod 스키마 + fetch 래퍼)
 ├── components/
 │   └── workspace/
-│       ├── ProjectTimeline.tsx    # 프로젝트 타임라인 컴포넌트
+│       ├── ProjectTimeline.tsx    # 프로젝트 타임라인 (지침 요약 포함)
 │       └── CreateProjectModal.tsx # 프로젝트 생성 모달
 └── app/
     └── workspace/
         ├── page.tsx               # 워크스페이스 메인 페이지
         └── [projectId]/
-            └── page.tsx           # 프로젝트 상세 페이지
+            └── page.tsx           # 지침 중심 프로젝트 상세 페이지
 ```
 
 ## 설정 방법
@@ -93,7 +91,7 @@ uv run main.py serve-workspace --port 8001
 ### 2. 새 프로젝트 만들기
 
 1. "새 프로젝트" 버튼 클릭
-2. 모달에서 이름, 설명, 공개 범위 입력
+2. 모달에서 이름, 설명, 진행 상태 입력
 3. "프로젝트 만들기" 버튼 클릭
 4. 타임라인에 자동으로 추가됨
 
@@ -101,9 +99,9 @@ uv run main.py serve-workspace --port 8001
 
 프로젝트 카드 클릭 → `/workspace/[projectId]`
 
-- **파일 탭**: 업로드된 파일 목록
-- **채팅 탭**: 채팅 세션 목록
-- **메모리 탭**: 저장된 컨텍스트/지식
+- **지침 히스토리**: 버전별 작성자, 작성 시각, 본문 확인
+- **새 지침 작성**: 상단 입력창에서 새로운 버전 저장
+- **멤버 현황**: 현재 멤버 수를 상단에서 확인
 
 ## API 클라이언트 사용 예시
 
@@ -114,33 +112,26 @@ import { workspaceClient } from '@/lib/workspace/client'
 workspaceClient.setUserId(user.id)
 
 // 프로젝트 목록 가져오기
-const projects = await workspaceClient.listProjects({
-  archived: false,
-  limit: 50
-})
+const { projects } = await workspaceClient.listProjects({ archived: false, limit: 50 })
 
 // 새 프로젝트 생성
 const project = await workspaceClient.createProject({
   name: '계약서 검토',
   description: '고객사 A 계약서 검토 프로젝트',
-  visibility: 'private'
+  status: 'active'
 })
 
-// 파일 업로드
-const file = await workspaceClient.uploadFile(projectId, fileObject)
-
-// 채팅 생성
-const chat = await workspaceClient.createChat(projectId, '법률 상담')
-
-// 메시지 전송
-const message = await workspaceClient.sendMessage(chatId, '이 조항에 대해 설명해주세요')
-
-// 메모리 추가
-const memory = await workspaceClient.createMemory(projectId, {
-  key: '클라이언트 선호사항',
-  value: '간결한 설명 선호',
-  memory_type: 'preference'
+// 지침 새 버전 추가
+await workspaceClient.createInstruction(project.id, {
+  content: '답변 시 반드시 근거 법령과 판례를 명시합니다.',
 })
+
+// 최신 지침 조회
+const instructions = await workspaceClient.listInstructions(project.id)
+const latest = instructions.at(0)
+
+// 멤버 목록 가져오기
+const members = await workspaceClient.listMembers(project.id)
 ```
 
 ## 디자인 특징
@@ -150,56 +141,50 @@ const memory = await workspaceClient.createMemory(projectId, {
 제공된 스크린샷을 참고하여:
 
 - **카드 기반 레이아웃**: 각 프로젝트는 독립된 카드
-- **상태 인디케이터**: 좌측 상단에 "On track" 등 상태 표시
-- **메타 정보**: 멤버 수, 시간, 파일 수 등을 아이콘과 함께 표시
+- **지침 요약**: 최신 버전을 카드 요약으로 제공
+- **메타 정보**: 멤버 수, 마지막 업데이트 시각을 아이콘과 함께 표시
 - **호버 효과**: 마우스 오버 시 배경색 변경으로 인터랙티브함 강조
 - **다크 모드**: 자동 다크 모드 지원
 
 ### 색상 시스템
 
 - **Primary**: Blue-600 (액션 버튼, 링크)
-- **Status**: Green-500 (On track), Red-500 (오류)
-- **Memory Types**:
-  - `fact`: Blue
-  - `preference`: Purple
-  - `context`: Green
-  - `decision`: Orange
+- **Status**: Green-500 (Active), Gray-400 (Archived)
+- **Instruction Badges**: Blue 계열 강조, 작성자/버전은 뉴트럴 톤 유지
 
 ## 향후 개선 사항
 
 ### 1. 실시간 업데이트
 
 - WebSocket/SSE 연동으로 실시간 프로젝트 상태 업데이트
-- 다른 팀원의 활동 실시간 반영
+- 다른 팀원의 지침 변경을 즉시 반영
 
-### 2. 파일 업로드 UI
+### 2. 지침 비교 뷰
 
-- 드래그 앤 드롭 파일 업로드
-- 업로드 진행률 표시
-- 파일 프리뷰
+- 버전 간 Diff UI 제공
+- 변경 요약 및 영향도 표시
 
 ### 3. 검색 및 필터
 
-- 프로젝트 이름/설명으로 검색
-- 날짜, 상태, 멤버별 필터링
-- 태그 시스템
+- 프로젝트 이름/설명/지침 본문으로 검색
+- 상태, 멤버, 최신 버전 작성자별 필터링
 
 ### 4. 활동 피드
 
-- 프로젝트 내 최근 활동 타임라인
-- 누가 언제 무엇을 했는지 기록
+- 프로젝트 내 최근 지침 변경과 멤버 활동 로그
+- 알림 채널과 연동
 
 ### 5. 협업 기능
 
-- 프로젝트 멤버 초대/관리
-- 권한 관리 (읽기/쓰기/관리자)
-- 댓글/멘션 기능
+- 프로젝트 멤버 초대/관리 UX
+- 권한 관리 (Owner, Maintainer, Editor 등) 시각화
+- 코멘트/승인 워크플로우
 
 ### 6. 통계 대시보드
 
-- 프로젝트별 사용량 통계
-- 비용 추적
-- 인사이트 및 리포트
+- 프로젝트별 지침 변경 빈도
+- 멤버별 기여도
+- 지침 준수 여부 리포트
 
 ## 트러블슈팅
 

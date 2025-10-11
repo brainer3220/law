@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import {
-  type ProjectListItem,
+  type Instruction,
+  type Project,
   workspaceClient,
 } from '@/lib/workspace/client'
 import { useAuth } from '@/lib/auth/AuthContext'
@@ -17,13 +18,15 @@ import Link from 'next/link'
 import {
   FolderIcon,
   ClockIcon,
+  DocumentTextIcon,
   UserIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 
 export default function ProjectTimeline() {
   const { user } = useAuth()
-  const [projects, setProjects] = useState<ProjectListItem[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [latestInstructions, setLatestInstructions] = useState<Record<string, Instruction | null>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -35,16 +38,34 @@ export default function ProjectTimeline() {
       try {
         setLoading(true)
         workspaceClient.setUserId(userId)
-        const data = await workspaceClient.listProjects({
+        const { projects: projectList } = await workspaceClient.listProjects({
           archived: false,
           limit: 50,
         })
-        // 최신 순으로 정렬 (created_at 기준)
-        const sorted = data.sort(
+        // 최신 업데이트 순으로 정렬
+        const sorted = [...projectList].sort(
           (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
         )
         setProjects(sorted)
+
+        // 프로젝트별 최신 지침 버전 로드
+        const entries = await Promise.all(
+          sorted.map(async (project) => {
+            try {
+              const instructions = await workspaceClient.listInstructions(project.id)
+              if (instructions.length === 0) {
+                return [project.id, null] as const
+              }
+              const latest = [...instructions].sort((a, b) => b.version - a.version)[0]
+              return [project.id, latest] as const
+            } catch (instructionError) {
+              console.error(`Failed to load instructions for project ${project.id}:`, instructionError)
+              return [project.id, null] as const
+            }
+          })
+        )
+        setLatestInstructions(Object.fromEntries(entries))
       } catch (err) {
         console.error('Failed to load projects:', err)
         setError(err instanceof Error ? err.message : 'Failed to load projects')
@@ -97,21 +118,44 @@ export default function ProjectTimeline() {
         <ProjectTimelineItem
           key={project.id}
           project={project}
+          latestInstruction={latestInstructions[project.id]}
         />
       ))}
     </div>
   )
 }
 
-interface ProjectTimelineItemProps {
-  project: ProjectListItem
-}
-
-function ProjectTimelineItem({ project }: ProjectTimelineItemProps) {
-  const timeAgo = formatDistanceToNow(new Date(project.created_at), {
+function ProjectTimelineItem({
+  project,
+  latestInstruction,
+}: {
+  project: Project
+  latestInstruction?: Instruction | null
+}) {
+  const lastUpdatedAgo = formatDistanceToNow(new Date(project.updated_at), {
     addSuffix: true,
     locale: ko,
   })
+  const instructionUpdatedAgo =
+    latestInstruction &&
+    formatDistanceToNow(new Date(latestInstruction.created_at), {
+      addSuffix: true,
+      locale: ko,
+    })
+  const instructionPreview =
+    latestInstruction?.content.slice(0, 160).replace(/\s+/g, ' ') ?? '등록된 지침이 없습니다.'
+  const statusLabel =
+    project.status === 'planning'
+      ? '계획 단계'
+      : project.status === 'blocked'
+        ? '보류'
+        : '진행 중'
+  const statusBadgeColor =
+    project.status === 'blocked'
+      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+      : project.status === 'planning'
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+        : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 
   return (
     <Link
@@ -123,9 +167,11 @@ function ProjectTimelineItem({ project }: ProjectTimelineItemProps) {
         <div className="flex items-start gap-4">
           <div className="flex-shrink-0">
             <div className="flex items-center gap-2">
-              <CheckCircleIcon className="h-5 w-5 text-green-500" />
+              <CheckCircleIcon
+                className={`h-5 w-5 ${project.archived ? 'text-gray-400' : 'text-green-500'}`}
+              />
               <span className="text-xs font-medium text-green-600 dark:text-green-400">
-                On track
+                {project.archived ? 'Archived' : 'Active'}
               </span>
             </div>
           </div>
@@ -138,6 +184,13 @@ function ProjectTimelineItem({ project }: ProjectTimelineItemProps) {
               <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">
                 {project.name}
               </h3>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusBadgeColor}`}
+                >
+                  {statusLabel}
+                </span>
+              </div>
               {project.description && (
                 <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
                   {project.description}
@@ -149,26 +202,31 @@ function ProjectTimelineItem({ project }: ProjectTimelineItemProps) {
           {/* Meta info */}
           <div className="mt-3 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
             <div className="flex items-center gap-1">
-              <UserIcon className="h-4 w-4" />
-              <span>
-                {project.member_count || 0}명
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
               <ClockIcon className="h-4 w-4" />
-              <span>{timeAgo}</span>
+              <span>{lastUpdatedAgo}</span>
             </div>
-            {project.file_count !== undefined && project.file_count > 0 && (
+            {latestInstruction ? (
               <div className="flex items-center gap-1">
-                <FolderIcon className="h-4 w-4" />
-                <span>{project.file_count}개 파일</span>
+                <DocumentTextIcon className="h-4 w-4" />
+                <span>지침 v{latestInstruction.version}</span>
+                {instructionUpdatedAgo && (
+                  <span className="text-gray-400">{instructionUpdatedAgo}</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <UserIcon className="h-4 w-4" />
+                <span>지침 미등록</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Preview image placeholder (if needed) */}
-        {/* You can add thumbnail or preview here similar to the screenshot */}
+        {/* Instruction preview */}
+        <p className="mt-3 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+          {instructionPreview}
+          {latestInstruction && latestInstruction.content.length > 160 && '…'}
+        </p>
       </div>
     </Link>
   )
