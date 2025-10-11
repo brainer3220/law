@@ -13,7 +13,6 @@ import {
   type Project,
   workspaceClient,
 } from '@/lib/workspace/client'
-import { useAuth } from '@/lib/auth/AuthContext'
 import Link from 'next/link'
 import {
   FolderIcon,
@@ -23,35 +22,37 @@ import {
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 
-export default function ProjectTimeline() {
-  const { user } = useAuth()
-  const [projects, setProjects] = useState<Project[]>([])
+type ProjectTimelineProps = {
+  projects: Project[]
+  loading: boolean
+  error: string | null
+  userId: string
+}
+
+export default function ProjectTimeline({
+  projects,
+  loading,
+  error,
+  userId,
+}: ProjectTimelineProps) {
   const [latestInstructions, setLatestInstructions] = useState<Record<string, Instruction | null>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [instructionsLoading, setInstructionsLoading] = useState(false)
 
   useEffect(() => {
-    async function loadProjects() {
-      // Use demo user ID if no user is logged in (for development)
-      const userId = user?.id || '00000000-0000-0000-0000-000000000001'
+    let cancelled = false
+
+    async function loadInstructions() {
+      if (projects.length === 0) {
+        setLatestInstructions({})
+        setInstructionsLoading(false)
+        return
+      }
 
       try {
-        setLoading(true)
+        setInstructionsLoading(true)
         workspaceClient.setUserId(userId)
-        const { projects: projectList } = await workspaceClient.listProjects({
-          archived: false,
-          limit: 50,
-        })
-        // 최신 업데이트 순으로 정렬
-        const sorted = [...projectList].sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-        setProjects(sorted)
-
-        // 프로젝트별 최신 지침 버전 로드
         const entries = await Promise.all(
-          sorted.map(async (project) => {
+          projects.map(async (project) => {
             try {
               const instructions = await workspaceClient.listInstructions(project.id)
               if (instructions.length === 0) {
@@ -65,19 +66,29 @@ export default function ProjectTimeline() {
             }
           })
         )
-        setLatestInstructions(Object.fromEntries(entries))
+        if (!cancelled) {
+          setLatestInstructions(Object.fromEntries(entries))
+        }
       } catch (err) {
-        console.error('Failed to load projects:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load projects')
+        if (!cancelled) {
+          console.error('Failed to load project instructions:', err)
+          setLatestInstructions({})
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setInstructionsLoading(false)
+        }
       }
     }
 
-    loadProjects()
-  }, [user])
+    void loadInstructions()
 
-  if (loading) {
+    return () => {
+      cancelled = true
+    }
+  }, [projects, userId])
+
+  if (loading || (instructionsLoading && projects.length === 0)) {
     return (
       <div className="project-timeline-loading">
         <div className="project-timeline-spinner">

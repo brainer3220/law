@@ -1,128 +1,70 @@
 'use client'
 
-import { useState } from 'react'
-import { useAuth } from '@/lib/auth/AuthContext'
 import ProjectTimeline from '@/components/workspace/ProjectTimeline'
-import CreateProjectModal from '@/components/workspace/CreateProjectModal'
-import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { 
-  CheckCircleIcon, 
-  PlusIcon, 
-  SparklesIcon,
-  RocketLaunchIcon,
-  LightBulbIcon
+  CheckCircleIcon,
+  LightBulbIcon,
 } from '@heroicons/react/24/outline'
+import { useWorkspaceLayout } from './layout'
 
 export default function WorkspacePage() {
-  const { user, loading } = useAuth()
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-
-  const handleProjectCreated = () => {
-    setRefreshKey((prev) => prev + 1)
-  }
-
-  if (loading) {
-    return (
-      <div className="material-screen">
-        <LoadingSpinner label="워크스페이스를 불러오는 중입니다…" />
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="material-empty material-empty--auth">
-        <div className="material-empty__icon-wrapper">
-          <RocketLaunchIcon className="material-empty__icon" aria-hidden="true" />
-        </div>
-        <h2 className="material-title material-empty__title">로그인이 필요합니다</h2>
-        <p className="material-body material-empty__body">
-          프로젝트를 보려면 먼저 로그인하세요.
-        </p>
-        <md-filled-button
-          type="button"
-          onClick={() => window.location.href = '/auth/login'}
-        >
-          로그인하기
-        </md-filled-button>
-      </div>
-    )
-  }
+  const {
+    projects,
+    projectsLoading,
+    projectsError,
+    requestUserId,
+  } = useWorkspaceLayout()
 
   return (
     <>
-      <div className="material-workspace">
-        <header className="material-workspace__bar">
-          <div className="material-workspace__heading">
-            <div className="material-workspace__title-group">
-              <SparklesIcon className="material-workspace__title-icon" aria-hidden="true" />
-              <h1 className="material-title">프로젝트</h1>
-            </div>
-            <p className="material-caption">프로젝트 중심 컨텍스트 관리</p>
+      <section className="material-workspace__surface">
+        <div className="material-workspace__surface-header">
+          <div className="material-workspace__status">
+            <CheckCircleIcon className="material-icon" aria-hidden="true" />
+            <span className="material-caption">On track</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="material-filled-button material-workspace__create-button"
-          >
-            <PlusIcon className="material-icon" aria-hidden="true" />
-            <span>새 프로젝트</span>
-          </button>
-        </header>
+        </div>
+        <ProjectTimeline
+          projects={projects}
+          loading={projectsLoading}
+          error={projectsError}
+          userId={requestUserId}
+        />
+      </section>
 
-        <main className="material-workspace__content">
-          <section className="material-workspace__surface">
-            <div className="material-workspace__surface-header">
-              <div className="material-workspace__status">
-                <CheckCircleIcon className="material-icon" aria-hidden="true" />
-                <span className="material-caption">On track</span>
-              </div>
-            </div>
-            <ProjectTimeline key={refreshKey} />
-          </section>
+      <aside className="material-workspace__sidebar">
+        <div className="material-workspace__hint">
+          <div className="material-workspace__hint-icon">
+            <LightBulbIcon className="material-icon" aria-hidden="true" />
+          </div>
+          <div className="material-workspace__hint-content">
+            <h3 className="material-caption material-workspace__hint-title">
+              프로젝트 기반 작업
+            </h3>
+            <p className="material-body material-workspace__hint-body">
+              각 프로젝트는 독립적인 컨텍스트와 지침 버전 이력을 관리하며, 정책 변경 사항을 추적합니다.
+            </p>
+          </div>
+        </div>
 
-          <aside className="material-workspace__sidebar">
-            <div className="material-workspace__hint">
-              <div className="material-workspace__hint-icon">
-                <LightBulbIcon className="material-icon" aria-hidden="true" />
-              </div>
-              <div className="material-workspace__hint-content">
-                <h3 className="material-caption material-workspace__hint-title">
-                  프로젝트 기반 작업
-                </h3>
-                <p className="material-body material-workspace__hint-body">
-                  각 프로젝트는 독립적인 컨텍스트와 지침 버전 이력을 관리하며, 정책 변경 사항을 추적합니다.
-                </p>
-              </div>
-            </div>
-
-            <div className="material-workspace__quick-tips">
-              <h4 className="material-workspace__tips-title">빠른 팁</h4>
-              <ul className="material-workspace__tips-list">
-                <li>
-                  <span className="material-workspace__tip-emoji">📋</span>
-                  <span>프로젝트를 클릭하여 상세 정보 확인</span>
-                </li>
-                <li>
-                  <span className="material-workspace__tip-emoji">✏️</span>
-                  <span>업데이트로 진행 상황 기록</span>
-                </li>
-                <li>
-                  <span className="material-workspace__tip-emoji">👥</span>
-                  <span>팀원 초대로 협업 시작</span>
-                </li>
-              </ul>
-            </div>
-          </aside>
-        </main>
-      </div>
-
-      <CreateProjectModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleProjectCreated}
-      />
+        <div className="material-workspace__quick-tips">
+          <h4 className="material-workspace__tips-title">빠른 팁</h4>
+          <ul className="material-workspace__tips-list">
+            <li>
+              <span className="material-workspace__tip-emoji">📋</span>
+              <span>프로젝트를 클릭하여 상세 정보 확인</span>
+            </li>
+            <li>
+              <span className="material-workspace__tip-emoji">✏️</span>
+              <span>업데이트로 진행 상황 기록</span>
+            </li>
+            <li>
+              <span className="material-workspace__tip-emoji">👥</span>
+              <span>팀원 초대로 협업 시작</span>
+            </li>
+          </ul>
+        </div>
+      </aside>
     </>
   )
 }
