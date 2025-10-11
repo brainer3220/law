@@ -33,6 +33,14 @@ DROP TYPE IF EXISTS share_mode CASCADE;
 DROP TYPE IF EXISTS principal_type CASCADE;
 DROP TYPE IF EXISTS resource_type CASCADE;
 
+-- Recreate enums required by the application models
+DO $$
+BEGIN
+    CREATE TYPE permission_role AS ENUM ('owner', 'maintainer', 'editor', 'commenter', 'viewer');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Ensure required extensions exist
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -55,7 +63,7 @@ CREATE TABLE IF NOT EXISTS projects (
     created_by   uuid NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now(),
-    description  boolean,
+    description  text,
     archived     boolean NOT NULL DEFAULT false
 );
 
@@ -68,7 +76,7 @@ CREATE TABLE IF NOT EXISTS project_members (
     user_id     uuid NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now(),
     invited_by  uuid,
-    role        uuid,
+    role        permission_role NOT NULL,
     PRIMARY KEY (project_id, user_id)
 );
 
@@ -101,10 +109,13 @@ CREATE INDEX IF NOT EXISTS updates_index_0
 
 -- Project instructions (single active version per project)
 CREATE TABLE IF NOT EXISTS instructions (
-    project_id  uuid PRIMARY KEY,
-    version     integer,
-    created_at  timestamptz,
-    tsv         tsvector
+    project_id  uuid NOT NULL,
+    version     integer NOT NULL,
+    content     text NOT NULL,
+    created_by  uuid NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    tsv         tsvector,
+    PRIMARY KEY (project_id, version)
 );
 
 -- Foreign key relationships
