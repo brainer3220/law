@@ -42,8 +42,10 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const [newUpdate, setNewUpdate] = useState('')
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [creatingUpdate, setCreatingUpdate] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [projectDeleteError, setProjectDeleteError] = useState<string | null>(null)
   const [deletingProject, setDeletingProject] = useState(false)
+  const [deletingUpdateId, setDeletingUpdateId] = useState<string | null>(null)
+  const [updateDeleteError, setUpdateDeleteError] = useState<string | null>(null)
 
   const loadProjectData = useCallback(async () => {
     if (!user?.id) return
@@ -91,17 +93,38 @@ export default function ProjectDetailPage({ params }: PageProps) {
     }
     try {
       setDeletingProject(true)
-      setDeleteError(null)
+      setProjectDeleteError(null)
       workspaceClient.setUserId(user.id)
       await workspaceClient.deleteProject(project.id)
       router.push('/workspace')
     } catch (err) {
       console.error('Failed to delete project:', err)
-      setDeleteError(
+      setProjectDeleteError(
         err instanceof Error ? err.message : '프로젝트를 삭제하지 못했습니다.'
       )
     } finally {
       setDeletingProject(false)
+    }
+  }
+
+  const handleDeleteUpdate = async (updateId: string) => {
+    if (!project || !user?.id) return
+    if (!window.confirm('이 업데이트를 삭제하시겠습니까?')) {
+      return
+    }
+    try {
+      setDeletingUpdateId(updateId)
+      setUpdateDeleteError(null)
+      workspaceClient.setUserId(user.id)
+      await workspaceClient.deleteUpdate(project.id, updateId)
+      await loadProjectData()
+    } catch (err) {
+      console.error('Failed to delete update:', err)
+      setUpdateDeleteError(
+        err instanceof Error ? err.message : '업데이트를 삭제하지 못했습니다.'
+      )
+    } finally {
+      setDeletingUpdateId(null)
     }
   }
 
@@ -187,9 +210,9 @@ export default function ProjectDetailPage({ params }: PageProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {deleteError && (
+              {projectDeleteError && (
                 <span className="text-xs text-red-500 dark:text-red-400">
-                  {deleteError}
+                  {projectDeleteError}
                 </span>
               )}
               <button
@@ -295,6 +318,12 @@ export default function ProjectDetailPage({ params }: PageProps) {
             </p>
           </header>
 
+          {updateDeleteError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+              {updateDeleteError}
+            </div>
+          )}
+
           {updates.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-600 dark:border-gray-700 dark:bg-slate-900 dark:text-gray-400">
               아직 등록된 업데이트가 없습니다. 상단 입력창에서 첫 업데이트를 기록해보세요.
@@ -302,7 +331,12 @@ export default function ProjectDetailPage({ params }: PageProps) {
           ) : (
             <div className="space-y-3">
               {updates.map((update) => (
-                <UpdateCard key={update.id} update={update} />
+                <UpdateCard
+                  key={update.id}
+                  update={update}
+                  onDelete={() => handleDeleteUpdate(update.id)}
+                  deleting={deletingUpdateId === update.id}
+                />
               ))}
             </div>
           )}
@@ -312,12 +346,20 @@ export default function ProjectDetailPage({ params }: PageProps) {
   )
 }
 
-function UpdateCard({ update }: { update: Update }) {
+function UpdateCard({
+  update,
+  onDelete,
+  deleting,
+}: {
+  update: Update
+  onDelete: () => void
+  deleting: boolean
+}) {
   const createdAt = update.created_at ? new Date(update.created_at) : null
   return (
     <article className="group relative rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md dark:border-gray-800 dark:bg-slate-900 dark:hover:border-blue-800/40">
       <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg bg-blue-500 opacity-0 transition-opacity group-hover:opacity-100" />
-      <header className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+      <header className="mb-2 flex items-start justify-between text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
             Update
@@ -335,6 +377,15 @@ function UpdateCard({ update }: { update: Update }) {
             작성자 {update.created_by.slice(0, 8)}…
           </span>
         )}
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="ml-3 inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/40"
+        >
+          <TrashIcon className="h-3 w-3" />
+          {deleting ? '삭제 중...' : '삭제'}
+        </button>
       </header>
       <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800 dark:text-gray-200">
         {update.body || '내용이 비어 있습니다.'}

@@ -566,3 +566,39 @@ class WorkspaceService:
         if not update:
             raise NoResultFound()
         return update
+
+    def delete_update(
+        self,
+        project_id: uuid.UUID,
+        update_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> None:
+        """프로젝트 업데이트 삭제."""
+        self._check_permission(project_id, user_id, PermissionRole.EDITOR)
+        update = (
+            self.session.execute(
+                select(Update).where(
+                    and_(
+                        Update.project_id == project_id,
+                        Update.id == update_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if not update:
+            raise NoResultFound()
+
+        self.session.delete(update)
+        project = self.session.get(Project, project_id)
+        if project:
+            project.updated_at = func.now()
+        self.session.commit()
+        self._log_audit(
+            project_id,
+            user_id,
+            "update.deleted",
+            "update",
+            str(update_id),
+        )

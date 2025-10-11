@@ -319,6 +319,12 @@ export class WorkspaceClient {
     )
   }
 
+  async deleteUpdate(projectId: string, updateId: string): Promise<void> {
+    await this.request<void>(`/v1/projects/${projectId}/updates/${updateId}`, {
+      method: 'DELETE',
+    })
+  }
+
   // ======================================================================
   // Instructions
   // ======================================================================

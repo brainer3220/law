@@ -264,3 +264,53 @@ def test_updates_require_membership(temp_db_path):
             service.list_updates(project.id, outsider)
     finally:
         cleanup()
+
+
+def test_delete_update_removes_entry(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        owner = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="To delete update"),
+            owner,
+        )
+        update = service.create_update(
+            project.id,
+            schemas.UpdateCreateRequest(body="Temporary note"),
+            owner,
+        )
+
+        service.delete_update(project.id, update.id, owner)
+
+        assert service.list_updates(project.id, owner) == []
+    finally:
+        cleanup()
+
+
+def test_delete_update_requires_membership(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        owner = uuid.uuid4()
+        viewer = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Restricted deletion"),
+            owner,
+        )
+
+        # add viewer member
+        service.add_member(
+            project.id,
+            schemas.MemberAddRequest(user_id=viewer, role=schemas.PermissionRole.VIEWER),
+            owner,
+        )
+
+        update = service.create_update(
+            project.id,
+            schemas.UpdateCreateRequest(body="Owner only"),
+            owner,
+        )
+
+        with pytest.raises(PermissionError):
+            service.delete_update(project.id, update.id, viewer)
+    finally:
+        cleanup()

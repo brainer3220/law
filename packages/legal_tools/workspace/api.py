@@ -358,6 +358,21 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         except PermissionError as e:
             raise HTTPException(status_code=403, detail=str(e)) from None
 
+    @app.delete("/v1/projects/{project_id}/updates/{update_id}", status_code=204)
+    def delete_update(
+        project_id: uuid.UUID,
+        update_id: uuid.UUID,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> None:
+        """프로젝트 업데이트 삭제."""
+        try:
+            service.delete_update(project_id, update_id, user_id)
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="Update not found") from None
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
 
     # ========================================================================
     # LEGACY ENDPOINTS REMOVED - Models removed in migration 007
