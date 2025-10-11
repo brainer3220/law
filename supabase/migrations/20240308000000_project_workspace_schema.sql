@@ -1,320 +1,134 @@
--- Project workspace schema migration
+-- Project workspace schema migration (revised)
 
--- 0) Extensions
+-- Reset legacy search view before dropping dependent tables
+DROP VIEW IF EXISTS v_project_search;
+
+-- Drop legacy tables that are no longer part of the workspace schema
+DROP TABLE IF EXISTS usage_ledger CASCADE;
+DROP TABLE IF EXISTS project_budgets CASCADE;
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS project_chats CASCADE;
+DROP TABLE IF EXISTS snapshot_files CASCADE;
+DROP TABLE IF EXISTS snapshots CASCADE;
+DROP TABLE IF EXISTS redaction_run_items CASCADE;
+DROP TABLE IF EXISTS redaction_runs CASCADE;
+DROP TABLE IF EXISTS redaction_rules CASCADE;
+DROP TABLE IF EXISTS share_links CASCADE;
+DROP TABLE IF EXISTS permissions CASCADE;
+DROP TABLE IF EXISTS document_chunks CASCADE;
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS files CASCADE;
+DROP TABLE IF EXISTS memories CASCADE;
+DROP TABLE IF EXISTS instructions CASCADE;
+DROP TABLE IF EXISTS project_members CASCADE;
+DROP TABLE IF EXISTS projects CASCADE;
+DROP TABLE IF EXISTS organizations CASCADE;
+DROP TABLE IF EXISTS project_update_files CASCADE;
+DROP TABLE IF EXISTS updates CASCADE;
+
+-- Drop enum types introduced by the previous schema
+DROP TYPE IF EXISTS permission_role CASCADE;
+DROP TYPE IF EXISTS sensitivity_level CASCADE;
+DROP TYPE IF EXISTS share_mode CASCADE;
+DROP TYPE IF EXISTS principal_type CASCADE;
+DROP TYPE IF EXISTS resource_type CASCADE;
+
+-- Ensure required extensions exist
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
--- 1) Enum types
--- <workspace-enums:start>
--- Generated via scripts/render_workspace_enums.py; do not edit manually.
-DO $$ BEGIN
-  CREATE TYPE permission_role AS ENUM ('owner','maintainer','editor','commenter','viewer');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE sensitivity_level AS ENUM ('public','internal','restricted','secret');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE share_mode AS ENUM ('private','org','link','domain');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE principal_type AS ENUM ('user','org','domain','group','link');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-  CREATE TYPE resource_type AS ENUM ('project','file','document','memory','instruction','chat','snapshot');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
--- <workspace-enums:end>
-
--- 1b) Immutable helpers for generated columns
-CREATE OR REPLACE FUNCTION immutable_unaccent(input text)
-RETURNS text
-LANGUAGE sql
-IMMUTABLE
-PARALLEL SAFE
-AS $$
-  SELECT unaccent('public.unaccent', coalesce(input, ''))
-$$;
-
--- 2) Organizations, projects, and memberships
+-- Core organizations table
 CREATE TABLE IF NOT EXISTS organizations (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          text NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now()
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        text,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    created_by  uuid NOT NULL
 );
 
+-- Workspace projects
 CREATE TABLE IF NOT EXISTS projects (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id          uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  name            text NOT NULL,
-  status          text NOT NULL DEFAULT 'active',
-  visibility      text NOT NULL DEFAULT 'private',
-  budget_quota    bigint,
-  current_instr_v integer,
-  created_by      uuid NOT NULL REFERENCES auth.users(id),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id       uuid,
+    name         text NOT NULL,
+    status       text,
+    created_by   uuid NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    description  boolean,
+    archived     boolean NOT NULL DEFAULT false
 );
 
+CREATE INDEX IF NOT EXISTS projects_index_0
+    ON projects (created_by, updated_at);
+
+-- Memberships between projects and users
 CREATE TABLE IF NOT EXISTS project_members (
-  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  role          permission_role NOT NULL,
-  invited_by    uuid REFERENCES auth.users(id),
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (project_id, user_id)
+    project_id  uuid NOT NULL,
+    user_id     uuid NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    invited_by  uuid,
+    role        uuid,
+    PRIMARY KEY (project_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
 
--- 3) Instructions and memories
+-- Project update file metadata
+CREATE TABLE IF NOT EXISTS project_update_files (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    bucket        text NOT NULL DEFAULT 'lawai-prod',
+    object_key    text NOT NULL,
+    version_id    text,
+    etag          text,
+    sha256_hex    text,
+    is_public     boolean NOT NULL DEFAULT false,
+    content_disp  text,
+    deleted_at    timestamptz,
+    cdn_path      text
+);
+
+-- Project updates
+CREATE TABLE IF NOT EXISTS updates (
+    id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id             uuid,
+    created_by             uuid,
+    body                   text,
+    created_at             timestamptz DEFAULT now(),
+    project_update_file_id uuid
+);
+
+CREATE INDEX IF NOT EXISTS updates_index_0
+    ON updates (created_at);
+
+-- Project instructions (single active version per project)
 CREATE TABLE IF NOT EXISTS instructions (
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  version      integer NOT NULL,
-  content      text NOT NULL,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (project_id, version)
+    project_id  uuid PRIMARY KEY,
+    version     integer,
+    created_at  timestamptz,
+    tsv         tsvector
 );
 
-CREATE TABLE IF NOT EXISTS memories (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  k            text NOT NULL,
-  v            jsonb NOT NULL,
-  source       text,
-  expires_at   timestamptz,
-  confidence   real,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(project_id, k)
-);
+-- Foreign key relationships
+ALTER TABLE projects
+    ADD CONSTRAINT projects_org_id_fkey
+    FOREIGN KEY (org_id) REFERENCES organizations(id)
+    ON UPDATE NO ACTION ON DELETE NO ACTION;
 
--- 4) Files, documents, and chunks
-CREATE TABLE IF NOT EXISTS files (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  r2_key       text NOT NULL,
-  name         text NOT NULL,
-  mime         text,
-  size_bytes   bigint,
-  version      integer NOT NULL DEFAULT 1,
-  sensitivity  sensitivity_level NOT NULL DEFAULT 'internal',
-  checksum     text,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(project_id, r2_key, version)
-);
+ALTER TABLE project_members
+    ADD CONSTRAINT project_members_project_id_fkey
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+    ON UPDATE NO ACTION ON DELETE CASCADE;
 
-CREATE TABLE IF NOT EXISTS documents (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  file_id      uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  title        text,
-  page_count   integer,
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
+ALTER TABLE updates
+    ADD CONSTRAINT updates_project_id_fkey
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+    ON UPDATE NO ACTION ON DELETE CASCADE;
 
-CREATE TABLE IF NOT EXISTS document_chunks (
-  id           bigserial PRIMARY KEY,
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  document_id  uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  page         integer,
-  heading      text,
-  body         text NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
+ALTER TABLE updates
+    ADD CONSTRAINT updates_project_update_file_id_fkey
+    FOREIGN KEY (project_update_file_id) REFERENCES project_update_files(id)
+    ON UPDATE NO ACTION ON DELETE SET NULL;
 
-ALTER TABLE document_chunks
-  ADD COLUMN IF NOT EXISTS tsv tsvector
-  GENERATED ALWAYS AS (
-    to_tsvector('simple', immutable_unaccent(coalesce(heading, '') || ' ' || coalesce(body, '')))
-  ) STORED;
-
-CREATE INDEX IF NOT EXISTS idx_document_chunks_project ON document_chunks(project_id);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_tsv ON document_chunks USING GIN(tsv);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_trgm_heading ON document_chunks USING GIN(heading gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_document_chunks_trgm_body    ON document_chunks USING GIN(body gin_trgm_ops);
-
--- 5) Sharing and permissions
-CREATE TABLE IF NOT EXISTS permissions (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id     uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  principal_type principal_type NOT NULL,
-  principal_id   text,
-  role           permission_role NOT NULL,
-  created_by     uuid NOT NULL REFERENCES auth.users(id),
-  created_at     timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_permissions_project ON permissions(project_id);
-
-CREATE TABLE IF NOT EXISTS share_links (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  token        text NOT NULL UNIQUE,
-  mode         share_mode NOT NULL,
-  domains      text[] DEFAULT '{}',
-  expires_at   timestamptz,
-  max_uses     integer,
-  used_count   integer NOT NULL DEFAULT 0,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
-
--- 6) Redaction rules and runs
-CREATE TABLE IF NOT EXISTS redaction_rules (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  name         text NOT NULL,
-  pattern      text NOT NULL,
-  replacement  text NOT NULL,
-  scope        text NOT NULL DEFAULT 'all',
-  enabled      boolean NOT NULL DEFAULT true,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS redaction_runs (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  input_type   text NOT NULL,
-  input_ref    text,
-  status       text NOT NULL DEFAULT 'queued',
-  stats        jsonb,
-  created_by   uuid NOT NULL REFERENCES auth.users(id),
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  finished_at  timestamptz
-);
-
-CREATE TABLE IF NOT EXISTS redaction_run_items (
-  run_id       uuid NOT NULL REFERENCES redaction_runs(id) ON DELETE CASCADE,
-  rule_id      uuid NOT NULL REFERENCES redaction_rules(id) ON DELETE CASCADE,
-  target_ref   text,
-  count        integer,
-  PRIMARY KEY (run_id, rule_id, target_ref)
-);
-
--- 7) Snapshots
-CREATE TABLE IF NOT EXISTS snapshots (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id      uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  name            text,
-  instruction_ver integer,
-  created_by      uuid NOT NULL REFERENCES auth.users(id),
-  created_at      timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS snapshot_files (
-  snapshot_id   uuid NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
-  file_id       uuid NOT NULL REFERENCES files(id),
-  file_version  integer NOT NULL,
-  PRIMARY KEY (snapshot_id, file_id, file_version)
-);
-
--- 8) Project to chats mapping
-CREATE TABLE IF NOT EXISTS project_chats (
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  chat_id      uuid NOT NULL,
-  added_by     uuid NOT NULL REFERENCES auth.users(id),
-  added_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (project_id, chat_id)
-);
-
--- 9) Audit and usage tracking
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id            bigserial PRIMARY KEY,
-  at            timestamptz NOT NULL DEFAULT now(),
-  actor_user_id uuid,
-  org_id        uuid,
-  project_id    uuid,
-  action        text NOT NULL,
-  resource_type resource_type,
-  resource_id   text,
-  ip            inet,
-  user_agent    text,
-  meta          jsonb
-);
-CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs(project_id, at);
-CREATE INDEX IF NOT EXISTS idx_audit_action  ON audit_logs(action);
-CREATE INDEX IF NOT EXISTS idx_audit_meta    ON audit_logs USING GIN(meta jsonb_path_ops);
-
-CREATE TABLE IF NOT EXISTS project_budgets (
-  project_id   uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-  period       text NOT NULL DEFAULT 'monthly',
-  token_limit  bigint,
-  hardcap      boolean NOT NULL DEFAULT false,
-  updated_at   timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS usage_ledger (
-  id           bigserial PRIMARY KEY,
-  at           timestamptz NOT NULL DEFAULT now(),
-  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  chat_id      uuid,
-  kind         text NOT NULL,
-  tokens_in    bigint DEFAULT 0,
-  tokens_out   bigint DEFAULT 0,
-  cost_cents   integer DEFAULT 0,
-  meta         jsonb
-);
-CREATE INDEX IF NOT EXISTS idx_usage_project_at ON usage_ledger(project_id, at);
-
--- 10) Search API
-DROP VIEW IF EXISTS v_project_search;
-
-CREATE OR REPLACE FUNCTION v_project_search(search_query text)
-RETURNS TABLE (
-  project_id uuid,
-  document_id uuid,
-  page integer,
-  rank real,
-  snippet text
-)
-LANGUAGE sql
-STABLE
-AS $$
-  WITH query AS (
-    SELECT websearch_to_tsquery('simple', immutable_unaccent(coalesce(search_query, ''))) AS tsq
-  )
-  SELECT
-    c.project_id,
-    c.document_id,
-    c.page,
-    ts_rank_cd(c.tsv, q.tsq) AS rank,
-    left(c.body, 500) AS snippet
-  FROM document_chunks c
-  CROSS JOIN query q
-  WHERE q.tsq @@ c.tsv
-  ORDER BY rank DESC, c.project_id, c.document_id, c.page
-$$;
-
--- 11) RLS skeleton (policies to be refined per project requirements)
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY projects_select
-ON projects FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM project_members m
-    WHERE m.project_id = projects.id
-      AND m.user_id = auth.uid()
-  )
-);
-
-CREATE POLICY projects_insert
-ON projects FOR INSERT
-WITH CHECK ( created_by = auth.uid() );
-
-CREATE POLICY projects_update
-ON projects FOR UPDATE
-USING (
-  EXISTS (
-    SELECT 1 FROM project_members m
-    WHERE m.project_id = projects.id
-      AND m.user_id = auth.uid()
-      AND m.role IN ('owner', 'maintainer')
-  )
-);
+ALTER TABLE instructions
+    ADD CONSTRAINT instructions_project_id_fkey
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+    ON UPDATE NO ACTION ON DELETE CASCADE;
