@@ -53,7 +53,7 @@ export default function WorkspacePage() {
   return (
     <>
       <div className="material-workspace">
-        <header className="material-workspace__bar">
+        <aside className="material-workspace__navigation">
           <div className="material-workspace__heading">
             <div className="material-workspace__title-group">
               <SparklesIcon className="material-workspace__title-icon" aria-hidden="true" />
@@ -69,7 +69,7 @@ export default function WorkspacePage() {
             <PlusIcon className="material-icon" aria-hidden="true" />
             <span>새 프로젝트</span>
           </button>
-        </header>
+        </aside>
 
         <main className="material-workspace__content">
           <section className="material-workspace__surface">

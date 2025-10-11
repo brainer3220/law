@@ -567,11 +567,17 @@ body {
 
 .material-workspace {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
   background: var(--md-sys-color-surface, #f8fafc);
   color: var(--md-sys-color-on-surface, #0f172a);
   animation: fadeIn 0.3s ease-out;
+}
+
+@media (max-width: 1024px) {
+  .material-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes fadeIn {
@@ -585,22 +591,34 @@ body {
   }
 }
 
-.material-workspace__bar {
+.material-workspace__navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 32px 24px;
+  border-right: 1px solid var(--md-sys-color-outline-variant, #e2e8f0);
+  background: color-mix(in srgb, var(--md-sys-color-surface, #ffffff) 92%, transparent);
   position: sticky;
   top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 32px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant, #e2e8f0);
-  background: color-mix(in srgb, var(--md-sys-color-surface, #ffffff) 95%, transparent);
-  backdrop-filter: blur(16px);
-  z-index: 15;
-  transition: box-shadow 0.2s ease;
+  align-self: start;
+  height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  box-shadow: 12px 0 24px rgba(15, 23, 42, 0.04);
 }
 
-.material-workspace__bar:hover {
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+@media (max-width: 1024px) {
+  .material-workspace__navigation {
+    position: static;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant, #e2e8f0);
+    box-shadow: none;
+    padding: 24px 20px;
+  }
 }
 
 .material-workspace__heading {
@@ -635,6 +653,17 @@ body {
 
 .material-workspace__create-button {
   animation: slideInRight 0.4s ease-out;
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+@media (max-width: 1024px) {
+  .material-workspace__create-button {
+    width: auto;
+    margin-top: 16px;
+  }
 }
 
 @keyframes slideInRight {
@@ -649,12 +678,11 @@ body {
 }
 
 .material-workspace__content {
-  flex: 1;
   padding: 32px;
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 24px;
-  max-width: 1400px;
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto;
 }
@@ -1865,7 +1893,7 @@ body {
 }
 
 @media (max-width: 768px) {
-  .material-workspace__bar,
+  .material-workspace__navigation,
   .material-project__bar {
     padding: 16px 20px;
     flex-direction: column;
@@ -1943,7 +1971,7 @@ body {
 }
 
 @media (max-width: 480px) {
-  .material-workspace__bar,
+  .material-workspace__navigation,
   .material-project__bar {
     padding: 12px 16px;
   }
