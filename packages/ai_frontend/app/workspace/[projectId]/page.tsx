@@ -13,6 +13,8 @@ import {
 } from '@/lib/workspace/client'
 import { useAuth } from '@/lib/auth/AuthContext'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { ChatKitPanel, type FactAction } from '@/components/ChatKitPanel'
+import { useColorScheme } from '@/hooks/useColorScheme'
 import {
   ArrowLeftIcon,
   DocumentTextIcon,
@@ -20,6 +22,8 @@ import {
   UserGroupIcon,
   PencilSquareIcon,
   TrashIcon,
+  ChatBubbleLeftRightIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 
 interface PageProps {
@@ -31,6 +35,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const userId = user?.id ?? null
+  const { scheme, setScheme } = useColorScheme()
 
   const [project, setProject] = useState<Project | null>(null)
   const [updates, setUpdates] = useState<Update[]>([])
@@ -45,6 +50,31 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const [deletingProject, setDeletingProject] = useState(false)
   const [deletingUpdateId, setDeletingUpdateId] = useState<string | null>(null)
   const [updateDeleteError, setUpdateDeleteError] = useState<string | null>(null)
+  
+  // Wide screen에서 기본적으로 ChatKit 열기
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1280
+    }
+    return false
+  })
+
+  // 화면 크기 변경 감지
+  useEffect(() => {
+    const handleResize = () => {
+      // Wide screen (1280px 이상)에서만 자동 열기
+      if (window.innerWidth >= 1280 && !chatSidebarOpen) {
+        setChatSidebarOpen(true)
+      }
+      // 작은 화면으로 변경 시 자동 닫기
+      if (window.innerWidth < 1280 && chatSidebarOpen) {
+        setChatSidebarOpen(false)
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [chatSidebarOpen])
 
   const sortedUpdates = useMemo(() => {
     return [...updates].sort((a, b) => {
@@ -143,6 +173,18 @@ export default function ProjectDetailPage({ params }: PageProps) {
     }
   }
 
+  const handleChatWidgetAction = useCallback(async (action: FactAction) => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.info('[ChatKitPanel] widget action', action)
+    }
+  }, [])
+
+  const handleChatResponseEnd = useCallback(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[ChatKitPanel] response end')
+    }
+  }, [])
+
   const handleUpdateSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!project || !newUpdate.trim()) {
@@ -216,38 +258,47 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const latestUpdate = sortedUpdates[0] ?? null
 
   return (
-    <div className="material-project">
-      <header className="material-project__bar">
-        <div className="material-project__breadcrumbs">
-          <button
-            type="button"
-            aria-label="프로젝트 목록으로 이동"
-            onClick={() => router.push('/workspace')}
-            className="material-icon-button material-icon-button--tonal"
-          >
-            <ArrowLeftIcon className="material-icon" aria-hidden="true" />
-          </button>
-          <div className="material-project__overview">
-            <h1 className="material-title material-project__title">{project.name}</h1>
-            {project.description && (
-              <p className="material-caption material-project__description">
-                {project.description}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="material-project__actions">
-          {projectDeleteError && (
-            <div className="material-alert material-alert--error material-project__error-alert">
-              {projectDeleteError}
+    <div className="material-project-layout">
+      <div className={`material-project ${chatSidebarOpen ? 'material-project--sidebar-open' : ''}`}>
+        <header className="material-project__bar">
+          <div className="material-project__breadcrumbs">
+            <button
+              type="button"
+              aria-label="프로젝트 목록으로 이동"
+              onClick={() => router.push('/workspace')}
+              className="material-icon-button material-icon-button--tonal"
+            >
+              <ArrowLeftIcon className="material-icon" aria-hidden="true" />
+            </button>
+            <div className="material-project__overview">
+              <h1 className="material-title material-project__title">{project.name}</h1>
+              {project.description && (
+                <p className="material-caption material-project__description">
+                  {project.description}
+                </p>
+              )}
             </div>
-          )}
-          <button
-            type="button"
-            disabled={deletingProject}
-            onClick={handleDeleteProject}
-            className="material-outlined-button material-outlined-button--error"
-          >
+          </div>
+          <div className="material-project__actions">
+            {projectDeleteError && (
+              <div className="material-alert material-alert--error material-project__error-alert">
+                {projectDeleteError}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setChatSidebarOpen(!chatSidebarOpen)}
+              className="material-icon-button"
+              aria-label="AI 채팅"
+            >
+              <ChatBubbleLeftRightIcon className="material-icon" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              disabled={deletingProject}
+              onClick={handleDeleteProject}
+              className="material-outlined-button material-outlined-button--error"
+            >
             <TrashIcon className="material-icon" aria-hidden="true" />
             <span>{deletingProject ? '삭제 중…' : '프로젝트 삭제'}</span>
           </button>
@@ -347,6 +398,33 @@ export default function ProjectDetailPage({ params }: PageProps) {
           )}
         </section>
       </main>
+      </div>
+
+      {/* Chat Sidebar */}
+      <aside className={`material-project-sidebar ${chatSidebarOpen ? 'material-project-sidebar--open' : ''}`}>
+        <div className="material-project-sidebar__header">
+          <h2 className="material-title material-project-sidebar__title">
+            <ChatBubbleLeftRightIcon className="material-icon" aria-hidden="true" />
+            AI 어시스턴트
+          </h2>
+          <button
+            type="button"
+            onClick={() => setChatSidebarOpen(false)}
+            className="material-icon-button"
+            aria-label="채팅 닫기"
+          >
+            <XMarkIcon className="material-icon" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="material-project-sidebar__content">
+          <ChatKitPanel
+            theme={scheme}
+            onWidgetAction={handleChatWidgetAction}
+            onResponseEnd={handleChatResponseEnd}
+            onThemeRequest={setScheme}
+          />
+        </div>
+      </aside>
     </div>
   )
 }
