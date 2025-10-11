@@ -1,7 +1,5 @@
 "use client";
 
-import "@material/web/button/elevated-button.js";
-import "@material/web/iconbutton/filled-tonal-icon-button.js";
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChatKitPanel, type FactAction } from "@/components/ChatKitPanel";
@@ -33,20 +31,22 @@ export default function App() {
       <header className="material-app-shell__bar">
         <div className="material-app-shell__headline">법률 AI 에이전트</div>
         <nav className="material-app-shell__nav" aria-label="주요 화면">
-          <md-filled-tonal-icon-button
+          <button
             type="button"
+            className="material-icon-button"
             aria-label="채팅"
             onClick={() => router.push("/")}
           >
-            <ChatBubbleLeftRightIcon slot="icon" className="material-icon" />
-          </md-filled-tonal-icon-button>
-          <md-filled-tonal-icon-button
+            <ChatBubbleLeftRightIcon className="material-icon" aria-hidden="true" />
+          </button>
+          <button
             type="button"
+            className="material-icon-button"
             aria-label="프로젝트"
             onClick={() => router.push("/workspace")}
           >
-            <FolderIcon slot="icon" className="material-icon" />
-          </md-filled-tonal-icon-button>
+            <FolderIcon className="material-icon" aria-hidden="true" />
+          </button>
         </nav>
         <UserMenu />
       </header>

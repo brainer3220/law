@@ -1,10 +1,5 @@
 'use client'
 
-import '@material/web/button/filled-button.js'
-import '@material/web/button/filled-tonal-button.js'
-import '@material/web/progress/circular-progress.js'
-import '@material/web/icon/icon.js'
-
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth/AuthContext'
 import ProjectTimeline from '@/components/workspace/ProjectTimeline'

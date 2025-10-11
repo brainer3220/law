@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline'
 
 interface LoginFormProps {
   redirectTo?: string
@@ -25,7 +26,7 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-        credentials: 'same-origin', // Ensure cookies are included
+        credentials: 'same-origin',
       })
 
       const data = await response.json()
@@ -36,10 +37,7 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
 
       setMessage('로그인 성공! 리다이렉트 중...')
       
-      // Wait a bit for cookies to be set, then redirect with router for better UX
       await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // Use window.location for full page refresh to ensure middleware picks up auth state
       window.location.href = redirectTo
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인에 실패했습니다.')
@@ -48,32 +46,35 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
   }
 
   return (
-    <div className="w-full max-w-md space-y-6">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold tracking-tight">로그인</h2>
-        <p className="mt-2 text-sm text-gray-600">
+    <div className="material-auth__form">
+      <div className="material-auth__header">
+        <div className="material-auth__icon-wrapper">
+          <ArrowRightOnRectangleIcon className="material-auth__icon" aria-hidden="true" />
+        </div>
+        <h2 className="material-auth__title">로그인</h2>
+        <p className="material-auth__description">
           계정이 없으신가요?{' '}
-          <Link href="/auth/signup" className="font-medium text-blue-600 hover:text-blue-500">
+          <Link href="/auth/signup" className="material-link">
             회원가입
           </Link>
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="material-form">
         {error && (
-          <div className="rounded-md bg-red-50 p-4">
-            <p className="text-sm text-red-800">{error}</p>
+          <div className="material-alert material-alert--error">
+            {error}
           </div>
         )}
 
         {message && (
-          <div className="rounded-md bg-green-50 p-4">
-            <p className="text-sm text-green-800">{message}</p>
+          <div className="material-alert material-alert--success">
+            {message}
           </div>
         )}
 
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+        <div className="material-form__field">
+          <label htmlFor="email" className="material-form__label">
             이메일
           </label>
           <input
@@ -84,13 +85,13 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+            className="material-form__input"
             placeholder="your@email.com"
           />
         </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+        <div className="material-form__field">
+          <label htmlFor="password" className="material-form__label">
             비밀번호
           </label>
           <input
@@ -101,28 +102,23 @@ export function LoginForm({ redirectTo = '/' }: LoginFormProps) {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+            className="material-form__input"
             placeholder="••••••••"
           />
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="text-sm">
-            <Link
-              href="/auth/reset-password"
-              className="font-medium text-blue-600 hover:text-blue-500"
-            >
-              비밀번호를 잊으셨나요?
-            </Link>
-          </div>
+        <div className="material-form__helper">
+          <Link href="/auth/reset-password" className="material-link">
+            비밀번호를 잊으셨나요?
+          </Link>
         </div>
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="material-filled-button material-form__submit"
         >
-          {loading ? '로그인 중...' : '로그인'}
+          <span>{loading ? '로그인 중...' : '로그인'}</span>
         </button>
       </form>
     </div>
