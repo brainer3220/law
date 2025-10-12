@@ -11,6 +11,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
+import Link from "next/link";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { SpeakerSegment, TranscriptionPayload } from "@/types/audio";
@@ -260,6 +261,12 @@ export default function AudioTranscribePage() {
                   초기화
                 </button>
               )}
+              <Link
+                href="/audio-transcribe/live"
+                className="inline-flex items-center gap-2 rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-600 transition hover:border-blue-300 hover:text-blue-700 dark:border-blue-500/40 dark:text-blue-300 dark:hover:text-blue-200"
+              >
+                실시간 전사
+              </Link>
             </div>
           </div>
         </header>
