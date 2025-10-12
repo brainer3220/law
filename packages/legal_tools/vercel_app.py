@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Iterable, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from packages.legal_tools.agent_graph import run_ask
@@ -101,7 +101,7 @@ def _streaming_response(
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: Request) -> JSONResponse | StreamingResponse:
+async def chat_completions(request: Request) -> Response:
     try:
         payload = await request.json()
     except Exception as exc:
