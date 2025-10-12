@@ -8,6 +8,28 @@ import type {
 
 export const runtime = "edge";
 
+interface EdgeWebSocket extends WebSocket {
+  accept(): void;
+}
+
+interface WebSocketPairGlobal {
+  WebSocketPair?: new () => { 0: WebSocket; 1: EdgeWebSocket };
+}
+
+interface WebSocketResponseInit extends ResponseInit {
+  webSocket?: WebSocket;
+}
+
+function createWebSocketPair(): { client: WebSocket; server: EdgeWebSocket } {
+  const { WebSocketPair } = globalThis as typeof globalThis & WebSocketPairGlobal;
+  if (typeof WebSocketPair !== "function") {
+    throw new Error("WebSocketPair is not supported in this runtime.");
+  }
+
+  const pair = new WebSocketPair();
+  return { client: pair[0], server: pair[1] };
+}
+
 interface ChunkJob {
   id: string;
   bytes: Uint8Array;
@@ -80,7 +102,7 @@ class LiveTranscribeSession {
     let message: LiveTranscribeClientMessage | null = null;
     try {
       message = JSON.parse(raw) as LiveTranscribeClientMessage;
-    } catch (err) {
+    } catch {
       sendMessage(this.downstream, {
         type: "error",
         message: "클라이언트 메시지를 해석하지 못했습니다.",
@@ -168,7 +190,9 @@ class LiveTranscribeSession {
 
   private async processOpenAI(job: ChunkJob) {
     const fileName = `${job.id}.${job.mimeType.split("/")[1] ?? "webm"}`;
-    const file = new File([job.bytes], fileName, { type: job.mimeType });
+    const chunkArrayBuffer = new ArrayBuffer(job.bytes.byteLength);
+    new Uint8Array(chunkArrayBuffer).set(job.bytes);
+    const file = new File([chunkArrayBuffer], fileName, { type: job.mimeType });
     const payload = await transcribeWithOpenAI(file, job.bytes, this.diarize);
     const baseStart = this.timelineCursor;
     const chunkDuration =
@@ -224,17 +248,17 @@ export async function GET(req: NextRequest) {
     return new Response("Expected WebSocket upgrade", { status: 426 });
   }
 
-  const pair = new (globalThis as any).WebSocketPair();
-  const client = pair[0] as WebSocket;
-  const server = pair[1] as WebSocket;
+  const { client, server } = createWebSocketPair();
 
   server.accept();
 
   const session = new LiveTranscribeSession(server);
   session.start();
 
-  return new Response(null, {
+  const init: WebSocketResponseInit = {
     status: 101,
     webSocket: client,
-  });
+  };
+
+  return new Response(null, init);
 }

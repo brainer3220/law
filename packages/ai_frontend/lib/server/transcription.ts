@@ -1,5 +1,22 @@
-import { randomUUID } from "node:crypto";
 import type { SpeakerSegment, TranscriptionPayload } from "@/types/audio";
+
+type JsonRecord = Record<string, unknown>;
+
+function generateId(): string {
+  const globalCrypto = (globalThis as typeof globalThis & { crypto?: Crypto }).crypto;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return globalCrypto.randomUUID();
+  }
+  return `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return typeof value === "object" && value !== null ? (value as JsonRecord) : null;
+}
+
+function asArray(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null;
+}
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe";
@@ -135,62 +152,110 @@ export async function transcribeWithOpenAI(
     body: JSON.stringify(body),
   });
 
-  const json: any = await response.json().catch(() => null);
+  const json = (await response.json().catch(() => null)) as unknown;
+  const jsonRecord = asRecord(json);
 
   if (!response.ok) {
+    const errorRecord =
+      jsonRecord && typeof jsonRecord.error === "object" && jsonRecord.error !== null
+        ? asRecord(jsonRecord.error)
+        : null;
+    const messageValue = errorRecord?.message;
     const errorMessage =
-      typeof json?.error?.message === "string"
-        ? json.error.message
+      typeof messageValue === "string"
+        ? messageValue
         : `OpenAI 응답이 실패했습니다. (HTTP ${response.status})`;
     throw new Error(errorMessage);
   }
 
-  const raw =
-    (json?.output_text as string | undefined) ??
-    json?.output?.[0]?.content?.[0]?.text ??
-    null;
+  let raw: unknown = null;
+  if (jsonRecord) {
+    if (typeof jsonRecord["output_text"] === "string") {
+      raw = jsonRecord["output_text"];
+    } else if (Array.isArray(jsonRecord["output"])) {
+      const [firstOutput] = jsonRecord["output"] as unknown[];
+      const firstOutputRecord = asRecord(firstOutput);
+      const firstContent = firstOutputRecord?.["content"];
+      if (Array.isArray(firstContent)) {
+        const [firstItem] = firstContent as unknown[];
+        const firstItemRecord = asRecord(firstItem);
+        if (firstItemRecord && typeof firstItemRecord["text"] === "string") {
+          raw = firstItemRecord["text"];
+        }
+      }
+    }
+  }
 
   if (!raw) {
     throw new Error("OpenAI 응답에서 전사 결과를 찾을 수 없습니다.");
   }
 
-  let parsed: any;
-  try {
-    parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch (err) {
+  let parsedValue: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsedValue = JSON.parse(raw);
+    } catch {
+      throw new Error("전사 JSON을 해석하지 못했습니다.");
+    }
+  }
+
+  const parsedRecord = asRecord(parsedValue);
+  if (!parsedRecord) {
     throw new Error("전사 JSON을 해석하지 못했습니다.");
   }
 
-  const segments: SpeakerSegment[] = Array.isArray(parsed.segments)
-    ? parsed.segments.map((segment: any, index: number) => ({
-        speaker: typeof segment.speaker === "string" && segment.speaker.trim()
-          ? segment.speaker.trim()
-          : `speaker_${index + 1}`,
-        start: typeof segment.start === "number" ? segment.start : 0,
-        end: typeof segment.end === "number" ? segment.end : 0,
-        text: typeof segment.text === "string" ? segment.text : "",
+  const segments: SpeakerSegment[] = (asArray(parsedRecord.segments) ?? []).map(
+    (segmentValue, index) => {
+      const segmentRecord = asRecord(segmentValue);
+      const speakerValue = segmentRecord?.["speaker"];
+      const startValue = segmentRecord?.["start"];
+      const endValue = segmentRecord?.["end"];
+      const textValue = segmentRecord?.["text"];
+      const confidenceValue = segmentRecord?.["confidence"];
+
+      return {
+        speaker:
+          typeof speakerValue === "string" && speakerValue.trim()
+            ? speakerValue.trim()
+            : `speaker_${index + 1}`,
+        start: typeof startValue === "number" ? startValue : 0,
+        end: typeof endValue === "number" ? endValue : 0,
+        text: typeof textValue === "string" ? textValue : "",
         confidence:
-          typeof segment.confidence === "number" && Number.isFinite(segment.confidence)
-            ? Math.min(Math.max(segment.confidence, 0), 1)
+          typeof confidenceValue === "number" && Number.isFinite(confidenceValue)
+            ? Math.min(Math.max(confidenceValue, 0), 1)
             : undefined,
-      }))
-    : [];
+      } satisfies SpeakerSegment;
+    },
+  );
 
   if (segments.length === 0) {
     throw new Error("전사 결과에 화자 구간이 포함되어 있지 않습니다.");
   }
 
   return {
-    id: (json?.id as string | undefined) ?? randomUUID(),
-    language: typeof parsed.language === "string" ? parsed.language : undefined,
-    duration: typeof parsed.duration === "number" ? parsed.duration : undefined,
-    summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+    id:
+      jsonRecord && typeof jsonRecord["id"] === "string"
+        ? (jsonRecord["id"] as string)
+        : generateId(),
+    language:
+      typeof parsedRecord["language"] === "string"
+        ? (parsedRecord["language"] as string)
+        : undefined,
+    duration:
+      typeof parsedRecord["duration"] === "number"
+        ? (parsedRecord["duration"] as number)
+        : undefined,
+    summary:
+      typeof parsedRecord["summary"] === "string"
+        ? (parsedRecord["summary"] as string)
+        : undefined,
     segments,
     metadata: {
       provider: "openai",
       model: DEFAULT_MODEL,
       diarization: diarize,
-      usage: json?.usage ?? null,
+      usage: jsonRecord?.["usage"] ?? null,
     },
     generatedAt: new Date().toISOString(),
   };
@@ -226,7 +291,7 @@ export function createMockTranscription(
   ];
 
   return {
-    id: randomUUID(),
+    id: generateId(),
     language: "ko",
     duration: 20.5,
     summary: diarize
@@ -235,7 +300,7 @@ export function createMockTranscription(
     segments: baseSegments,
     metadata: {
       provider: "mock",
-      diarization,
+      diarization: diarize,
       sample: true,
       filename: fileName,
     },
