@@ -21,10 +21,39 @@ dependencies = [
     "psycopg[binary]>=3.2.10",
     "tqdm>=4.66",
     "mcp[cli]>=0.3",
+]
+
+[project.optional-dependencies]
+share = [
     "fastapi>=0.115",
+    "sqlalchemy>=2.0",
     "uvicorn>=0.30",
-    "boto3>=1.34",
     "python-multipart>=0.0.6",
+]
+workspace = [
+    "fastapi>=0.115",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.6",
+    "boto3>=1.34",
+]
+servers = [
+    "fastapi>=0.115",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.6",
+    "boto3>=1.34",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -38,6 +67,12 @@ dev-dependencies = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "fastapi>=0.115",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.6",
+    "boto3>=1.34",
 ]
 
 [tool.setuptools.packages.find]

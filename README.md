@@ -14,6 +14,15 @@ Usage
 
 The legacy `uv run main.py ...` invocation remains available and forwards to the new `law-cli` entrypoint. Use `--data-dir` or `LAW_DATA_DIR` to override the default `./data` corpus path when running dataset commands.
 
+Dependency profiles
+-------------------
+- `uv sync` installs the pinned tool + service stack (agent + share/workspace) via `uv.lock`. In CI use `uv sync --frozen` to guarantee lock fidelity and enable cache hits.
+- Minimal agent runtime: `uv pip install .` (LangChain/LangGraph stack only).
+- Share API only: `uv pip install .[share]`
+- Workspace API only: `uv pip install .[workspace]`
+- Both FastAPI services: `uv pip install .[servers]`
+- Developer tooling & tests: `uv pip install .[dev]` (pytest suite + Ruff). Packaging for serverless/Fargate/Vercel should build a wheel once (`uv build`) and reuse it across deployments to avoid recompiling dependencies.
+
 OpenAI-Compatible API (Streaming)
 ---------------------------------
 Run the server:
