@@ -81,5 +81,5 @@ If tables already exist, the migration may fail. Options:
 ### Connection Issues
 Verify database connectivity:
 ```bash
-uv run python -c "from packages.legal_tools.workspace.service import WorkspaceSettings, init_engine; engine = init_engine(WorkspaceSettings.from_env()); print('✓ Connected')"
+uv run python -c "from law_shared.legal_tools.workspace.service import WorkspaceSettings, init_engine; engine = init_engine(WorkspaceSettings.from_env()); print('✓ Connected')"
 ```

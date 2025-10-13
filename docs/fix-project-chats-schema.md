@@ -117,7 +117,7 @@ uv run python scripts/run_workspace_migrations.py
 
 # Test the fix
 uv run python -c "
-from packages.legal_tools.workspace.service import WorkspaceSettings, WorkspaceService, init_engine
+from law_shared.legal_tools.workspace.service import WorkspaceSettings, WorkspaceService, init_engine
 from sqlalchemy.orm import Session
 settings = WorkspaceSettings.from_env()
 engine = init_engine(settings)

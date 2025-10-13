@@ -214,7 +214,7 @@ tests/
 4. **API 서버 실행**:
    ```bash
    # R2가 설정되지 않으면 파일 업로드 비활성화 (다른 기능은 정상 동작)
-   python -m packages.legal_tools.workspace.api
+   python -m law_shared.legal_tools.workspace.api
    ```
 
 ## 참고 자료

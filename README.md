@@ -3,6 +3,31 @@ Law CLI
 
 Command-line tool to explore the legal JSON dataset in `data/` and query an OpenSearch-backed keyword index.
 
+Monorepo Layout
+--------------
+```
+repo-root/
+├─ apps/
+│  ├─ web/                # Next.js application
+│  └─ api/                # FastAPI service managed by uv
+├─ packages/
+│  ├─ py-shared/          # Shared Python utilities (law_shared)
+│  ├─ ts-schemas/         # Shared TypeScript schemas
+│  ├─ ts-sdk/             # Generated SDK clients
+│  └─ ui/                 # Reusable React UI primitives
+├─ infra/                 # Dockerfiles and compose.yaml
+├─ package.json           # Turborepo + pnpm scripts
+├─ pnpm-workspace.yaml    # Workspace definition
+├─ turbo.json             # Build graph configuration
+└─ README.md
+```
+
+The API app relies on `uv` for dependency management; run `uv sync`
+inside `apps/api/` to provision the virtual environment and install
+both runtime and development extras. Shared Python code now lives in the
+`law_shared` package under `packages/py-shared` and is consumed via a
+`file://` dependency from the API service.
+
 Usage
 -----
 - Preview a file: `uv run law-cli preview "data/.../민사법_유권해석_요약_518.json"`
@@ -149,7 +174,7 @@ uv run law-cli opensearch-search "가산금 면제" --limit 5
 
 4) Query from Python:
 ```python
-from packages.legal_tools.opensearch_search import search_opensearch
+from law_shared.legal_tools.opensearch_search import search_opensearch
 
 for hit in search_opensearch("가산금 면제"):
     print(hit.title, hit.snippet)
