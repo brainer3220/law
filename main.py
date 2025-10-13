@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from packages.legal_cli.runner import main
+from law_shared.legal_cli.runner import main
 
 __all__ = ["main"]
 

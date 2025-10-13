@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "law-shared"
+version = "0.2.0"
+description = "Shared Python utilities for the Law monorepo"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "langchain>=0.3,<0.4",
+    "langchain-openai>=0.2",
+    "langchain-google-genai>=1.0",
+    "langgraph>=0.6.0,<0.7",
+    "langgraph-checkpoint-postgres>=2.0",
+    "langsmith>=0.1.69",
+    "python-dotenv>=1.0",
+    "structlog>=24.4",
+    "psycopg[binary]>=3.2.10",
+    "tqdm>=4.66",
+    "mcp[cli]>=0.3",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "boto3>=1.34",
+    "python-multipart>=0.0.6",
+]
+
+[project.scripts]
+law = "law_shared.legal_cli.runner:main"
+law-cli = "law_shared.legal_cli.runner:main"
+law-mcp-server = "law_shared.legal_tools.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["law_shared*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-dir]
+"" = "src"
