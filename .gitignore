@@ -105,8 +105,8 @@ share/python-wheels/
 MANIFEST
 
 # Allow the Next.js frontend to commit its TypeScript sources under lib/
-!/packages/ai_frontend/lib/
-!/packages/ai_frontend/lib/**
+!/apps/web/lib/
+!/apps/web/lib/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

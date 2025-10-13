@@ -72,7 +72,7 @@ FastAPI 라우터는 모두 `ShareService` 의존성을 주입받아 위 플로�
 2. **마이그레이션**: `ShareService.init_engine` 호출 시 SQLAlchemy가 테이블을 자동 생성합니다. 운영 환경에서는 Alembic 마이그레이션을 권장합니다.
 3. **서버 기동**:
    ```bash
-   uv run uvicorn packages.legal_tools.share.api:create_app --factory --reload
+   uv run uvicorn law_shared.legal_tools.share.api:create_app --factory --reload
    ```
 4. **기본 플로우 테스트**:
    ```bash

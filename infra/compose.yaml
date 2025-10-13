@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ../
+      dockerfile: infra/docker/api.Dockerfile
+    working_dir: /app/apps/api
+    env_file:
+      - ../.env
+    depends_on:
+      - db
+    command:
+      ["/app/apps/api/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ../apps/api:/app/apps/api
+      - ../packages/py-shared:/app/packages/py-shared
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ../
+      dockerfile: infra/docker/web.Dockerfile
+    env_file:
+      - ../.env
+    depends_on:
+      - api
+    command: pnpm --filter web dev --port 3000 --hostname 0.0.0.0
+    volumes:
+      - ../apps/web:/app/apps/web
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
