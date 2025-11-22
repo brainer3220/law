@@ -50,13 +50,13 @@
 
 ### 4.1 JSON 미리보기
 ```bash
-uv run main.py preview "data/.../민사법_유권해석_요약_518.json"
+uv run law-cli preview "data/.../민사법_유권해석_요약_518.json"
 ```
 - 지정한 JSON 파일의 요약 정보를 확인해 데이터 구조를 익힙니다.
 
 ### 4.2 통계 확인
 ```bash
-uv run main.py stats
+uv run law-cli stats
 ```
 - 데이터셋의 문서 수, 토큰 수 등 핵심 통계를 출력합니다.
 
@@ -64,13 +64,13 @@ uv run main.py stats
 1. OpenSearch가 실행 중인지 확인합니다 (`curl http://localhost:9200` 등).
 2. CLI에서 검색을 실행합니다.
    ```bash
-   uv run main.py opensearch-search "가산금 면제" --limit 5
+   uv run law-cli opensearch-search "가산금 면제" --limit 5
    ```
 - `--limit` 값으로 검색 결과 수를 조절합니다.
 
 ### 4.4 LangGraph 기반 질의응답
 ```bash
-uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3
+uv run law-cli ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --max-iters 3
 ```
 - OpenSearch로 검색한 근거를 바탕으로 LangGraph 에이전트가 답변을 생성합니다.
 - `--k`는 검색 문서 수, `--max-iters`는 추론 반복 횟수입니다.
@@ -81,7 +81,7 @@ uv run main.py ask "근로시간 면제업무 관련 판례 알려줘" --k 5 --m
 
 LangGraph 에이전트를 HTTP API로 노출하려면 다음 명령을 실행합니다.
 ```bash
-uv run main.py serve --host 127.0.0.1 --port 8080
+uv run law-cli serve --host 127.0.0.1 --port 8080
 ```
 - `LAW_CHAT_DB_URL`을 설정하면 Postgres 기반 체크포인트 저장소를 활성화할 수 있습니다.
 - 서버가 열리면 OpenAI SDK, curl, Postman 등으로 `/v1/chat/completions` 엔드포인트를 호출해 답변을 받을 수 있습니다.
@@ -130,15 +130,15 @@ BM25 기반 고급 검색이 필요하다면 다음 단계를 따릅니다.
    ```
 4. 스키마 및 인덱스를 초기화합니다.
    ```bash
-   uv run main.py pg-init
+   uv run law-cli pg-init
    ```
 5. JSON 데이터를 적재합니다.
    ```bash
-   uv run main.py pg-load --data-dir "$LAW_DATA_DIR"
+   uv run law-cli pg-load --data-dir "$LAW_DATA_DIR"
    ```
 6. BM25 검색을 실행합니다.
    ```bash
-   uv run main.py pg-search "근로시간 면제" --limit 5
+   uv run law-cli pg-search "근로시간 면제" --limit 5
    ```
 
 ---
