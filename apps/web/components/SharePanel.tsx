@@ -24,13 +24,13 @@ const SHARE_MODES: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    value: "unlisted",
-    label: "링크 공유",
-    description:
-      "토큰 기반 링크로만 접근할 수 있는 기본 공유 모드입니다. (향후 옵션 확장 예정)",
-  },
-];
+    {
+      value: "unlisted",
+      label: "링크 공유",
+      description:
+        "토큰 기반 링크로만 접근할 수 있는 기본 공유 모드입니다. (향후 옵션 확장 예정)",
+    },
+  ];
 
 type SharePanelProps = {
   open: boolean;
@@ -313,9 +313,9 @@ export function SharePanel({ open, onClose, threadId }: SharePanelProps) {
       setShare((prev) =>
         prev
           ? {
-              ...prev,
-              links: [...prev.links, response.link],
-            }
+            ...prev,
+            links: [...prev.links, response.link],
+          }
           : prev
       );
     } catch (error) {
@@ -390,7 +390,7 @@ export function SharePanel({ open, onClose, threadId }: SharePanelProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute right-5 top-5 z-50 w-full max-w-md max-h-[85vh] overflow-y-auto rounded-xl border border-slate-200 bg-white/95 p-5 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+      className="absolute right-5 top-5 z-50 w-full max-w-md max-h-[85vh] overflow-y-auto rounded-xl border border-slate-200 bg-white/95 p-5 shadow-xl backdrop-blur transition-all duration-300 ease-out animate-in slide-in-from-right-5 fade-in dark:border-slate-700 dark:bg-slate-900/95"
     >
       <div className="flex items-center justify-between">
         <div>
@@ -643,9 +643,8 @@ export function SharePanel({ open, onClose, threadId }: SharePanelProps) {
                 <InfoRow label="공유 ID" value={share.id} />
                 <InfoRow
                   label="리소스"
-                  value={`${share.resource.type ?? "resource"} · ${
-                    share.resource.title ?? share.resource.id
-                  }`}
+                  value={`${share.resource.type ?? "resource"} · ${share.resource.title ?? share.resource.id
+                    }`}
                 />
                 <InfoRow
                   label="모드"

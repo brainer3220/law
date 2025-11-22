@@ -444,7 +444,7 @@ export function ChatKitPanel({
       aria-label="법률 AI 에이전트 채팅"
       aria-live="polite"
       aria-busy={isInitializingSession}
-      className="relative flex h-[90vh] w-full flex-col overflow-hidden bg-white shadow-sm transition-colors dark:bg-slate-900"
+      className="relative flex h-[calc(100vh-4rem)] sm:h-[85vh] lg:h-[90vh] w-full flex-col overflow-hidden bg-white shadow-sm transition-all duration-300 ease-in-out dark:bg-slate-900"
     >
       {/* Screen reader announcements */}
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
@@ -457,8 +457,8 @@ export function ChatKitPanel({
         control={chatkit.control}
         className={
           blockingError || isInitializingSession
-            ? "pointer-events-none opacity-0"
-            : "block h-full w-full"
+            ? "pointer-events-none opacity-0 scale-95 transition-all duration-500 ease-out"
+            : "block h-full w-full opacity-100 scale-100 transition-all duration-500 ease-out"
         }
       />
       <ErrorOverlay
@@ -472,6 +472,16 @@ export function ChatKitPanel({
         onRetry={blockingError && errors.retryable ? handleResetChat : null}
         retryLabel="채팅 다시 시작"
       />
+
+      {/* Backdrop when SharePanel is open */}
+      {sharePanelOpen && Boolean(activeThreadId) && (
+        <div
+          className="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 z-40 animate-in fade-in"
+          onClick={handleToggleSharePanel}
+          aria-hidden="true"
+        />
+      )}
+
       <SharePanel
         open={sharePanelOpen && Boolean(activeThreadId)}
         onClose={handleToggleSharePanel}
