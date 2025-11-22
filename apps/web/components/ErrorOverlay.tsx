@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { ReactNode } from "react";
 
 type ErrorType = 'network' | 'config' | 'auth' | 'unknown';
@@ -33,13 +34,13 @@ const ERROR_HELP_TEXT: Record<ErrorType, string> = {
   unknown: '문제가 지속되면 관리자에게 문의하세요.',
 };
 
-export function ErrorOverlay({
+const ErrorOverlayComponent = ({
   error,
   errorType = 'unknown',
   fallbackMessage,
   onRetry,
   retryLabel,
-}: ErrorOverlayProps) {
+}: ErrorOverlayProps) => {
   if (!error && !fallbackMessage) {
     return null;
   }
@@ -95,4 +96,7 @@ export function ErrorOverlay({
       </div>
     </div>
   );
-}
+};
+
+// Memoize to prevent unnecessary re-renders
+export const ErrorOverlay = memo(ErrorOverlayComponent);

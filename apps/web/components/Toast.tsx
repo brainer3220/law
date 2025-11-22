@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -25,7 +25,7 @@ const TOAST_COLORS: Record<ToastType, string> = {
     warning: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-200',
 };
 
-export function Toast({ message, type, duration = 3000, onClose }: ToastProps) {
+const ToastComponent = ({ message, type, duration = 3000, onClose }: ToastProps) => {
     useEffect(() => {
         const timer = setTimeout(onClose, duration);
         return () => clearTimeout(timer);
@@ -55,7 +55,10 @@ export function Toast({ message, type, duration = 3000, onClose }: ToastProps) {
             </button>
         </div>
     );
-}
+};
+
+// Memoize Toast to prevent unnecessary re-renders
+export const Toast = memo(ToastComponent);
 
 // Toast Container for managing multiple toasts
 interface ToastContainerProps {
@@ -63,7 +66,7 @@ interface ToastContainerProps {
     onRemove: (id: string) => void;
 }
 
-export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
+const ToastContainerComponent = ({ toasts, onRemove }: ToastContainerProps) => {
     return (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
             {toasts.map((toast) => (
@@ -76,4 +79,7 @@ export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
             ))}
         </div>
     );
-}
+};
+
+// Memoize ToastContainer
+export const ToastContainer = memo(ToastContainerComponent);
