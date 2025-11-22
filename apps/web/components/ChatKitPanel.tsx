@@ -26,11 +26,16 @@ type ChatKitPanelProps = {
   onThemeRequest: (scheme: ColorScheme) => void;
 };
 
+type LoadingPhase = 'script' | 'session' | 'ready';
+
+type ErrorType = 'network' | 'config' | 'auth' | 'unknown';
+
 type ErrorState = {
   script: string | null;
   session: string | null;
   integration: string | null;
   retryable: boolean;
+  type?: ErrorType;
 };
 
 const isBrowser = typeof window !== "undefined";
@@ -43,6 +48,24 @@ const createInitialErrors = (): ErrorState => ({
   retryable: false,
 });
 
+const getLoadingMessage = (phase: LoadingPhase): string => {
+  switch (phase) {
+    case 'script':
+      return '법률 AI 에이전트를 준비하고 있습니다...';
+    case 'session':
+      return '안전한 세션을 생성하고 있습니다...';
+    case 'ready':
+      return '거의 완료되었습니다...';
+  }
+};
+
+const detectErrorType = (error: string): ErrorType => {
+  if (error.includes('NEXT_PUBLIC_CHATKIT_WORKFLOW_ID')) return 'config';
+  if (error.includes('Failed to create') || error.includes('fetch')) return 'network';
+  if (error.includes('Unauthorized') || error.includes('client_secret')) return 'auth';
+  return 'unknown';
+};
+
 export function ChatKitPanel({
   theme,
   onWidgetAction,
@@ -52,6 +75,7 @@ export function ChatKitPanel({
   const processedFacts = useRef(new Set<string>());
   const [errors, setErrors] = useState<ErrorState>(() => createInitialErrors());
   const [isInitializingSession, setIsInitializingSession] = useState(true);
+  const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>('script');
   const isMountedRef = useRef(true);
   const [scriptStatus, setScriptStatus] = useState<
     "pending" | "ready" | "error"
@@ -75,7 +99,7 @@ export function ChatKitPanel({
       scriptStatus,
       isBrowser
     });
-    
+
     return () => {
       console.log('🎨 ChatKitPanel unmounting');
       isMountedRef.current = false;
@@ -84,7 +108,7 @@ export function ChatKitPanel({
 
   useEffect(() => {
     console.log('🔄 ChatKitPanel script status:', scriptStatus);
-    
+
     if (!isBrowser) {
       console.warn('⚠️ Not in browser environment');
       return;
@@ -97,6 +121,7 @@ export function ChatKitPanel({
         return;
       }
       setScriptStatus("ready");
+      setLoadingPhase('session');
       setErrorState({ script: null });
     };
 
@@ -107,7 +132,12 @@ export function ChatKitPanel({
       }
       setScriptStatus("error");
       const detail = (event as CustomEvent<unknown>)?.detail ?? "unknown error";
-      setErrorState({ script: `Error: ${detail}`, retryable: false });
+      const errorMsg = `Error: ${detail}`;
+      setErrorState({
+        script: errorMsg,
+        retryable: false,
+        type: detectErrorType(errorMsg)
+      });
       setIsInitializingSession(false);
     };
 
@@ -267,6 +297,7 @@ export function ChatKitPanel({
 
         // Clear initializing state on successful secret retrieval
         if (isMountedRef.current) {
+          setLoadingPhase('ready');
           setIsInitializingSession(false);
         }
 
@@ -278,7 +309,11 @@ export function ChatKitPanel({
             ? error.message
             : "Unable to start ChatKit session.";
         if (isMountedRef.current) {
-          setErrorState({ session: detail, retryable: false });
+          setErrorState({
+            session: detail,
+            retryable: false,
+            type: detectErrorType(detail)
+          });
           setIsInitializingSession(false);
         }
         throw error instanceof Error ? error : new Error(detail);
@@ -308,11 +343,11 @@ export function ChatKitPanel({
       enabled: true,
       rightAction: activeThreadId
         ? {
-            icon: sharePanelOpen
-              ? "sidebar-collapse-right"
-              : "sidebar-open-right",
-            onClick: handleToggleSharePanel,
-          }
+          icon: sharePanelOpen
+            ? "sidebar-collapse-right"
+            : "sidebar-open-right",
+          onClick: handleToggleSharePanel,
+        }
         : undefined,
     },
     startScreen: {
@@ -404,7 +439,19 @@ export function ChatKitPanel({
   }
 
   return (
-    <div className="relative flex h-[90vh] w-full flex-col overflow-hidden bg-white shadow-sm transition-colors dark:bg-slate-900">
+    <div
+      role="region"
+      aria-label="법률 AI 에이전트 채팅"
+      aria-live="polite"
+      aria-busy={isInitializingSession}
+      className="relative flex h-[90vh] w-full flex-col overflow-hidden bg-white shadow-sm transition-colors dark:bg-slate-900"
+    >
+      {/* Screen reader announcements */}
+      <div className="sr-only" aria-live="assertive" aria-atomic="true">
+        {isInitializingSession && getLoadingMessage(loadingPhase)}
+        {blockingError && `오류 발생: ${blockingError}`}
+      </div>
+
       <ChatKit
         key={widgetInstanceKey}
         control={chatkit.control}
@@ -416,13 +463,14 @@ export function ChatKitPanel({
       />
       <ErrorOverlay
         error={blockingError}
+        errorType={errors.type}
         fallbackMessage={
           blockingError || !isInitializingSession
             ? null
-            : "Loading assistant session..."
+            : getLoadingMessage(loadingPhase)
         }
         onRetry={blockingError && errors.retryable ? handleResetChat : null}
-        retryLabel="Restart chat"
+        retryLabel="채팅 다시 시작"
       />
       <SharePanel
         open={sharePanelOpen && Boolean(activeThreadId)}
