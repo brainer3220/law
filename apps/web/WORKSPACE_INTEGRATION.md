@@ -72,10 +72,10 @@ cd packages/legal_tools/workspace
 uvicorn api:app --host 0.0.0.0 --port 8001
 ```
 
-또는 `main.py`에서:
+또는 `law-cli`로:
 
 ```bash
-uv run main.py serve-workspace --port 8001
+uv run law-cli serve-workspace --port 8001
 ```
 
 ## 사용 방법

@@ -3,15 +3,15 @@
 This guide orients contributors so every change to the legal agent stack remains deterministic, reviewable, and ship-ready.
 
 ## Project Structure & Module Organization
-- `main.py` anchors CLI entry points (`preview`, `stats`, `ask`, `serve`) and wires shared services.
-- Core agent behaviors live under `packages/legal_tools/`; start with `law_go_kr.py` for retrieval and `agent_graph.py` for orchestration flows.
-- Shared payload definitions live in `packages/legal_schemas/`; bump versions when request/response shapes evolve.
+- CLI entry points (`preview`, `stats`, `ask`, `serve`) are defined in `packages/py-shared/src/law_shared/legal_cli/` and exposed via the `law-cli` command.
+- Core agent behaviors live under `packages/py-shared/src/law_shared/legal_tools/`; start with `law_go_kr.py` for retrieval and `agent_graph.py` for orchestration flows.
+- Shared payload definitions live in `packages/py-shared/src/law_shared/legal_schemas/`; bump versions when request/response shapes evolve.
 - Deterministic corpora and fixtures sit in `data/`; integration specs in `tests/`; operational scripts in `scripts/`.
 
 ## Build, Test, and Development Commands
 - `uv venv && uv sync` provisions Python ≥3.10 and installs pinned LangChain/LangGraph dependencies.
-- `uv run main.py ask "질문" --offline` exercises the retrieval agent; add `--trace` for streaming debug spans.
-- `uv run main.py serve --host 127.0.0.1 --port 8080` launches the OpenAI-compatible HTTP façade for QA.
+- `uv run law-cli ask "질문" --offline` exercises the retrieval agent; add `--trace` for streaming debug spans.
+- `uv run law-cli serve --host 127.0.0.1 --port 8080` launches the OpenAI-compatible HTTP façade for QA.
 - `pytest -q` runs unit and integration suites; add `-k pattern` to isolate flaky cases.
 - `ruff check .` and `ruff format .` keep lint and formatting aligned with Black conventions.
 

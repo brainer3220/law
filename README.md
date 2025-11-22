@@ -37,7 +37,7 @@ Usage
 - Serve OpenAI-compatible API: `uv run law-cli serve --host 127.0.0.1 --port 8080`
 - Expose tools over MCP: `uv run law-mcp-server`
 
-The legacy `uv run main.py ...` invocation remains available and forwards to the new `law-cli` entrypoint. Use `--data-dir` or `LAW_DATA_DIR` to override the default `./data` corpus path when running dataset commands.
+Use `--data-dir` or `LAW_DATA_DIR` to override the default `./data` corpus path when running dataset commands.
 
 OpenAI-Compatible API (Streaming)
 ---------------------------------
@@ -250,7 +250,7 @@ LLM Setup
 LangSmith tracing
 -----------------
 The CLI and HTTP server can emit LangSmith traces for every `ask` call and chat completion. Provide the following environment
-variables before running `uv run main.py ...` or `law ...`:
+variables before running `uv run law-cli ...` or `law ...`:
 
 - `LANGSMITH_API_KEY` — API key for your LangSmith workspace.
 - `LANGSMITH_PROJECT` — Project name used to group runs.
@@ -268,7 +268,7 @@ UV Workflow
 - Ensure LangGraph is installed for agent: `uv sync` (installs `langgraph` from `pyproject.toml`)
 4b) Load NDJSON cases (id, casetype, casename, facts) to Postgres:
 ```
-uv run main.py pg-load-jsonl --jsonl /path/to/casename_classification/train.jsonl
+uv run law-cli pg-load-jsonl --jsonl /path/to/casename_classification/train.jsonl
 # You can pass a directory to load all *.jsonl under it
 ```
 

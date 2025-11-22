@@ -12,7 +12,7 @@
     "@material/material-color-utilities": "^0.3.0",
     "@material/web": "^2.4.0",
     "@heroicons/react": "^2.2.0",
-    "@openai/chatkit-react": ">=1.1.1 <2.0.0",
+    "@openai/chatkit-react": ">=1.2.0 <2.0.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.75.0",
     "clsx": "^2.1.1",
