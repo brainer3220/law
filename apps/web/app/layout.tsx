@@ -14,11 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="h-screen overflow-hidden">
       <head>
         <ChatKitScript />
       </head>
-      <body className="antialiased">
+      <body className="antialiased h-screen overflow-hidden">
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
