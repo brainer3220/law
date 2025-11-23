@@ -8,6 +8,7 @@ import { UserMenu } from "@/components/auth/UserMenu";
 import {
   ChatBubbleLeftRightIcon,
   FolderIcon,
+  MicrophoneIcon,
 } from "@heroicons/react/24/outline";
 
 export default function App() {
@@ -46,6 +47,14 @@ export default function App() {
             onClick={() => router.push("/workspace")}
           >
             <FolderIcon className="material-icon" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="material-icon-button"
+            aria-label="음성 전사"
+            onClick={() => router.push("/audio-transcribe")}
+          >
+            <MicrophoneIcon className="material-icon" aria-hidden="true" />
           </button>
         </nav>
         <UserMenu />
