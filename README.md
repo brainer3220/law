@@ -232,6 +232,26 @@ curl -s "http://127.0.0.1:8081/v1/s/<TOKEN>"
 
 Replace `<RESOURCE_ID>` and `<TOKEN>` with values returned from the previous calls. Use `/v1/shares/{id}/revoke` to immediately invalidate a share and its tokens.
 
+Background Worker (Whisper Transcription)
+---------------------------------------
+The API service includes a background worker for audio transcription using OpenAI Whisper.
+This implementation uses FastAPI's `BackgroundTasks` and does not require Redis.
+
+1) Start the API server:
+```bash
+cd apps/api
+uv run uvicorn app.main:app --reload
+```
+
+2) Trigger transcription via API:
+```bash
+curl -X POST -F "file=@audio.mp3" -F "email=user@example.com" http://localhost:8000/transcribe/
+```
+
+Note: Job status and history are persisted in a SQLite database (`transcribe_jobs.db`). Set `TRANSCRIBE_DB_PATH` to customize the database location.
+
+
+
 
 Notes
 -----

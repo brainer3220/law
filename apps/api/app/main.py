@@ -13,6 +13,8 @@ from law_shared.legal_tools.workspace.api import (
 __all__ = ["app", "create_app"]
 
 
+from app.routers import transcribe
+
 def create_app(
     *,
     share_settings: ShareSettings | None = None,
@@ -27,6 +29,7 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    share_app.include_router(transcribe.router)
     share_app.mount("/workspace", workspace_app)
     return share_app
 
