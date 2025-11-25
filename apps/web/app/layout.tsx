@@ -4,8 +4,15 @@ import { AuthProvider } from "@/lib/auth/AuthContext";
 import ChatKitScript from "@/components/ChatKitScript";
 
 export const metadata: Metadata = {
-  title: "AgentKit demo",
-  description: "Demo of ChatKit with hosted workflow",
+  title: "Law Analytics Platform",
+  description: "AI-powered legal analytics and market intelligence platform",
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/icon.png', type: 'image/png' },
+    ],
+    apple: '/apple-icon.png',
+  },
 };
 
 export default function RootLayout({
