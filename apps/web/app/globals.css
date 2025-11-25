@@ -548,11 +548,12 @@ body {
 }
 
 .material-app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--md-sys-color-surface-container-lowest, #f8fafc);
   color: var(--md-sys-color-on-surface, #0f172a);
+  overflow: hidden;
 }
 
 .material-app-shell__bar {
@@ -1154,10 +1155,15 @@ body {
   display: flex;
   justify-content: center;
   padding: 32px 24px;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .material-app-shell__canvas {
   width: min(960px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--md-sys-color-surface-container, #ffffff);
   border-radius: 20px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
