@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowPathIcon,
   ChartBarIcon,
@@ -8,6 +8,9 @@ import {
   MicrophoneIcon,
   PauseIcon,
   PlayIcon,
+  ArrowDownTrayIcon,
+  ClipboardDocumentIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -50,10 +53,92 @@ function assignLabels(segments: LiveTranscriptSegment[]): Record<string, string>
   return labels;
 }
 
+function exportAsText(segments: LiveTranscriptSegment[], labels: Record<string, string>): void {
+  const text = segments
+    .map((seg) => `[${formatTimestamp(seg.start)}] ${labels[seg.speaker] || seg.speaker}: ${seg.text}`)
+    .join("\n\n");
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `transcript-${new Date().toISOString()}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAsJSON(segments: LiveTranscriptSegment[], labels: Record<string, string>): void {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    segments: segments.map((seg) => ({
+      ...seg,
+      speakerLabel: labels[seg.speaker] || seg.speaker,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `transcript-${new Date().toISOString()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyToClipboard(text: string): void {
+  navigator.clipboard.writeText(text).catch((err) => {
+    console.error("Failed to copy:", err);
+  });
+}
+
 export default function LiveTranscribePage() {
   const { user, loading } = useAuth();
   const [state, controls] = useRealtimeTranscriber("/api/transcribe/live");
   const [speakerLabels, setSpeakerLabels] = useState<Record<string, string>>({});
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const segmentsEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new segments arrive
+  useEffect(() => {
+    if (autoScroll && segmentsEndRef.current) {
+      segmentsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [state.segments, autoScroll]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (event.key.toLowerCase()) {
+        case " ": // Space - start/stop
+          event.preventDefault();
+          if (state.status === "recording") {
+            void controls.stop();
+          } else if (state.status === "idle") {
+            void controls.start();
+          }
+          break;
+        case "r": // R - reset
+          event.preventDefault();
+          controls.reset();
+          break;
+        case "e": // E - export
+          event.preventDefault();
+          if (state.segments.length > 0) {
+            setShowExportMenu((prev) => !prev);
+          }
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [state.status, state.segments.length, controls]);
 
   useEffect(() => {
     if (state.segments.length > 0) {
@@ -218,7 +303,91 @@ export default function LiveTranscribePage() {
                   <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
                   초기화
                 </button>
+
+                {/* Export Menu */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    disabled={state.segments.length === 0}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-5 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />
+                    내보내기
+                    <ChevronDownIcon className="h-3 w-3" aria-hidden="true" />
+                  </button>
+
+                  {showExportMenu && state.segments.length > 0 && (
+                    <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 z-10">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exportAsText(state.segments, speakerLabels);
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700 rounded-t-2xl"
+                      >
+                        텍스트 파일 (.txt)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exportAsJSON(state.segments, speakerLabels);
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700 rounded-b-2xl"
+                      >
+                        JSON 파일 (.json)
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* Audio Level Indicator */}
+              {isRecording && (
+                <div className="rounded-2xl bg-slate-50 px-5 py-4 dark:bg-slate-800/60">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      마이크 입력 레벨
+                    </span>
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      {state.audioLevel}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                    <div
+                      className={clsx(
+                        "h-full transition-all duration-100",
+                        state.audioLevel < 30 && "bg-emerald-500",
+                        state.audioLevel >= 30 && state.audioLevel < 70 && "bg-yellow-500",
+                        state.audioLevel >= 70 && "bg-red-500",
+                      )}
+                      style={{ width: `${state.audioLevel}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Keyboard Shortcuts Hint */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
+                  키보드 단축키
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span><kbd className="px-2 py-1 bg-white dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600">Space</kbd> 시작/중지</span>
+                  <span><kbd className="px-2 py-1 bg-white dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600">R</kbd> 초기화</span>
+                  <span><kbd className="px-2 py-1 bg-white dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600">E</kbd> 내보내기</span>
+                </div>
+              </div>
+
+              {/* Reconnection Status */}
+              {state.reconnectAttempt > 0 && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 shadow-sm dark:border-amber-500/60 dark:bg-amber-900/20 dark:text-amber-200">
+                  재연결 시도 중... ({state.reconnectAttempt}/5)
+                </div>
+              )}
+
               <div className="flex items-center gap-3 rounded-2xl bg-slate-50 px-5 py-4 dark:bg-slate-800/60">
                 <label className="flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-200">
                   <input
@@ -273,9 +442,20 @@ export default function LiveTranscribePage() {
                 실시간으로 업데이트되는 전사 내용을 확인하세요.
               </p>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <CheckCircleIcon className="h-4 w-4 text-emerald-500" aria-hidden="true" />
-              <span>완료된 발화는 녹색 배지로 표시됩니다.</span>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600"
+                  checked={autoScroll}
+                  onChange={(e) => setAutoScroll(e.target.checked)}
+                />
+                <span>자동 스크롤</span>
+              </label>
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <CheckCircleIcon className="h-4 w-4 text-emerald-500" aria-hidden="true" />
+                <span>완료된 발화는 녹색 배지로 표시됩니다.</span>
+              </div>
             </div>
           </div>
 
@@ -308,6 +488,14 @@ export default function LiveTranscribePage() {
                       >
                         {segment.isFinal ? "Final" : "Draft"}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(`[${formatTimestamp(segment.start)}] ${segment.label}: ${segment.text}`)}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700"
+                        title="복사"
+                      >
+                        <ClipboardDocumentIcon className="h-3 w-3" aria-hidden="true" />
+                      </button>
                     </div>
                   </div>
                   <p className="mt-3 text-sm leading-relaxed text-slate-800 dark:text-slate-100">
@@ -316,9 +504,10 @@ export default function LiveTranscribePage() {
                 </article>
               ))
             )}
+            <div ref={segmentsEndRef} />
           </div>
         </section>
-      </div>
-    </main>
+      </div >
+    </main >
   );
 }

@@ -8,6 +8,12 @@ import type {
 
 export const runtime = "edge";
 
+// Connection management constants
+const CONNECTION_TIMEOUT_MS = 30000; // 30 seconds idle timeout
+const MAX_CHUNK_RATE = 10; // Maximum chunks per second
+const CHUNK_RATE_WINDOW_MS = 1000; // Rate limiting window
+const HEARTBEAT_INTERVAL_MS = 15000; // Send heartbeat every 15 seconds
+
 interface EdgeWebSocket extends WebSocket {
   accept(): void;
 }
@@ -75,9 +81,19 @@ class LiveTranscribeSession {
 
   private mockIndex = 0;
 
+  // Connection management
+  private lastActivityTime = Date.now();
+
+  private chunkTimestamps: number[] = [];
+
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+
+  private timeoutTimer: NodeJS.Timeout | null = null;
+
   constructor(socket: WebSocket) {
     this.downstream = socket;
     this.hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
+    this.startConnectionMonitoring();
   }
 
   start() {
@@ -86,19 +102,56 @@ class LiveTranscribeSession {
       this.handleClientMessage(event.data);
     });
     this.downstream.addEventListener("close", () => {
-      this.closed = true;
-      this.jobs = [];
+      this.cleanup();
     });
     this.downstream.addEventListener("error", () => {
-      this.closed = true;
-      this.jobs = [];
+      this.cleanup();
     });
+  }
+
+  private startConnectionMonitoring() {
+    // Heartbeat to keep connection alive
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.closed) {
+        sendMessage(this.downstream, { type: "info", message: "heartbeat" });
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+
+    // Connection timeout checker
+    this.timeoutTimer = setInterval(() => {
+      const idleTime = Date.now() - this.lastActivityTime;
+      if (idleTime > CONNECTION_TIMEOUT_MS && !this.closed) {
+        sendMessage(this.downstream, {
+          type: "error",
+          message: "연결 시간 초과: 활동이 감지되지 않았습니다.",
+        });
+        this.cleanup();
+        this.downstream.close();
+      }
+    }, 5000); // Check every 5 seconds
+  }
+
+  private cleanup() {
+    this.closed = true;
+    this.jobs = [];
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.timeoutTimer) {
+      clearInterval(this.timeoutTimer);
+      this.timeoutTimer = null;
+    }
   }
 
   private handleClientMessage(raw: unknown) {
     if (typeof raw !== "string") {
       return;
     }
+
+    // Update activity time for timeout monitoring
+    this.lastActivityTime = Date.now();
+
     let message: LiveTranscribeClientMessage | null = null;
     try {
       message = JSON.parse(raw) as LiveTranscribeClientMessage;
@@ -119,6 +172,14 @@ class LiveTranscribeSession {
         });
         break;
       case "audio-chunk":
+        // Rate limiting check
+        if (!this.checkRateLimit()) {
+          sendMessage(this.downstream, {
+            type: "error",
+            message: "전송 속도 제한 초과: 오디오 청크를 너무 빠르게 전송하고 있습니다.",
+          });
+          return;
+        }
         this.enqueueChunk({
           id: message.id,
           bytes: base64ToUint8Array(message.data),
@@ -130,8 +191,7 @@ class LiveTranscribeSession {
         // handled implicitly per chunk.
         break;
       case "stop":
-        this.closed = true;
-        this.jobs = [];
+        this.cleanup();
         sendMessage(this.downstream, {
           type: "status",
           state: "finalizing",
@@ -148,6 +208,23 @@ class LiveTranscribeSession {
         });
         break;
     }
+  }
+
+  private checkRateLimit(): boolean {
+    const now = Date.now();
+    // Remove timestamps outside the window
+    this.chunkTimestamps = this.chunkTimestamps.filter(
+      (timestamp) => now - timestamp < CHUNK_RATE_WINDOW_MS,
+    );
+
+    // Check if we're over the limit
+    if (this.chunkTimestamps.length >= MAX_CHUNK_RATE) {
+      return false;
+    }
+
+    // Add current timestamp
+    this.chunkTimestamps.push(now);
+    return true;
   }
 
   private enqueueChunk(job: ChunkJob) {

@@ -5,6 +5,13 @@ import type {
   LiveTranscriptSegment,
 } from "@/types/audio";
 
+// Configuration constants
+const MAX_RECONNECT_ATTEMPTS = 5;
+const INITIAL_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 30000;
+const MAX_SEGMENTS_HISTORY = 1000; // Prevent memory leaks
+const AUDIO_LEVEL_SMOOTHING = 0.8;
+
 type RecorderState = "idle" | "connecting" | "recording" | "stopping" | "error";
 
 export interface RealtimeTranscriptState {
@@ -14,6 +21,8 @@ export interface RealtimeTranscriptState {
   segments: LiveTranscriptSegment[];
   diarization: boolean;
   elapsedMs: number;
+  audioLevel: number; // 0-100
+  reconnectAttempt: number;
 }
 
 export interface RealtimeTranscriberControls {
@@ -21,6 +30,7 @@ export interface RealtimeTranscriberControls {
   stop: () => Promise<void>;
   reset: () => void;
   setDiarization: (value: boolean) => void;
+  clearSegments: () => void;
 }
 
 export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
@@ -30,14 +40,66 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
   const socketRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const chunkSeq = useRef(0);
   const startTimeRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const isRecordingRef = useRef(false); // Track recording state for reconnection
   const [diarization, setDiarizationEnabled] = useState(true);
   const [status, setStatus] = useState<RecorderState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<LiveTranscriptSegment[]>([]);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
+  const startAudioLevelMonitoring = useCallback((stream: MediaStream) => {
+    try {
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = AUDIO_LEVEL_SMOOTHING;
+      source.connect(analyser);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const updateLevel = () => {
+        if (!analyserRef.current) return;
+
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+        const level = Math.min(100, Math.round((average / 255) * 100));
+        setAudioLevel(level);
+
+        animationFrameRef.current = requestAnimationFrame(updateLevel);
+      };
+
+      updateLevel();
+    } catch (err) {
+      console.warn("[RealtimeTranscriber] Audio level monitoring failed:", err);
+    }
+  }, []);
+
+  const stopAudioLevelMonitoring = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(console.warn);
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setAudioLevel(0);
+  }, []);
 
   const clearTimer = useCallback(() => {
     if (elapsedTimerRef.current) {
@@ -59,15 +121,26 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       if (payload.type === "segment") {
         setSegments((prev) => {
           const existingIndex = prev.findIndex((item) => item.id === payload.segment.id);
+          let next: LiveTranscriptSegment[];
+
           if (existingIndex >= 0) {
-            const next = [...prev];
+            // Update existing segment
+            next = [...prev];
             next[existingIndex] = payload.segment;
-            return next;
+          } else {
+            // Add new segment
+            next = [...prev, payload.segment];
           }
-          return [...prev, payload.segment];
+
+          // Limit history to prevent memory leaks
+          if (next.length > MAX_SEGMENTS_HISTORY) {
+            next = next.slice(-MAX_SEGMENTS_HISTORY);
+          }
+
+          return next;
         });
       } else if (payload.type === "segments") {
-        setSegments(payload.segments);
+        setSegments(payload.segments.slice(-MAX_SEGMENTS_HISTORY));
       } else if (payload.type === "error") {
         setError(payload.message);
         setStatus("error");
@@ -81,6 +154,10 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
         }
       } else if (payload.type === "ready") {
         setStatus((prev) => (prev === "connecting" ? "idle" : prev));
+        setReconnectAttempt(0); // Reset on successful connection
+      } else if (payload.type === "info") {
+        // Handle heartbeat and other info messages silently
+        console.debug("[RealtimeTranscriber] Info:", payload.message);
       }
     } catch (parseError) {
       console.warn("[RealtimeTranscriber] Failed to parse message", event.data, parseError);
@@ -111,8 +188,9 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
     streamRef.current = null;
+    stopAudioLevelMonitoring();
     clearTimer();
-  }, [clearTimer]);
+  }, [clearTimer, stopAudioLevelMonitoring]);
 
   const reset = useCallback(() => {
     closeSocket();
@@ -123,7 +201,16 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
     chunkSeq.current = 0;
     setElapsedMs(0);
     startTimeRef.current = null;
+    setReconnectAttempt(0);
+    if (reconnectTimeoutRef.current) {
+      window.clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
   }, [closeSocket, stopMediaRecorder]);
+
+  const clearSegments = useCallback(() => {
+    setSegments([]);
+  }, []);
 
   useEffect(() => () => {
     reset();
@@ -179,6 +266,8 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       });
 
       streamRef.current = stream;
+      startAudioLevelMonitoring(stream);
+
       const recorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
         audioBitsPerSecond: 64000,
@@ -199,6 +288,22 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       socket.addEventListener("close", () => {
         setStatus((prev) => (prev === "error" ? prev : "idle"));
         clearTimer();
+
+        // Attempt reconnection if was recording and not manually stopped
+        if (isRecordingRef.current && reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+          const delay = Math.min(
+            INITIAL_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempt),
+            MAX_RECONNECT_DELAY_MS,
+          );
+          setReconnectAttempt((prev) => prev + 1);
+          console.log(`[RealtimeTranscriber] Reconnecting in ${delay}ms (attempt ${reconnectAttempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            void start();
+          }, delay);
+        } else {
+          isRecordingRef.current = false;
+        }
       });
 
       recorder.addEventListener("dataavailable", (event) => {
@@ -207,6 +312,7 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
 
       recorder.addEventListener("start", () => {
         setStatus("recording");
+        isRecordingRef.current = true;
         startTimeRef.current = Date.now();
         updateElapsed();
         clearTimer();
@@ -214,6 +320,7 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       });
 
       recorder.addEventListener("stop", () => {
+        isRecordingRef.current = false;
         sendMessage({ type: "stop" });
         setStatus("stopping");
         clearTimer();
@@ -238,12 +345,15 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
     clearTimer,
     stopMediaRecorder,
     closeSocket,
+    startAudioLevelMonitoring,
+    reconnectAttempt,
   ]);
 
   const stop = useCallback(async () => {
     if (status !== "recording" && status !== "stopping") {
       return;
     }
+    isRecordingRef.current = false; // Prevent reconnection
     stopMediaRecorder();
     sendMessage({ type: "stop" });
     setStatus("stopping");
@@ -257,8 +367,10 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       segments,
       diarization,
       elapsedMs,
+      audioLevel,
+      reconnectAttempt,
     }),
-    [status, error, segments, diarization, elapsedMs],
+    [status, error, segments, diarization, elapsedMs, audioLevel, reconnectAttempt],
   );
 
   const controls = useMemo<RealtimeTranscriberControls>(
@@ -267,8 +379,9 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
       stop,
       reset,
       setDiarization: setDiarizationEnabled,
+      clearSegments,
     }),
-    [start, stop, reset],
+    [start, stop, reset, clearSegments],
   );
 
   return [state, controls];
