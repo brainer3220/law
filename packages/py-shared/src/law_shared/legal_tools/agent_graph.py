@@ -42,6 +42,7 @@ except ImportError:  # pragma: no cover - minimal shim
 from typing_extensions import Literal
 
 from law_shared.legal_tools.law_go_kr import (
+    LawDetailParagraph,
     LawDetailArticle,
     LawDetailResponse,
     LawInterpretationDetail,
@@ -55,6 +56,7 @@ from law_shared.legal_tools.law_go_kr import (
     search_law,
     search_law_interpretations,
 )
+from law_shared.legal_tools.file_search import FileSearchHit, search_local_index
 from law_shared.legal_tools.opensearch_search import OpenSearchDoc, search_opensearch
 from law_shared.legal_tools.tracing import get_langsmith_callbacks, trace_run
 
@@ -737,6 +739,36 @@ def _keyword_search(
     query: str, limit: int, data_dir: Path, *, context_chars: int = 0
 ) -> List[Hit]:
     global _OPENSEARCH_AVAILABLE, _OPENSEARCH_ERROR
+    local_hits: List[Hit] = []
+    try:
+        local_docs: List[FileSearchHit] = search_local_index(
+            data_dir=data_dir,
+            query=query,
+            limit=max(5, limit),
+        )
+    except Exception as exc:
+        logger.warning("search_keyword_local_failed", error=str(exc))
+        local_docs = []
+
+    for doc in local_docs:
+        snippet = doc.snippet or ""
+        if context_chars and len(snippet) > context_chars:
+            snippet = snippet[: context_chars - 3] + "..."
+        local_hits.append(
+            Hit(
+                source="keyword",
+                path=Path(doc.source_path) if doc.source_path else Path(""),
+                doc_id=doc.doc_id,
+                title=doc.title,
+                score=doc.score,
+                snippet=snippet,
+            )
+        )
+
+    if local_hits:
+        logger.info("search_keyword_hits", count=len(local_hits), stage="local_file_index")
+        return local_hits
+
     if not _OPENSEARCH_AVAILABLE:
         if _OPENSEARCH_ERROR:
             logger.debug("search_keyword_skip_opensearch", reason=_OPENSEARCH_ERROR)
@@ -1059,7 +1091,6 @@ class LangChainToolAgent:
     def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
-        from langchain.tools import StructuredTool  # type: ignore
 
         tools = self._build_tools(store)
         prompt = ChatPromptTemplate.from_messages(
@@ -1069,7 +1100,7 @@ class LangChainToolAgent:
                     """
 당신은 한국어 법률 리서치 에이전트입니다. 제공된 도구를 사용하여 질문에 대한 근거 기반 답변을 작성하세요.
 도구 목록:
-- keyword_search: OpenSearch 인덱스를 사용하여 관련 판례/문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
+- keyword_search: 로컬 파일 인덱스(우선) 또는 OpenSearch(폴백)에서 관련 문서를 찾습니다. 반드시 최소 한 번은 사용해야 합니다.
 - law_statute_search: law.go.kr 법령 검색 API로 법령명·공포일자 등 메타데이터를 확인합니다.
 - law_statute_detail: law.go.kr 법령 본문 조회 API로 특정 조문 내용을 살펴봅니다.
 - law_interpretation_search: law.go.kr 법령해석례 검색 API로 질의·회답 사례를 찾습니다.

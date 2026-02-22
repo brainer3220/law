@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from argparse import _SubParsersAction
 
-from . import ask, mcp, opensearch, postgres, preview, serve, share_service, stats, workspace_service
+from . import (
+    ask,
+    index,
+    mcp,
+    opensearch,
+    postgres,
+    preview,
+    search,
+    serve,
+    share_service,
+    stats,
+    sync,
+    workspace_service,
+)
 
 __all__ = ["register"]
 
@@ -21,3 +34,6 @@ def register(subparsers: _SubParsersAction) -> None:
     postgres.register(subparsers)
     opensearch.register(subparsers)
     mcp.register(subparsers)
+    sync.register(subparsers)
+    index.register(subparsers)
+    search.register(subparsers)

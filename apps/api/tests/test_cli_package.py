@@ -26,7 +26,7 @@ def clear_offline_env() -> None:
 def test_parser_registers_known_commands() -> None:
     parser = build_parser()
     subparsers_action = parser._subparsers._group_actions[0]  # type: ignore[attr-defined]
-    assert {"preview", "stats", "ask", "serve"}.issubset(
+    assert {"preview", "stats", "ask", "serve", "sync", "normalize", "index", "search"}.issubset(
         subparsers_action.choices.keys()
     )
 
