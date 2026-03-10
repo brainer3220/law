@@ -92,5 +92,3 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
         
         return job
 
-# Initialize database on module import
-init_db()
