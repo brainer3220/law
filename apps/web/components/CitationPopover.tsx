@@ -12,7 +12,7 @@ import { type EvidenceSource, type CitationStatus } from "@/lib/types";
 import { getCiteStatusColorClass, cn } from "@/lib/utils";
 import { EvidenceCard } from "./EvidenceCard";
 
-export interface CitationPopoverProps {
+interface CitationPopoverProps {
   text: string;
   evidence: EvidenceSource[];
   status: CitationStatus;

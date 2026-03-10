@@ -8,7 +8,7 @@
 import { type RiskLevel } from "@/lib/types";
 import { getRiskColorClass, cn } from "@/lib/utils";
 
-export interface RiskBadgeProps {
+interface RiskBadgeProps {
   level: RiskLevel;
   label?: string;
   showIcon?: boolean;

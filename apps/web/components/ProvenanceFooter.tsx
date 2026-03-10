@@ -11,7 +11,7 @@ import { useState } from "react";
 import { type Provenance } from "@/lib/types";
 import { cn, formatDate } from "@/lib/utils";
 
-export interface ProvenanceFooterProps {
+interface ProvenanceFooterProps {
   provenance: Provenance;
   auditId?: string;
   className?: string;

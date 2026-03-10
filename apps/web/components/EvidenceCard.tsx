@@ -11,7 +11,7 @@ import { useState } from "react";
 import { type EvidenceSource } from "@/lib/types";
 import { formatLegalReference, truncate, cn } from "@/lib/utils";
 
-export interface EvidenceCardProps {
+interface EvidenceCardProps {
   evidence: EvidenceSource;
   onOpenSource?: (evidence: EvidenceSource) => void;
   compact?: boolean;

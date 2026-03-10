@@ -6,7 +6,7 @@
 
 import { cn } from "@/lib/utils";
 
-export interface LoadingSpinnerProps {
+interface LoadingSpinnerProps {
   size?: "sm" | "md" | "lg";
   label?: string;
   className?: string;

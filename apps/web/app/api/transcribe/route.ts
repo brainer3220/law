@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { TranscriptionPayload } from "@/types/audio";
 import { createMockTranscription, transcribeWithOpenAI } from "@/lib/server/transcription";
 
 export const runtime = "nodejs";
@@ -13,7 +12,7 @@ function badRequest(error: string, details?: unknown, status = 400) {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    const formData = (await request.formData()) as unknown as globalThis.FormData;
     const audio = formData.get("audio");
 
     if (!audio || !(audio instanceof File)) {

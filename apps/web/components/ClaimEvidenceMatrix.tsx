@@ -11,7 +11,7 @@ import { useState } from "react";
 import { type Claim, type EvidenceSource, type ClaimEvidenceCell } from "@/lib/types";
 import { cn, getCiteStatusColorClass } from "@/lib/utils";
 
-export interface ClaimEvidenceMatrixProps {
+interface ClaimEvidenceMatrixProps {
   claims: Claim[];
   evidence: EvidenceSource[];
   cells: ClaimEvidenceCell[];

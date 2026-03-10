@@ -13,7 +13,7 @@ import { RiskBadge } from "./RiskBadge";
 import { EvidenceCard } from "./EvidenceCard";
 import { cn } from "@/lib/utils";
 
-export interface ClauseDiffCardProps {
+interface ClauseDiffCardProps {
   diff: ClauseDiff;
   onAccept?: (diffId: string) => void;
   onReject?: (diffId: string) => void;

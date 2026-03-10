@@ -11,7 +11,7 @@ import { type PolicyViolation } from "@/lib/types";
 import { RiskBadge } from "./RiskBadge";
 import { cn } from "@/lib/utils";
 
-export interface PolicyViolationAlertProps {
+interface PolicyViolationAlertProps {
   violations: PolicyViolation[];
   onResolve?: (violationId: string) => void;
   onViewGuide?: (violation: PolicyViolation) => void;

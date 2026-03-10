@@ -73,34 +73,6 @@ export interface ClaimEvidenceCell {
 }
 
 /**
- * 문서 메타데이터
- */
-export interface DocumentMetadata {
-  id: string;
-  title: string;
-  type: "contract" | "brief" | "research" | "evidence";
-  createdAt: string;
-  updatedAt: string;
-  matterId?: string; // 사건 ID
-  version: string;
-  status: "draft" | "cite_check" | "policy_check" | "approved";
-  author?: string;
-}
-
-/**
- * Matter (사건) 정보
- */
-export interface Matter {
-  id: string;
-  name: string;
-  domain: LegalDomain;
-  description?: string;
-  clientName?: string;
-  createdAt: string;
-  status: "active" | "closed" | "archived";
-}
-
-/**
  * 검색 필터
  */
 export interface SearchFilter {
@@ -127,43 +99,6 @@ export interface PolicyViolation {
   };
   suggestion?: string;
   guideUrl?: string;
-}
-
-/**
- * 인용 검증 결과
- */
-export interface CitationVerificationResult {
-  claimId: string;
-  status: CitationStatus;
-  evidence: EvidenceSource[];
-  unsupportedReasons?: string[];
-  alternativeEvidence?: EvidenceSource[];
-}
-
-/**
- * 사용자 권한
- */
-export interface UserPermissions {
-  canViewMatter: boolean;
-  canEditDocument: boolean;
-  canApproveDocument: boolean;
-  canExportDocument: boolean;
-  canViewAudit: boolean;
-}
-
-/**
- * 감사 로그 엔트리
- */
-export interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  userId: string;
-  userName: string;
-  action: string;
-  resourceType: string;
-  resourceId: string;
-  matterId?: string;
-  details?: Record<string, unknown>;
 }
 
 /**

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 export type ColorScheme = "light" | "dark";
-export type ColorSchemePreference = ColorScheme | "system";
+type ColorSchemePreference = ColorScheme | "system";
 
 const STORAGE_KEY = "chatkit-color-scheme";
 const PREFERS_DARK_QUERY = "(prefers-color-scheme: dark)";

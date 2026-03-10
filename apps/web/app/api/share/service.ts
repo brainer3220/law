@@ -1,16 +1,16 @@
 const DEFAULT_SHARE_SERVICE_BASE = "http://127.0.0.1:8081";
 
-export function resolveShareServiceBaseUrl(): string {
+function resolveShareServiceBaseUrl(): string {
   const base = process.env.SHARE_SERVICE_BASE_URL ?? DEFAULT_SHARE_SERVICE_BASE;
   return base.endsWith("/") ? base.slice(0, -1) : base;
 }
 
-export function buildShareServiceUrl(path: string): string {
+function buildShareServiceUrl(path: string): string {
   const base = resolveShareServiceBaseUrl();
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-export interface ShareServiceRequestInit extends RequestInit {
+interface ShareServiceRequestInit extends RequestInit {
   headers?: HeadersInit;
 }
 
@@ -33,17 +33,6 @@ export async function callShareService(
     ...init,
     headers,
   });
-}
-
-export async function parseShareServiceJson<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as T | null;
-  if (!response.ok || !payload) {
-    const errorMessage =
-      (payload as { error?: string } | null)?.error ??
-      `Share service request failed with status ${response.status}`;
-    throw new Error(errorMessage);
-  }
-  return payload;
 }
 
 export async function forwardShareServiceResponse(upstream: Response): Promise<Response> {

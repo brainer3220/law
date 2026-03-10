@@ -12,7 +12,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { type SearchFilter, type LegalDomain, type EvidenceType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export interface SearchBarProps {
+interface SearchBarProps {
   onSearch: (filter: SearchFilter) => void;
   placeholder?: string;
   showFilters?: boolean;

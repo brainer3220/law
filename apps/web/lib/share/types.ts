@@ -45,29 +45,6 @@ export interface ShareLinkCreateResponse {
   link: ShareLink;
 }
 
-export interface ShareCreatePayload {
-  resource_id: string;
-  actor_id: string;
-  mode: ShareMode;
-  allow_download: boolean;
-  allow_comments: boolean;
-  is_live: boolean;
-  expires_at: string | null;
-  create_link: boolean;
-  link_domain_whitelist: string[] | null;
-  allow_reshare: boolean;
-  permissions?: PermissionEntry[];
-}
-
-export interface ShareLinkCreatePayload {
-  actor_id: string;
-  domain_whitelist?: string[] | null;
-}
-
-export interface ShareRevokePayload {
-  actor_id: string;
-}
-
 export interface PermissionEntry {
   resource_id: string;
   principal_type: "user" | "team" | "org" | "link";

@@ -7,9 +7,9 @@
 
 import { cn } from "@/lib/utils";
 
-export type DocumentStatus = "draft" | "cite_check" | "policy_check" | "approved";
+type DocumentStatus = "draft" | "cite_check" | "policy_check" | "approved";
 
-export interface StatusBadgeProps {
+interface StatusBadgeProps {
   status: DocumentStatus;
   showIcon?: boolean;
   className?: string;

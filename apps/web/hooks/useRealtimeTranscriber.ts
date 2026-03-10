@@ -14,7 +14,7 @@ const AUDIO_LEVEL_SMOOTHING = 0.8;
 
 type RecorderState = "idle" | "connecting" | "recording" | "stopping" | "error";
 
-export interface RealtimeTranscriptState {
+interface RealtimeTranscriptState {
   status: RecorderState;
   connecting: boolean;
   error: string | null;
@@ -25,7 +25,7 @@ export interface RealtimeTranscriptState {
   reconnectAttempt: number;
 }
 
-export interface RealtimeTranscriberControls {
+interface RealtimeTranscriberControls {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   reset: () => void;
