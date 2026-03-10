@@ -21,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-screen overflow-hidden">
+    <html lang="ko" className="h-screen overflow-hidden">
       <head>
         <ChatKitScript />
       </head>

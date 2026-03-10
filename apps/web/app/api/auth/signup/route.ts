@@ -20,6 +20,9 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient()
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    const emailRedirectTo = new URL('/api/auth/callback', siteUrl)
+    emailRedirectTo.searchParams.set('next', '/')
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -28,7 +31,7 @@ export async function POST(request: Request) {
         data: {
           full_name: fullName,
         },
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`,
+        emailRedirectTo: emailRedirectTo.toString(),
       },
     })
 

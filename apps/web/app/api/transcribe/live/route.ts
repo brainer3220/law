@@ -86,9 +86,9 @@ class LiveTranscribeSession {
 
   private chunkTimestamps: number[] = [];
 
-  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  private timeoutTimer: NodeJS.Timeout | null = null;
+  private timeoutTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(socket: WebSocket) {
     this.downstream = socket;

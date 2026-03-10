@@ -72,17 +72,23 @@ export async function updateSession(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
-    url.searchParams.set('redirectTo', request.nextUrl.pathname)
+    url.searchParams.set(
+      'redirectTo',
+      `${request.nextUrl.pathname}${request.nextUrl.search}`
+    )
     return NextResponse.redirect(url)
   }
 
   // Redirect authenticated users away from auth pages (except logout)
-  if (user && request.nextUrl.pathname.startsWith('/auth/') && 
-      !request.nextUrl.pathname.startsWith('/auth/logout')) {
+  if (
+    user &&
+    request.nextUrl.pathname.startsWith('/auth/') &&
+    !request.nextUrl.pathname.startsWith('/auth/logout') &&
+    request.nextUrl.pathname !== '/auth/update-password'
+  ) {
     const redirectTo = request.nextUrl.searchParams.get('redirectTo')
-    const url = request.nextUrl.clone()
-    url.pathname = redirectTo || '/'
-    url.search = ''
+    const safeRedirectTo = redirectTo?.startsWith('/') ? redirectTo : '/'
+    const url = new URL(safeRedirectTo, request.url)
     console.log(`Redirecting authenticated user from ${request.nextUrl.pathname} to ${url.pathname}`)
     return NextResponse.redirect(url)
   }
