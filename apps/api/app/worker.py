@@ -15,6 +15,9 @@ class WhisperModel:
                     cls._instance = whisper.load_model("base")
         return cls._instance
 
+def preload_whisper_model() -> None:
+    """Preload the Whisper model at application startup to avoid first-request latency."""
+    WhisperModel.get_instance()
 def transcribe_audio_file(audio_path: str) -> dict:
     """
     Transcribe audio file using OpenAI Whisper.
