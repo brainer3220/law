@@ -34,21 +34,27 @@ async def create_transcription(
     """
     Upload an audio file and start a background transcription task.
     """
-    # Create a temporary file
-    fd, path = tempfile.mkstemp(suffix=os.path.splitext(file.filename or "")[1])
+    path: str | None = None
     try:
-        with os.fdopen(fd, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    finally:
-        file.file.close()
+        # Create a temporary file
+        fd, path = tempfile.mkstemp(suffix=os.path.splitext(file.filename or "")[1])
+        try:
+            with os.fdopen(fd, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        finally:
+            file.file.close()
 
-    job_id = str(uuid.uuid4())
-    db.create_job(job_id, email)
+        job_id = str(uuid.uuid4())
+        db.create_job(job_id, email)
 
-    background_tasks.add_task(process_transcription, job_id, path)
-    
-    return {"task_id": job_id}
+        background_tasks.add_task(process_transcription, job_id, path)
 
+        return {"task_id": job_id}
+    except Exception:
+        # Ensure temp file is cleaned up if background task scheduling or job creation fails
+        if path and os.path.exists(path):
+            os.remove(path)
+        raise
 @router.get("/{task_id}")
 async def get_transcription_status(task_id: str) -> dict[str, Any]:
     """
