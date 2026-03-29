@@ -21,6 +21,9 @@ _STRIP_PREFIX_RE = re.compile(r"^(?:[-*]|\d+[.)]|#{1,6})\s*")
 _CASE_HINT_RE = re.compile(r"\d{2,4}[가-힣]\d+")
 _STATUTE_HINT_RE = re.compile(r"법|시행령|시행규칙|조례|규칙")
 _HEADING_LINE_RE = re.compile(r"^(?:#{1,6}\s*|\d+[.)]\s*)")
+_LAW_GO_KR_ID_RE = re.compile(
+    r"^(?P<system>[a-z_]+):(?P<kind>[a-z_]+):(?P<source_id>[^:]+)(?::(?P<version>.+))?$"
+)
 
 
 def build_legal_answer_payload(
@@ -104,6 +107,13 @@ def _build_evidence(
             doc_id=str(citation.get("doc_id") or ""),
             source=str(citation.get("source") or ""),
         )
+        canonical = canonicalize_citation(
+            title=str(citation.get("title") or ""),
+            doc_id=str(citation.get("doc_id") or ""),
+            path=path,
+            source=str(citation.get("source") or ""),
+            snippet=str(citation.get("snippet") or ""),
+        )
         items.append(
             VerificationEvidence(
                 id=f"evidence-{rank}",
@@ -120,10 +130,77 @@ def _build_evidence(
                     "rank": rank,
                     "path": path,
                     "source": str(citation.get("source") or ""),
+                    "canonicalId": canonical["canonical_id"],
+                    "normalizedCitations": canonical["normalized_citations"],
                 },
             )
         )
     return items
+
+
+def canonicalize_citation(
+    *,
+    title: str,
+    doc_id: str,
+    path: str | None,
+    source: str,
+    snippet: str,
+) -> Dict[str, Any]:
+    normalized_title = _normalize_title_token(title)
+    raw_text = " ".join(part for part in (title, doc_id, snippet) if part)
+    normalized_citations = _extract_citation_tokens(raw_text)
+
+    law_go_match = _LAW_GO_KR_ID_RE.match(doc_id.strip())
+    if law_go_match:
+        kind = law_go_match.group("kind")
+        source_id = law_go_match.group("source_id")
+        version = law_go_match.group("version")
+        canonical_id = f"law_go_kr:{kind}:{source_id}"
+        if version:
+            normalized_citations.append(f"law_go_kr:{kind}:{source_id}:{version}")
+        normalized_citations.append(canonical_id)
+        return {
+            "canonical_id": canonical_id,
+            "normalized_citations": _unique(normalized_citations),
+        }
+
+    case_match = _CASE_HINT_RE.search(raw_text)
+    if case_match:
+        case_no = case_match.group(0)
+        normalized_citations.append(case_no)
+        return {
+            "canonical_id": f"case:{case_no}",
+            "normalized_citations": _unique(normalized_citations),
+        }
+
+    lowered_doc_id = doc_id.strip().lower()
+    if lowered_doc_id.startswith("meili-"):
+        canonical_id = f"doc:{lowered_doc_id}"
+        normalized_citations.append(canonical_id)
+        return {
+            "canonical_id": canonical_id,
+            "normalized_citations": _unique(normalized_citations),
+        }
+
+    if _STATUTE_HINT_RE.search(raw_text) and normalized_title:
+        canonical_id = f"statute:{normalized_title}"
+        normalized_citations.append(canonical_id)
+        return {
+            "canonical_id": canonical_id,
+            "normalized_citations": _unique(normalized_citations),
+        }
+
+    if normalized_title:
+        canonical_id = f"doc:{normalized_title}"
+    elif path:
+        canonical_id = f"doc:{_normalize_title_token(path.split('/')[-1])}"
+    else:
+        canonical_id = f"doc:{_normalize_title_token(source) or 'unknown'}"
+    normalized_citations.append(canonical_id)
+    return {
+        "canonical_id": canonical_id,
+        "normalized_citations": _unique(normalized_citations),
+    }
 
 
 def _build_claims(
@@ -360,6 +437,25 @@ def _classify_source_type(*, title: str, doc_id: str, source: str) -> str:
     return "doc"
 
 
+def _extract_citation_tokens(text: str) -> List[str]:
+    tokens: List[str] = []
+    for match in re.findall(r"[가-힣A-Za-z·ㆍ\s]+제\s*\d+\s*조", text):
+        compact = re.sub(r"\s+", "", match)
+        if compact:
+            tokens.append(compact)
+    for case_no in _CASE_HINT_RE.findall(text):
+        tokens.append(case_no)
+    return _unique(tokens)
+
+
+def _normalize_title_token(value: str) -> str:
+    lowered = value.strip().lower()
+    lowered = re.sub(r"\.json$", "", lowered)
+    lowered = re.sub(r"[^0-9a-z가-힣]+", "-", lowered)
+    lowered = re.sub(r"-+", "-", lowered).strip("-")
+    return lowered
+
+
 def _coerce_float(value: Any) -> float | None:
     try:
         if value is None:
@@ -379,3 +475,14 @@ def _dedupe_strings(values: Iterable[str]) -> List[str]:
         seen.add(value)
         deduped.append(value)
     return deduped
+
+
+def _unique(values: Iterable[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out

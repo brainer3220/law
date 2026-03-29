@@ -13,7 +13,10 @@ from law_shared.legal_tools.agent_graph import (
     _should_fallback_provider,
 )
 from law_shared.legal_tools.api_server import _merge_agent_payload
-from law_shared.legal_tools.response_builder import build_legal_answer_payload
+from law_shared.legal_tools.response_builder import (
+    build_legal_answer_payload,
+    canonicalize_citation,
+)
 
 
 def test_build_legal_answer_payload_returns_answer_ready_for_verified_claims() -> None:
@@ -54,6 +57,7 @@ def test_build_legal_answer_payload_returns_answer_ready_for_verified_claims() -
     assert payload["claims"][0]["status"] == "verified"
     assert payload["evidence"][0]["number"] == "2020다12345"
     assert payload["provenance"]["retrievalMethod"] == "keyword_search"
+    assert payload["evidence"][0]["metadata"]["canonicalId"] == "case:2020다12345"
 
 
 def test_build_legal_answer_payload_returns_refusal_when_claim_has_no_citations() -> (
@@ -353,3 +357,45 @@ def test_should_fallback_provider_for_quota_errors() -> None:
         _should_fallback_provider(RuntimeError("ResourceExhausted: rate limit")) is True
     )
     assert _should_fallback_provider(RuntimeError("unexpected parser error")) is False
+
+
+def test_canonicalize_citation_for_meili_document() -> None:
+    canonical = canonicalize_citation(
+        title="근로시간면제 한도 재설정 질의",
+        doc_id="MEILI-2024-001",
+        path="data/meilisearch/labor_guidance.json",
+        source="keyword",
+        snippet="노동조합 및 노동관계조정법 시행령 제24조를 근거로 설명합니다.",
+    )
+
+    assert canonical["canonical_id"] == "doc:meili-2024-001"
+    assert "노동조합및노동관계조정법시행령제24조" in canonical["normalized_citations"]
+
+
+def test_canonicalize_citation_for_law_go_kr_statute() -> None:
+    canonical = canonicalize_citation(
+        title="건설근로자의 고용개선 등에 관한 법률 시행규칙",
+        doc_id="law_go_kr:statute:006173:2024-08-28-00424-2024-08-28",
+        path="data/lawstore/normalized/law_go_kr-statute-006173-2024-08-28-00424-2024-08-28.json",
+        source="law_api",
+        snippet="제14조(피공제자가 될 수 없는 자)",
+    )
+
+    assert canonical["canonical_id"] == "law_go_kr:statute:006173"
+    assert (
+        "law_go_kr:statute:006173:2024-08-28-00424-2024-08-28"
+        in canonical["normalized_citations"]
+    )
+
+
+def test_canonicalize_citation_for_case_identifier() -> None:
+    canonical = canonicalize_citation(
+        title="대법원 판례",
+        doc_id="2020다12345",
+        path="",
+        source="keyword",
+        snippet="대법원 2020다12345 판결은 근로시간 면제 범위를 엄격하게 봤습니다.",
+    )
+
+    assert canonical["canonical_id"] == "case:2020다12345"
+    assert "2020다12345" in canonical["normalized_citations"]
