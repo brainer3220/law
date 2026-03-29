@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -78,3 +78,82 @@ class Chunk(BaseModel):
     keywords: List[str] = Field(default_factory=list)
     normalized_citations: List[str] = Field(default_factory=list)
 
+
+class ClaimVerificationStatus(str, Enum):
+    verified = "verified"
+    partial = "partial"
+    stale = "stale"
+    unavailable = "unavailable"
+
+
+class FreshnessStatus(str, Enum):
+    current = "current"
+    stale = "stale"
+    unknown = "unknown"
+
+
+class AnswerState(str, Enum):
+    answer_ready = "answer-ready"
+    answer_limited = "answer-limited"
+    refusal_with_next_step = "refusal-with-next-step"
+    system_error = "system-error"
+
+
+class NextStepType(str, Enum):
+    query = "query"
+    source = "source"
+    note = "note"
+
+
+class VerificationEvidence(BaseModel):
+    id: str
+    type: Literal["statute", "case", "doc"]
+    title: str
+    number: Optional[str] = None
+    pinCite: Optional[str] = None
+    snippet: str
+    url: Optional[str] = None
+    confidence: Optional[float] = None
+    verificationStatus: ClaimVerificationStatus = ClaimVerificationStatus.verified
+    freshnessStatus: FreshnessStatus = FreshnessStatus.unknown
+    date: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VerificationClaim(BaseModel):
+    id: str
+    text: str
+    citationIndices: List[int] = Field(default_factory=list)
+    evidenceIds: List[str] = Field(default_factory=list)
+    status: ClaimVerificationStatus
+    freshnessStatus: FreshnessStatus = FreshnessStatus.unknown
+    unsupportedReasons: List[str] = Field(default_factory=list)
+
+
+class NextStep(BaseModel):
+    type: NextStepType
+    label: str
+    value: str
+
+
+class VerificationProvenance(BaseModel):
+    retrievalMethod: str
+    verifierVersion: str
+    modelVersion: Optional[str] = None
+    promptVersion: Optional[str] = None
+    indexVersion: Optional[str] = None
+    policyVersion: Optional[str] = None
+    timestamp: str
+    queries: List[str] = Field(default_factory=list)
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class LegalAnswerPayload(BaseModel):
+    answerState: AnswerState
+    answer: Optional[str] = None
+    reason: Optional[str] = None
+    missingEvidence: List[str] = Field(default_factory=list)
+    nextSteps: List[NextStep] = Field(default_factory=list)
+    claims: List[VerificationClaim] = Field(default_factory=list)
+    evidence: List[VerificationEvidence] = Field(default_factory=list)
+    provenance: VerificationProvenance

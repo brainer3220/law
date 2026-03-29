@@ -13,9 +13,32 @@ export type EvidenceType = "statute" | "case" | "doc";
 export type RiskLevel = "high" | "medium" | "low";
 
 /**
- * 인용 검증 상태
+ * 레거시 인용 상태
  */
 export type CitationStatus = "unverified" | "verified" | "error";
+
+/**
+ * claim 단위 검증 상태
+ */
+export type ClaimVerificationStatus =
+  | "verified"
+  | "partial"
+  | "stale"
+  | "unavailable";
+
+/**
+ * 근거 최신성 상태
+ */
+export type FreshnessStatus = "current" | "stale" | "unknown";
+
+/**
+ * 응답 상태
+ */
+export type AnswerState =
+  | "answer-ready"
+  | "answer-limited"
+  | "refusal-with-next-step"
+  | "system-error";
 
 /**
  * 법률 도메인
@@ -35,6 +58,9 @@ export interface EvidenceSource {
   url?: string; // 원문 URL
   date?: string; // 공포일 또는 선고일
   confidence?: number; // 0-1 사이 신뢰도
+  verificationStatus?: ClaimVerificationStatus;
+  freshnessStatus?: FreshnessStatus;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -58,8 +84,11 @@ export interface Claim {
   text: string;
   paragraph: number;
   evidenceIds: string[]; // 연결된 근거 ID 목록
-  status: CitationStatus;
+  status: ClaimVerificationStatus;
   confidence?: number;
+  unsupportedReasons?: string[];
+  citationIndices?: number[];
+  freshnessStatus?: FreshnessStatus;
 }
 
 /**
@@ -134,10 +163,27 @@ export interface PolicyViolation {
  */
 export interface CitationVerificationResult {
   claimId: string;
-  status: CitationStatus;
+  status: ClaimVerificationStatus;
   evidence: EvidenceSource[];
   unsupportedReasons?: string[];
   alternativeEvidence?: EvidenceSource[];
+}
+
+export interface NextStepItem {
+  type: "query" | "source" | "note";
+  label: string;
+  value: string;
+}
+
+export interface LegalAnswer {
+  answerState: AnswerState;
+  answer?: string | null;
+  reason?: string | null;
+  missingEvidence: string[];
+  nextSteps: NextStepItem[];
+  claims: Claim[];
+  evidence: EvidenceSource[];
+  provenance: Provenance;
 }
 
 /**
@@ -170,10 +216,13 @@ export interface AuditLogEntry {
  * Provenance (출처 정보)
  */
 export interface Provenance {
-  modelVersion: string;
-  promptVersion: string;
-  indexVersion: string;
-  policyVersion: string;
+  modelVersion?: string;
+  promptVersion?: string;
+  indexVersion?: string;
+  policyVersion?: string;
   corpusHash?: string;
   timestamp: string;
+  verifierVersion?: string;
+  retrievalMethod?: string;
+  queries?: string[];
 }

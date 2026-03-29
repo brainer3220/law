@@ -268,7 +268,10 @@ def _get_chat_manager() -> Optional[PostgresChatManager]:
     if PostgresChatManager is None:
         if not _CHAT_MANAGER_ERROR:
             _CHAT_MANAGER_ERROR = "multi-turn chat dependencies unavailable"
-            logger.debug("chat_manager_unavailable", reason=_CHAT_MANAGER_ERROR)
+            logger.debug(
+                "chat_manager_unavailable",
+                extra={"reason": _CHAT_MANAGER_ERROR},
+            )
         return None
     if _CHAT_MANAGER is not None:
         return _CHAT_MANAGER
@@ -278,13 +281,19 @@ def _get_chat_manager() -> Optional[PostgresChatManager]:
         config = PostgresChatConfig.from_env()
     except Exception as exc:  # pragma: no cover - env-specific config
         _CHAT_MANAGER_ERROR = str(exc)
-        logger.debug("chat_manager_config_missing", error=_CHAT_MANAGER_ERROR)
+        logger.debug(
+            "chat_manager_config_missing",
+            extra={"error": _CHAT_MANAGER_ERROR},
+        )
         return None
     try:
         _CHAT_MANAGER = PostgresChatManager(config=config)
     except Exception as exc:  # pragma: no cover - runtime DB connectivity
         _CHAT_MANAGER_ERROR = str(exc)
-        logger.error("chat_manager_init_failed", error=_CHAT_MANAGER_ERROR)
+        logger.error(
+            "chat_manager_init_failed",
+            extra={"error": _CHAT_MANAGER_ERROR},
+        )
         return None
     logger.info("chat_manager_ready")
     return _CHAT_MANAGER
@@ -367,7 +376,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                         except ValueError as exc:
                             self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
                             return
-                        except Exception as exc:  # pragma: no cover - runtime DB/model state
+                        except (
+                            Exception
+                        ) as exc:  # pragma: no cover - runtime DB/model state
                             logger.exception("chat_manager_stream_failed", exc_info=exc)
                             metadata["stream_generator_error"] = str(exc)
                             stream_iterator = None
@@ -383,7 +394,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                     except ValueError as exc:
                         self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
                         return
-                    except Exception as exc:  # pragma: no cover - runtime DB/model state
+                    except (
+                        Exception
+                    ) as exc:  # pragma: no cover - runtime DB/model state
                         logger.exception("chat_manager_invoke_failed", exc_info=exc)
                         chat_result = None
                         checkpoint_id = None
@@ -442,7 +455,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                         final_chat.thread_id or thread_id or response_thread_id or None
                     )
                 else:
-                    metadata["resolved_thread_id"] = response_thread_id or thread_id or None
+                    metadata["resolved_thread_id"] = (
+                        response_thread_id or thread_id or None
+                    )
                 return
 
             tool_usage = self._collect_tool_usage(
@@ -460,6 +475,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 law_payload["checkpoint_id"] = checkpoint_id
             if tool_usage:
                 law_payload["tool_usage"] = tool_usage
+            _merge_agent_payload(law_payload, agent_result)
             if raw_tool_calls:
                 law_payload["tool_calls"] = raw_tool_calls
             if raw_tool_call_chunks:
@@ -487,7 +503,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                         final_chat.thread_id or response_thread_id or thread_id or None
                     )
                 else:
-                    metadata["resolved_thread_id"] = response_thread_id or thread_id or None
+                    metadata["resolved_thread_id"] = (
+                        response_thread_id or thread_id or None
+                    )
                 return
 
             # Non-streaming response
@@ -707,7 +725,10 @@ class ChatHandler(BaseHTTPRequestHandler):
                 combined_law_payload["tool_calls"] = raw_tool_calls
             if response_tool_chunks:
                 combined_law_payload["tool_call_chunks"] = response_tool_chunks
-        if collected_tool_call_chunks and "tool_call_chunks" not in combined_law_payload:
+        if (
+            collected_tool_call_chunks
+            and "tool_call_chunks" not in combined_law_payload
+        ):
             combined_law_payload["tool_call_chunks"] = collected_tool_call_chunks
         if checkpoint_id and "checkpoint_id" not in combined_law_payload:
             combined_law_payload["checkpoint_id"] = checkpoint_id
@@ -795,6 +816,17 @@ class ChatHandler(BaseHTTPRequestHandler):
         except Exception:
             # Client disconnected
             pass
+
+
+def _merge_agent_payload(
+    law_payload: Dict[str, Any], agent_result: Optional[Dict[str, Any]]
+) -> None:
+    if not agent_result:
+        return
+    for key in ("citations", "evidence", "legal_answer"):
+        value = agent_result.get(key)
+        if value:
+            law_payload[key] = value
 
 
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:

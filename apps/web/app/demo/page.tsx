@@ -18,11 +18,13 @@ import { PolicyViolationAlert } from "@/components/PolicyViolationAlert";
 import { ProvenanceFooter } from "@/components/ProvenanceFooter";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import type {
+  AnswerState,
   SearchFilter,
   EvidenceSource,
   ClauseDiff,
   Claim,
   ClaimEvidenceCell,
+  NextStepItem,
   PolicyViolation,
   Provenance,
 } from "@/lib/types";
@@ -38,6 +40,8 @@ const sampleEvidence: EvidenceSource[] = [
     pinCite: "제750조",
     confidence: 0.95,
     date: "2024-01-01",
+    verificationStatus: "verified",
+    freshnessStatus: "current",
   },
   {
     id: "ev2",
@@ -47,6 +51,8 @@ const sampleEvidence: EvidenceSource[] = [
     snippet: "불법행위로 인한 손해배상책임의 성립요건은 위법한 가해행위, 손해의 발생, 가해행위와 손해발생 사이의 인과관계이다.",
     confidence: 0.88,
     date: "2020-06-15",
+    verificationStatus: "stale",
+    freshnessStatus: "stale",
   },
   {
     id: "ev3",
@@ -54,6 +60,8 @@ const sampleEvidence: EvidenceSource[] = [
     title: "계약서 검토 의견",
     snippet: "면책조항은 민법상 과실책임 원칙과 충돌할 수 있으므로 신중한 검토가 필요합니다.",
     confidence: 0.75,
+    verificationStatus: "partial",
+    freshnessStatus: "unknown",
   },
 ];
 
@@ -81,16 +89,36 @@ const sampleClaims: Claim[] = [
     text: "면책조항은 과실책임 원칙에 따라 제한적으로 해석되어야 한다.",
     paragraph: 2,
     evidenceIds: ["ev1", "ev3"],
-    status: "verified",
+    status: "partial",
     confidence: 0.78,
+    unsupportedReasons: ["판례 연결이 부분적으로만 확인되었습니다."],
   },
   {
     id: "c3",
     text: "고의에 의한 손해는 면책 대상이 될 수 없다.",
     paragraph: 3,
     evidenceIds: ["ev1"],
-    status: "unverified",
+    status: "unavailable",
     confidence: 0.65,
+    unsupportedReasons: ["직접 인용이 없어 결론을 검증하지 못했습니다."],
+  },
+];
+
+const sampleNextSteps: NextStepItem[] = [
+  {
+    type: "query",
+    label: "사건명과 법원명을 함께 검색",
+    value: "근로시간 면제 대법원 판례",
+  },
+  {
+    type: "source",
+    label: "확인 가능한 출처 열기",
+    value: "law.go.kr / 대법원 종합법률정보",
+  },
+  {
+    type: "note",
+    label: "질문을 더 좁히기",
+    value: "사건번호나 조문명을 추가하면 검증 가능성이 높아집니다.",
   },
 ];
 
@@ -132,6 +160,16 @@ const sampleProvenance: Provenance = {
   policyVersion: "policy-v1.2",
   corpusHash: "sha256:a3f8c9e2b1d4...",
   timestamp: new Date().toISOString(),
+  verifierVersion: "evidence-gated-v1",
+  retrievalMethod: "keyword_search + law_statute_detail",
+  queries: ["근로시간 면제 판례", "근로시간 면제 법령"],
+};
+
+const ANSWER_STATE_LABELS: Record<AnswerState, string> = {
+  "answer-ready": "근거 충분",
+  "answer-limited": "부분 검증",
+  "refusal-with-next-step": "결론 보류",
+  "system-error": "시스템 오류",
 };
 
 export default function ComponentsDemoPage() {
@@ -204,6 +242,42 @@ export default function ComponentsDemoPage() {
             />
             . 이는 민법 제750조에 명시되어 있습니다.
           </p>
+        </section>
+
+        {/* Answer states */}
+        <section className="rounded-lg bg-white p-6 shadow dark:bg-slate-900">
+          <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
+            evidence-gated answer 상태
+          </h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            {(["answer-ready", "answer-limited", "refusal-with-next-step"] as AnswerState[]).map((state) => (
+              <article key={state} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+                <div className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {ANSWER_STATE_LABELS[state]}
+                </div>
+                {state === "refusal-with-next-step" ? (
+                  <>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                      판례 식별 정보가 충분하지 않아 결론형 답변을 제공하지 않았습니다.
+                    </p>
+                    <ul className="mt-3 space-y-2 text-xs text-gray-600 dark:text-gray-400">
+                      {sampleNextSteps.map((step) => (
+                        <li key={`${state}-${step.label}`}>
+                          <strong>{step.label}</strong>: {step.value}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    {state === "answer-ready"
+                      ? "모든 핵심 claim이 검증 가능한 근거와 연결되었습니다."
+                      : "답변은 제공하지만 일부 claim은 제한적으로만 검증되었습니다."}
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
         </section>
 
         {/* Clause Diff Card */}

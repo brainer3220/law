@@ -7,6 +7,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { UserMenu } from "@/components/auth/UserMenu";
 import {
   ChatBubbleLeftRightIcon,
+  DocumentMagnifyingGlassIcon,
   FolderIcon,
   MicrophoneIcon,
 } from "@heroicons/react/24/outline";
@@ -47,6 +48,14 @@ export default function App() {
             onClick={() => router.push("/workspace")}
           >
             <FolderIcon className="material-icon" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="material-icon-button"
+            aria-label="파일럿 QA"
+            onClick={() => router.push("/pilot")}
+          >
+            <DocumentMagnifyingGlassIcon className="material-icon" aria-hidden="true" />
           </button>
           <button
             type="button"

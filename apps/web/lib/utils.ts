@@ -104,13 +104,24 @@ export function getRiskColorClass(level: "high" | "medium" | "low"): string {
  * 인용 상태에 따른 색상 클래스
  */
 export function getCiteStatusColorClass(
-  status: "unverified" | "verified" | "error"
+  status:
+    | "unverified"
+    | "verified"
+    | "error"
+    | "partial"
+    | "stale"
+    | "unavailable"
 ): string {
   switch (status) {
     case "unverified":
+    case "unavailable":
       return "text-gray-500 dark:text-gray-400";
     case "verified":
       return "text-blue-600 dark:text-blue-400";
+    case "partial":
+      return "text-amber-600 dark:text-amber-400";
+    case "stale":
+      return "text-orange-600 dark:text-orange-400";
     case "error":
       return "text-red-600 dark:text-red-400";
   }

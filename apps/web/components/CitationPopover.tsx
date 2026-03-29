@@ -8,22 +8,23 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { type EvidenceSource, type CitationStatus } from "@/lib/types";
+import { type ClaimVerificationStatus, type EvidenceSource } from "@/lib/types";
 import { getCiteStatusColorClass, cn } from "@/lib/utils";
 import { EvidenceCard } from "./EvidenceCard";
 
 export interface CitationPopoverProps {
   text: string;
   evidence: EvidenceSource[];
-  status: CitationStatus;
+  status: ClaimVerificationStatus;
   onOpenSource?: (evidence: EvidenceSource) => void;
   className?: string;
 }
 
-const CITATION_STATUS_LABELS: Record<CitationStatus, string> = {
-  unverified: "검증 전",
+const CITATION_STATUS_LABELS: Record<ClaimVerificationStatus, string> = {
   verified: "검증됨",
-  error: "오류",
+  partial: "부분 검증",
+  stale: "최신성 확인 필요",
+  unavailable: "검증 불가",
 };
 
 export function CitationPopover({

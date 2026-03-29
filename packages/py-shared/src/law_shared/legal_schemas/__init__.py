@@ -6,13 +6,36 @@ They capture IDs, hierarchy, provenance, anchors, and text fields
 required by the contextual RAG pipeline.
 """
 
-from .models import Anchor, Chunk, Document, Section, SourceType
+from .models import (
+    Anchor,
+    AnswerState,
+    Chunk,
+    ClaimVerificationStatus,
+    Document,
+    FreshnessStatus,
+    LegalAnswerPayload,
+    NextStep,
+    NextStepType,
+    Section,
+    SourceType,
+    VerificationClaim,
+    VerificationEvidence,
+    VerificationProvenance,
+)
 
 __all__ = [
     "Anchor",
+    "AnswerState",
     "Chunk",
+    "ClaimVerificationStatus",
     "Document",
+    "FreshnessStatus",
+    "LegalAnswerPayload",
+    "NextStep",
+    "NextStepType",
     "Section",
     "SourceType",
+    "VerificationClaim",
+    "VerificationEvidence",
+    "VerificationProvenance",
 ]
-

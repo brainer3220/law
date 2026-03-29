@@ -176,8 +176,9 @@ export function ClaimEvidenceMatrix({
                     )}
                   >
                     {claim.status === "verified" && "✓"}
-                    {claim.status === "unverified" && "?"}
-                    {claim.status === "error" && "✗"}
+                    {claim.status === "partial" && "~"}
+                    {claim.status === "stale" && "⏳"}
+                    {claim.status === "unavailable" && "✗"}
                   </span>
                   <span
                     className="line-clamp-2 text-xs"

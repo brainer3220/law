@@ -30,6 +30,19 @@ const EVIDENCE_TYPE_COLORS = {
   doc: "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900",
 };
 
+const VERIFICATION_STATUS_LABELS = {
+  verified: "검증됨",
+  partial: "부분 검증",
+  stale: "최신성 확인 필요",
+  unavailable: "검증 불가",
+};
+
+const FRESHNESS_STATUS_LABELS = {
+  current: "최신",
+  stale: "오래됨",
+  unknown: "미확인",
+};
+
 export function EvidenceCard({
   evidence,
   onOpenSource,
@@ -102,6 +115,19 @@ export function EvidenceCard({
           </div>
         )}
       </header>
+
+      <div className="mb-2 flex flex-wrap gap-2">
+        {evidence.verificationStatus && (
+          <span className="rounded bg-white px-2 py-1 text-[11px] font-medium text-gray-700 dark:bg-slate-800 dark:text-gray-300">
+            {VERIFICATION_STATUS_LABELS[evidence.verificationStatus]}
+          </span>
+        )}
+        {evidence.freshnessStatus && (
+          <span className="rounded bg-white px-2 py-1 text-[11px] font-medium text-gray-700 dark:bg-slate-800 dark:text-gray-300">
+            최신성: {FRESHNESS_STATUS_LABELS[evidence.freshnessStatus]}
+          </span>
+        )}
+      </div>
 
       {/* Pin Cite */}
       {evidence.pinCite && (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import logging
@@ -56,10 +57,10 @@ from law_shared.legal_tools.law_go_kr import (
     search_law_interpretations,
 )
 from law_shared.legal_tools.opensearch_search import OpenSearchDoc, search_opensearch
+from law_shared.legal_tools.response_builder import build_legal_answer_payload
 from law_shared.legal_tools.tracing import get_langsmith_callbacks, trace_run
 
 logger = structlog.get_logger(__name__)
-_LLM_BLOCKED: bool = False
 _OPENSEARCH_AVAILABLE: bool = True
 _OPENSEARCH_ERROR: Optional[str] = None
 
@@ -116,7 +117,9 @@ def _emit_debug_event(
     *,
     allow_empty_keys: Tuple[str, ...] = (),
 ) -> None:
-    sanitized = _sanitize_debug_payload(dict(payload), allow_empty_keys=allow_empty_keys)
+    sanitized = _sanitize_debug_payload(
+        dict(payload), allow_empty_keys=allow_empty_keys
+    )
 
     debug_enabled = False
     checker = getattr(logger, "isEnabledFor", None)
@@ -174,28 +177,63 @@ def _llm_provider() -> str:
     return "openai"
 
 
+def _provider_available(provider: str) -> bool:
+    if provider == "gemini":
+        return bool(
+            os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        )
+    if provider == "openai":
+        return bool(os.getenv("OPENAI_API_KEY"))
+    return False
+
+
+def _llm_provider_candidates(
+    preferred: Optional[str] = None,
+    blocked_providers: Optional[set[str]] = None,
+) -> List[str]:
+    ordered: List[str] = []
+    preferred_provider = preferred or _llm_provider()
+    blocked = blocked_providers or set()
+    if preferred_provider:
+        ordered.append(preferred_provider)
+    for candidate in ("openai", "gemini"):
+        if candidate not in ordered:
+            ordered.append(candidate)
+    return [
+        provider
+        for provider in ordered
+        if _provider_available(provider) and provider not in blocked
+    ]
+
+
 def _env_true(name: str) -> bool:
     value = os.getenv(name)
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _llm_enabled() -> bool:
+def _llm_enabled(blocked_providers: Optional[set[str]] = None) -> bool:
     if _env_true("LAW_OFFLINE"):
         return False
-    if _LLM_BLOCKED:
-        return False
-    provider = _llm_provider()
-    if provider == "gemini":
-        return bool(
-            os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        )
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(_llm_provider_candidates(blocked_providers=blocked_providers))
 
 
-def _block_llm(err: Exception) -> None:
-    global _LLM_BLOCKED
-    _LLM_BLOCKED = True
-    logger.warning("llm_disabled_for_run", reason=str(err))
+def _block_llm(
+    err: Exception,
+    provider: Optional[str] = None,
+    blocked_providers: Optional[set[str]] = None,
+) -> None:
+    blocked = provider or _llm_provider()
+    if blocked and blocked_providers is not None:
+        blocked_providers.add(blocked)
+    logger.warning("llm_disabled_for_run", provider=blocked, reason=str(err))
+
+
+def _should_fallback_provider(err: Exception) -> bool:
+    message = str(err).lower()
+    return any(
+        token in message
+        for token in ("429", "quota", "rate limit", "resourceexhausted")
+    )
 
 
 @dataclass
@@ -216,13 +254,17 @@ class Hit:
 class EvidenceStore:
     """Track tool outputs and normalize them for the agent."""
 
-    def __init__(self, *, top_k: int, context_chars: int) -> None:
+    def __init__(
+        self, *, top_k: int, context_chars: int, focus_query: str = ""
+    ) -> None:
         self.top_k = max(1, int(top_k))
         self.context_chars = max(0, int(context_chars))
         self._items: List[Tuple[int, Hit]] = []
         self._seen: set[Tuple[str, str, str]] = set()
         self.queries: List[str] = []
         self.actions: List[Dict[str, Any]] = []
+        self.focus_query = focus_query
+        self.focus_terms = _query_signal_tokens(focus_query)
 
     def record_query(self, query: str) -> None:
         q = query.strip()
@@ -242,6 +284,8 @@ class EvidenceStore:
             idx = len(self._items) + 1
             self._items.append((idx, hit))
             formatted.append(self._format_hit(idx, hit))
+        if self._items:
+            self._rerank_items()
         if not formatted:
             return "검색 결과가 없습니다."
         return "\n".join(formatted)
@@ -285,7 +329,7 @@ class EvidenceStore:
 
     def evidence_payload(self) -> List[Dict[str, Any]]:
         payload: List[Dict[str, Any]] = []
-        for idx, hit in self._items:
+        for idx, hit in self._items[: self.top_k]:
             payload.append(
                 {
                     "rank": idx,
@@ -304,6 +348,15 @@ class EvidenceStore:
 
     def total_hits(self) -> int:
         return len(self._items)
+
+    def _rerank_items(self) -> None:
+        ranked: List[Tuple[float, Hit]] = [
+            (_hit_rank_score(hit, self.focus_terms), hit) for _, hit in self._items
+        ]
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        if self.focus_terms and any(score > 0 for score, _ in ranked):
+            ranked = [(score, hit) for score, hit in ranked if score > 0]
+        self._items = [(idx, hit) for idx, (_, hit) in enumerate(ranked, start=1)]
 
 
 class KeywordSearchArgs(BaseModel):
@@ -749,7 +802,7 @@ def _keyword_search(
         _OPENSEARCH_AVAILABLE = False
         _OPENSEARCH_ERROR = f"OpenSearch search failed: {exc}"
         logger.warning("search_keyword_opensearch_failed", error=_OPENSEARCH_ERROR)
-        return []
+        docs = []
 
     def _paginate_text(
         text: str, page_chars: int = 400, max_pages: int = 3
@@ -807,7 +860,134 @@ def _keyword_search(
                 )
             )
     logger.info("search_keyword_hits", count=len(hits), stage="pre_dedupe")
+    if hits:
+        return hits
+
+    local_hits = _local_keyword_search(query, limit=limit, data_dir=data_dir)
+    if local_hits:
+        logger.info(
+            "search_keyword_hits", count=len(local_hits), stage="local_fallback"
+        )
+        return local_hits
     return hits
+
+
+def _local_keyword_search(query: str, limit: int, data_dir: Path) -> List[Hit]:
+    meili_dir = data_dir / "meilisearch"
+    if not meili_dir.exists():
+        return []
+
+    variants = _query_variants(query)
+    signal_tokens = _query_signal_tokens(query)
+    scored: List[tuple[int, Hit]] = []
+    for path in sorted(meili_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        info = payload.get("info") or {}
+        taskinfo = payload.get("taskinfo") or {}
+        title = str(info.get("title") or path.stem)
+        statutes = info.get("statutes") or []
+        haystack_parts = [
+            title,
+            str(info.get("summary") or ""),
+            str(taskinfo.get("instruction") or ""),
+            str(taskinfo.get("output") or ""),
+            " ".join(str(item) for item in statutes),
+        ]
+        haystack = " ".join(part for part in haystack_parts if part).strip()
+        if not haystack:
+            continue
+        compact_haystack = _compact_search_text(haystack)
+        score = 0
+        matched_signal = False
+        for variant in variants:
+            if variant and variant in compact_haystack:
+                score += max(1, len(variant))
+        for token in signal_tokens:
+            if token in compact_haystack:
+                matched_signal = True
+                score += max(2, len(token) * 2)
+        if score == 0:
+            continue
+        if signal_tokens and not matched_signal:
+            continue
+        snippet = str(taskinfo.get("output") or info.get("summary") or haystack)[:1200]
+        scored.append(
+            (
+                score,
+                Hit(
+                    source="keyword",
+                    path=path,
+                    doc_id=str(info.get("doc_id") or path.stem),
+                    title=title,
+                    score=float(score),
+                    snippet=snippet,
+                    page_index=1,
+                    page_total=1,
+                ),
+            )
+        )
+    scored.sort(key=lambda item: (-item[0], item[1].title))
+    return [hit for _, hit in scored[: max(1, limit)]]
+
+
+def _query_variants(query: str) -> List[str]:
+    raw = query.strip()
+    if not raw:
+        return []
+    variants: List[str] = []
+    candidates = [raw, raw.replace(" ", "")]
+    for token in re.split(r"\s+", raw):
+        if token:
+            candidates.append(token)
+    for candidate in candidates:
+        compact = _compact_search_text(candidate)
+        if compact and compact not in variants:
+            variants.append(compact)
+    return variants
+
+
+def _query_signal_tokens(query: str) -> List[str]:
+    raw_tokens = [token.strip() for token in re.split(r"\s+", query) if token.strip()]
+    compact_tokens = []
+    for token in raw_tokens:
+        compact = _compact_search_text(token)
+        if compact and compact not in compact_tokens:
+            compact_tokens.append(compact)
+    strong = [token for token in compact_tokens if len(token) >= 3]
+    return strong or compact_tokens
+
+
+def _hit_rank_score(hit: Hit, focus_terms: Sequence[str]) -> float:
+    title = _compact_search_text(hit.title)
+    snippet = _compact_search_text(hit.snippet)
+    doc_id = _compact_search_text(hit.doc_id)
+    haystack = " ".join(part for part in (title, snippet, doc_id) if part)
+    score = float(hit.score)
+    matched = 0
+    for term in focus_terms:
+        if not term:
+            continue
+        if term in title:
+            score += len(term) * 4
+            matched += 1
+            continue
+        if term in haystack:
+            score += len(term) * 2
+            matched += 1
+    if focus_terms and matched == 0:
+        score -= 100.0
+    if _is_case_like(hit):
+        score += 2.0
+    if hit.source == "law_api":
+        score += 1.0
+    return score
+
+
+def _compact_search_text(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
 
 
 def _is_case_like(hit: Hit) -> bool:
@@ -922,17 +1102,28 @@ class LangChainToolAgent:
         self.context_chars = int(context_chars)
 
     def run(self, question: str) -> Dict[str, Any]:
-        store = EvidenceStore(top_k=self.top_k, context_chars=self.context_chars)
+        store = EvidenceStore(
+            top_k=self.top_k,
+            context_chars=self.context_chars,
+            focus_query=question,
+        )
+        blocked_providers: set[str] = set()
         cleaned_question = (question or "").strip()
+        provider_used = _llm_provider()
         if not cleaned_question:
             answer = "(질문이 비어있습니다)"
             return self._finalize(
-                cleaned_question, store, answer, intermediate_steps=[], iters=0
+                cleaned_question,
+                store,
+                answer,
+                intermediate_steps=[],
+                iters=0,
+                llm_provider=provider_used,
             )
 
         provider = _llm_provider()
         logger.info("langchain_agent_provider", provider=provider)
-        if not _llm_enabled():
+        if not _llm_enabled(blocked_providers):
             logger.info(
                 "langchain_agent_provider_unavailable",
                 provider=provider,
@@ -946,10 +1137,44 @@ class LangChainToolAgent:
                 answer,
                 intermediate_steps=[],
                 iters=0,
+                llm_provider=provider_used,
             )
 
         try:
-            result = self._invoke_langchain(cleaned_question, store)
+            provider_candidates = _llm_provider_candidates(
+                blocked_providers=blocked_providers
+            )
+            if not provider_candidates:
+                raise RuntimeError("사용 가능한 LLM provider가 없습니다.")
+            last_exc: Optional[Exception] = None
+            result: Optional[Dict[str, Any]] = None
+            for idx, provider_name in enumerate(provider_candidates):
+                try:
+                    provider_used = provider_name
+                    result = self._invoke_langchain(
+                        cleaned_question, store, provider=provider_name
+                    )
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    is_retryable = _should_fallback_provider(exc)
+                    has_more = idx < len(provider_candidates) - 1
+                    if is_retryable and has_more:
+                        _block_llm(
+                            exc,
+                            provider=provider_name,
+                            blocked_providers=blocked_providers,
+                        )
+                        logger.warning(
+                            "langchain_agent_provider_fallback",
+                            failed_provider=provider_name,
+                            next_provider=provider_candidates[idx + 1],
+                            reason=str(exc),
+                        )
+                        continue
+                    raise
+            if result is None:
+                raise last_exc or RuntimeError("LLM 결과를 생성하지 못했습니다.")
             intermediate_steps = result.get("intermediate_steps", [])
             answer = str(result.get("output", "")).strip()
 
@@ -962,7 +1187,9 @@ class LangChainToolAgent:
             else:
                 if not answer or not self._has_citation(answer):
                     answer = self._summarize_with_llm(
-                        cleaned_question, store.observations_text()
+                        cleaned_question,
+                        store.observations_text(),
+                        blocked_providers=blocked_providers,
                     )
 
             return self._finalize(
@@ -971,10 +1198,11 @@ class LangChainToolAgent:
                 answer,
                 intermediate_steps=intermediate_steps,
                 iters=len(intermediate_steps),
+                llm_provider=provider_used,
             )
         except Exception as exc:
             logger.exception("langchain_agent_failed", fallback="offline_summary")
-            _block_llm(exc)
+            _block_llm(exc, provider=provider_used, blocked_providers=blocked_providers)
             if store.total_hits() == 0:
                 self._bootstrap_offline(cleaned_question, store)
             answer = _offline_summary(cleaned_question, store.observations_text())
@@ -985,6 +1213,7 @@ class LangChainToolAgent:
                 intermediate_steps=[],
                 iters=0,
                 error=str(exc),
+                llm_provider=provider_used,
             )
 
     def _finalize(
@@ -996,12 +1225,30 @@ class LangChainToolAgent:
         intermediate_steps: Sequence[Any],
         iters: int,
         error: Optional[str] = None,
+        llm_provider: Optional[str] = None,
     ) -> Dict[str, Any]:
+        answer_text = self._append_search_note(answer)
+        citations = store.citations()
+        evidence = store.evidence_payload()
+        legal_answer = build_legal_answer_payload(
+            question=question,
+            answer=answer_text,
+            citations=citations,
+            evidence=evidence,
+            queries=list(store.queries),
+            actions=list(store.actions),
+            llm_provider=llm_provider or _llm_provider(),
+            error=error,
+            search_error=_OPENSEARCH_ERROR,
+        )
         return {
             "question": question,
-            "answer": self._append_search_note(answer),
-            "citations": store.citations(),
-            "evidence": store.evidence_payload(),
+            "answer": legal_answer.get("answer")
+            or legal_answer.get("reason")
+            or answer_text,
+            "citations": citations,
+            "evidence": evidence,
+            "legal_answer": legal_answer,
             "observations": store.observations_text(),
             "queries": list(store.queries),
             "used_queries": list(store.queries),
@@ -1011,7 +1258,7 @@ class LangChainToolAgent:
             "intermediate_steps": list(intermediate_steps),
             **({"error": error} if error else {}),
             **({"search_error": _OPENSEARCH_ERROR} if _OPENSEARCH_ERROR else {}),
-            "llm_provider": _llm_provider(),
+            "llm_provider": llm_provider or _llm_provider(),
         }
 
     def _append_search_note(self, answer: str) -> str:
@@ -1056,7 +1303,9 @@ class LangChainToolAgent:
                     )
                 break
 
-    def _invoke_langchain(self, question: str, store: EvidenceStore) -> Dict[str, Any]:
+    def _invoke_langchain(
+        self, question: str, store: EvidenceStore, *, provider: Optional[str] = None
+    ) -> Dict[str, Any]:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
         from langchain.tools import StructuredTool  # type: ignore
@@ -1098,7 +1347,11 @@ class LangChainToolAgent:
         except Exception:
             timeout = 30.0
 
-        llm = self._create_llm(temperature=temperature, timeout=timeout)
+        llm = self._create_llm(
+            temperature=temperature,
+            timeout=timeout,
+            provider=provider,
+        )
 
         agent = create_tool_calling_agent(llm, tools, prompt)
         executor = AgentExecutor(
@@ -1121,7 +1374,7 @@ class LangChainToolAgent:
             "max_iters": self.max_iters,
             "allow_general": self.allow_general,
             "context_chars": self.context_chars,
-            "llm_provider": _llm_provider(),
+            "llm_provider": provider or _llm_provider(),
         }
         with trace_run("law.agent.invoke", metadata=metadata):
             if invoke_config:
@@ -1129,7 +1382,8 @@ class LangChainToolAgent:
             else:
                 result = executor.invoke(inputs)
             store.record_action(
-                "agent", {"intermediate_steps": len(result.get("intermediate_steps", []))}
+                "agent",
+                {"intermediate_steps": len(result.get("intermediate_steps", []))},
             )
         return result
 
@@ -1575,8 +1829,10 @@ class LangChainToolAgent:
             return "스니펫이 부족하면 최소한의 일반 법률 상식을 보충하되, 근거가 없는 문장에는 [일반지식]을 명시하세요."
         return "근거가 부족하면 추가 검색을 통해 [번호] 스니펫을 확보하세요."
 
-    def _create_llm(self, *, temperature: float, timeout: float):  # noqa: ANN001 - LangChain types
-        provider = _llm_provider()
+    def _create_llm(
+        self, *, temperature: float, timeout: float, provider: Optional[str] = None
+    ):  # noqa: ANN001 - LangChain types
+        provider = provider or _llm_provider()
         if provider == "gemini":
             try:
                 from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
@@ -1623,19 +1879,62 @@ class LangChainToolAgent:
         logger.info("langchain_agent_openai", model=model, temperature=temperature)
         return llm
 
-    def _summarize_with_llm(self, question: str, observations: str) -> str:
+    def _summarize_with_llm(
+        self,
+        question: str,
+        observations: str,
+        *,
+        blocked_providers: Optional[set[str]] = None,
+    ) -> str:
         if not observations.strip():
             return _offline_summary(question, observations)
-        if not _llm_enabled():
+        if not _llm_enabled(blocked_providers):
             return _offline_summary(question, observations)
+        provider_used: Optional[str] = None
         try:
-            llm = self._create_llm(
-                temperature=0.0,
-                timeout=30.0,
+            provider_candidates = _llm_provider_candidates(
+                blocked_providers=blocked_providers
             )
+            if not provider_candidates:
+                raise RuntimeError("사용 가능한 LLM provider가 없습니다.")
+            last_exc: Optional[Exception] = None
+            llm = None
+            for idx, provider_name in enumerate(provider_candidates):
+                try:
+                    llm = self._create_llm(
+                        temperature=0.0,
+                        timeout=30.0,
+                        provider=provider_name,
+                    )
+                    provider_used = provider_name
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    is_retryable = _should_fallback_provider(exc)
+                    has_more = idx < len(provider_candidates) - 1
+                    if is_retryable and has_more:
+                        _block_llm(
+                            exc,
+                            provider=provider_name,
+                            blocked_providers=blocked_providers,
+                        )
+                        logger.warning(
+                            "langchain_agent_summarize_provider_fallback",
+                            failed_provider=provider_name,
+                            next_provider=provider_candidates[idx + 1],
+                            reason=str(exc),
+                        )
+                        continue
+                    raise
+            if llm is None:
+                raise last_exc or RuntimeError("요약용 LLM을 초기화하지 못했습니다.")
         except Exception as exc:  # pragma: no cover - optional dependency path
             logger.warning("langchain_agent_summarize_fallback", error=str(exc))
-            _block_llm(exc if isinstance(exc, Exception) else Exception(str(exc)))
+            _block_llm(
+                exc if isinstance(exc, Exception) else Exception(str(exc)),
+                provider=provider_used,
+                blocked_providers=blocked_providers,
+            )
             return _offline_summary(question, observations)
 
         from langchain.prompts import ChatPromptTemplate  # type: ignore
@@ -1669,7 +1968,11 @@ class LangChainToolAgent:
             )
         except Exception as exc:  # pragma: no cover - runtime failure
             logger.warning("langchain_agent_summarize_invoke_failed", error=str(exc))
-            _block_llm(exc)
+            _block_llm(
+                exc,
+                provider=provider_used,
+                blocked_providers=blocked_providers,
+            )
             return _offline_summary(question, observations)
 
         if isinstance(output, str):

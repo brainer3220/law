@@ -53,34 +53,56 @@ export function ProvenanceFooter({
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-slate-900">
           <div>
             <span className="font-semibold">모델 버전:</span>{" "}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
-              {provenance.modelVersion}
-            </code>
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+               {provenance.modelVersion ?? "unknown"}
+              </code>
           </div>
           <div>
             <span className="font-semibold">프롬프트 버전:</span>{" "}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
-              {provenance.promptVersion}
-            </code>
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+               {provenance.promptVersion ?? "unknown"}
+              </code>
           </div>
           <div>
             <span className="font-semibold">인덱스 버전:</span>{" "}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
-              {provenance.indexVersion}
-            </code>
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+               {provenance.indexVersion ?? "unknown"}
+              </code>
           </div>
           <div>
             <span className="font-semibold">정책 버전:</span>{" "}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
-              {provenance.policyVersion}
-            </code>
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+               {provenance.policyVersion ?? "unknown"}
+              </code>
           </div>
+          {provenance.verifierVersion && (
+            <div>
+              <span className="font-semibold">검증기 버전:</span>{" "}
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+                {provenance.verifierVersion}
+              </code>
+            </div>
+          )}
+          {provenance.retrievalMethod && (
+            <div>
+              <span className="font-semibold">검색 경로:</span>{" "}
+              <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
+                {provenance.retrievalMethod}
+              </code>
+            </div>
+          )}
           {provenance.corpusHash && (
             <div className="col-span-2">
               <span className="font-semibold">코퍼스 해시:</span>{" "}
               <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">
                 {provenance.corpusHash.slice(0, 16)}...
               </code>
+            </div>
+          )}
+          {provenance.queries && provenance.queries.length > 0 && (
+            <div className="col-span-2">
+              <span className="font-semibold">검색 질의:</span>{" "}
+              <span>{provenance.queries.join(", ")}</span>
             </div>
           )}
           {auditId && (
