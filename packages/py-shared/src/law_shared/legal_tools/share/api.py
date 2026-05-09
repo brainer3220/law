@@ -130,8 +130,8 @@ def create_app(settings: ShareSettings | None = None) -> FastAPI:
         logs = service.list_audit_logs(resource_id=resource_id, action=action)
         return schemas.AuditLogResponse(
             results=[
-                schemas.AuditLogEntry.model_validate(l, from_attributes=True)
-                for l in logs
+                schemas.AuditLogEntry.model_validate(log, from_attributes=True)
+                for log in logs
             ]
         )
 
@@ -160,7 +160,7 @@ def _share_to_response(share: Share) -> schemas.ShareResponse:
     resource = schemas.ResourceRead.model_validate(share.resource, from_attributes=True)
     links = [
         schemas.ShareLinkResponse.model_validate(link, from_attributes=True)
-        for link in sorted(share.links, key=lambda l: l.created_at)
+        for link in sorted(share.links, key=lambda share_link: share_link.created_at)
     ]
     return schemas.ShareResponse(
         id=share.id,

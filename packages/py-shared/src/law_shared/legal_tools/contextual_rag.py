@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Protocol, Sequence, Tuple
+from typing import List, Optional, Protocol, Sequence, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from law_shared.legal_schemas import Anchor, Chunk, Document, Section, SourceType
 
@@ -376,4 +376,3 @@ def _citations_guess(document: Document, section: Section, chunk: Chunk) -> List
 
 def _sha1(b: bytes) -> str:
     return hashlib.sha1(b).hexdigest()
-

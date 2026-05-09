@@ -2,7 +2,7 @@
  * Supabase Middleware Client
  * Use this in middleware.ts for session management
  */
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr/dist/module/createServerClient'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {

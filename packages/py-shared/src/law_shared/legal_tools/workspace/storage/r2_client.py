@@ -11,7 +11,6 @@ R2는 S3 호환 API를 제공하므로 boto3를 사용하여 연동합니다.
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import os
 from dataclasses import dataclass

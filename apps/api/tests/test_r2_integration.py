@@ -1,7 +1,5 @@
 """Test Cloudflare R2 integration with workspace file upload."""
 
-import os
-import uuid
 from unittest.mock import Mock, patch
 
 import pytest

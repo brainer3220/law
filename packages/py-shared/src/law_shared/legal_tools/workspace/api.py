@@ -18,7 +18,6 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from . import schemas
-from .models import Project, ProjectMember, PermissionRole
 from .service import WorkspaceDatabase, WorkspaceService, WorkspaceSettings, init_engine
 
 __all__ = ["create_app", "WorkspaceSettings"]

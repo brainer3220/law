@@ -173,8 +173,8 @@ def test_stream_messages_streams_tool_calls_before_content(
             as_node: Optional[str] = None,
         ) -> None:
             for message in payload.get("messages") or []:
-                if hasattr(message, "dict"):
-                    self.messages.append(message.dict())
+                if hasattr(message, "model_dump"):
+                    self.messages.append(message.model_dump())
                 elif isinstance(message, dict):
                     self.messages.append(dict(message))
                 else:

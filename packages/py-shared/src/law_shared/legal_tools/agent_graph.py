@@ -44,6 +44,7 @@ from typing_extensions import Literal
 
 from law_shared.legal_tools.law_go_kr import (
     LawDetailArticle,
+    LawDetailParagraph,
     LawDetailResponse,
     LawInterpretationDetail,
     LawInterpretationResponse,
@@ -1308,7 +1309,6 @@ class LangChainToolAgent:
     ) -> Dict[str, Any]:
         from langchain.agents import AgentExecutor, create_tool_calling_agent  # type: ignore
         from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder  # type: ignore
-        from langchain.tools import StructuredTool  # type: ignore
 
         tools = self._build_tools(store)
         prompt = ChatPromptTemplate.from_messages(

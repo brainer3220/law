@@ -182,7 +182,6 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           className={`material-workspace__navigation${
             isSidebarOpen ? '' : ' material-workspace__navigation--collapsed'
           }`}
-          aria-expanded={isSidebarOpen}
         >
           <div className="material-workspace__pinned">
             {isSidebarOpen ? (

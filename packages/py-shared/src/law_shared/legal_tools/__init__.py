@@ -8,9 +8,9 @@ __all__ = []
 
 try:  # pragma: no cover - optional dependency (LangGraph + Postgres)
     from .multi_turn_chat import (  # type: ignore
-        ChatResponse,
-        PostgresChatConfig,
-        PostgresChatManager,
+        ChatResponse as ChatResponse,
+        PostgresChatConfig as PostgresChatConfig,
+        PostgresChatManager as PostgresChatManager,
     )
 
     __all__.extend(
@@ -26,10 +26,10 @@ except Exception:
 # Expose contextual_rag symbols lazily if dependencies are available
 try:  # pragma: no cover - optional import
     from .contextual_rag import (  # type: ignore
-        ContextConfig,
-        ContextualChunker,
-        EmbeddingModel,
-        IndexRecord,
+        ContextConfig as ContextConfig,
+        ContextualChunker as ContextualChunker,
+        EmbeddingModel as EmbeddingModel,
+        IndexRecord as IndexRecord,
     )
 
     __all__.extend(

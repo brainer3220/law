@@ -3,11 +3,10 @@ from __future__ import annotations
 import os
 import json
 import shutil
-import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -129,4 +128,3 @@ def ast_grep_find(pattern: str, *, project_dir: str, language: Optional[str] = N
                 "max_results": int(max_results),
             })
         return res.get("text") or res.get("result") or json.dumps(res, ensure_ascii=False)
-

@@ -346,6 +346,7 @@ export function useRealtimeTranscriber(url = "/api/transcribe/live"): [
     stopMediaRecorder,
     closeSocket,
     startAudioLevelMonitoring,
+    handleAudioChunk,
     reconnectAttempt,
   ]);
 

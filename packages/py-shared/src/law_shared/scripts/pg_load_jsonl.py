@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Iterable, Iterator, Tuple
+from typing import Iterator
 
 from law_shared.env import load_env
 
@@ -184,4 +184,3 @@ if __name__ == "__main__":
         # allow running directly: python scripts/pg_load_jsonl.py /path/to/file.jsonl
         jsonl_arg = sys.argv[1]
     raise SystemExit(main(jsonl=jsonl_arg))
-

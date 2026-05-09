@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple
+from typing import List
 
 
 def ensure_psycopg():

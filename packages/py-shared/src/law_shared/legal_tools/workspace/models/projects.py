@@ -6,13 +6,13 @@ import datetime as dt
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, PermissionRole, permission_role_enum
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .content import Instruction, ProjectUpdateFile, Update
+    from .content import Instruction, Update
 
 __all__ = ["Organization", "Project", "ProjectMember"]
 
