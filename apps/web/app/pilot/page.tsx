@@ -61,6 +61,13 @@ export default function PilotPage() {
     return buildCells(result.claims, result.evidence);
   }, [result]);
 
+  const displayEvidence = useMemo<EvidenceSource[]>(() => {
+    if (!result) {
+      return [];
+    }
+    return dedupeEvidenceByCanonicalId(result.evidence);
+  }, [result]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = question.trim();
@@ -215,7 +222,7 @@ export default function PilotPage() {
                 </div>
                 <div className="min-w-[220px] rounded-2xl bg-gray-50 p-4 text-xs text-gray-600 dark:bg-slate-950 dark:text-gray-400">
                   <div>Claims: {result.claims.length}</div>
-                  <div className="mt-1">Evidence: {result.evidence.length}</div>
+                  <div className="mt-1">Evidence: {displayEvidence.length}</div>
                   <div className="mt-1">Next steps: {result.nextSteps.length}</div>
                 </div>
               </div>
@@ -271,15 +278,15 @@ export default function PilotPage() {
 
             <section className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-slate-900">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                  근거 카드
-                </h2>
-                <div className="mt-4 space-y-3">
-                  {result.evidence.map((item) => (
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                    근거 카드
+                  </h2>
+                  <div className="mt-4 space-y-3">
+                  {displayEvidence.map((item) => (
                     <EvidenceCard key={item.id} evidence={item} />
                   ))}
+                  </div>
                 </div>
-              </div>
               <div className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-slate-900">
                 <ProvenanceFooter provenance={result.provenance} />
               </div>
@@ -335,6 +342,23 @@ function buildCells(claims: Claim[], evidence: EvidenceSource[]): ClaimEvidenceC
       isSupporting: claim.evidenceIds.includes(item.id),
     }))
   );
+}
+
+function dedupeEvidenceByCanonicalId(evidence: EvidenceSource[]): EvidenceSource[] {
+  const seen = new Set<string>();
+  const deduped: EvidenceSource[] = [];
+  for (const item of evidence) {
+    const canonicalId =
+      typeof item.metadata?.canonicalId === "string"
+        ? item.metadata.canonicalId
+        : item.id;
+    if (seen.has(canonicalId)) {
+      continue;
+    }
+    seen.add(canonicalId);
+    deduped.push(item);
+  }
+  return deduped;
 }
 
 function stateColorClass(answerState: AnswerState): string {

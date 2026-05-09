@@ -50,6 +50,15 @@ export function EvidenceCard({
   className,
 }: EvidenceCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const canonicalId =
+    typeof evidence.metadata?.canonicalId === "string"
+      ? evidence.metadata.canonicalId
+      : null;
+  const normalizedCitations = Array.isArray(evidence.metadata?.normalizedCitations)
+    ? evidence.metadata.normalizedCitations
+        .filter((value): value is string => typeof value === "string")
+        .slice(0, 3)
+    : [];
   
   const typeLabel = EVIDENCE_TYPE_LABELS[evidence.type];
   const colorClass = EVIDENCE_TYPE_COLORS[evidence.type];
@@ -128,6 +137,25 @@ export function EvidenceCard({
           </span>
         )}
       </div>
+
+      {canonicalId && (
+        <div className="mb-2 rounded bg-white px-2 py-1 text-[11px] font-mono text-gray-600 dark:bg-slate-800 dark:text-gray-300">
+          canonical: {canonicalId}
+        </div>
+      )}
+
+      {normalizedCitations.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+          {normalizedCitations.map((citation) => (
+            <span
+              key={`${evidence.id}-${citation}`}
+              className="rounded bg-white px-2 py-1 dark:bg-slate-800"
+            >
+              {citation}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Pin Cite */}
       {evidence.pinCite && (

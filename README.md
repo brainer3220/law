@@ -129,7 +129,7 @@ uv pip install psycopg[binary]
 
 2) Set DSN for Supabase Postgres:
 ```
-export SUPABASE_DB_URL='postgresql://postgres.your-tenant-id:your-super-secret-and-long-postgres-password@brainer.iptime.org:5432/postgres?sslmode=disable'
+export SUPABASE_DB_URL='postgresql://postgres.your-tenant-id:your-super-secret-and-long-postgres-password@brainer.asuscomm.com:5432/postgres?sslmode=disable'
 # or: export PG_DSN=...
 ```
 

@@ -42,6 +42,10 @@ const sampleEvidence: EvidenceSource[] = [
     date: "2024-01-01",
     verificationStatus: "verified",
     freshnessStatus: "current",
+    metadata: {
+      canonicalId: "statute:민법",
+      normalizedCitations: ["민법제750조", "statute:민법"],
+    },
   },
   {
     id: "ev2",
@@ -53,6 +57,10 @@ const sampleEvidence: EvidenceSource[] = [
     date: "2020-06-15",
     verificationStatus: "stale",
     freshnessStatus: "stale",
+    metadata: {
+      canonicalId: "case:2020다12345",
+      normalizedCitations: ["2020다12345"],
+    },
   },
   {
     id: "ev3",
@@ -62,6 +70,10 @@ const sampleEvidence: EvidenceSource[] = [
     confidence: 0.75,
     verificationStatus: "partial",
     freshnessStatus: "unknown",
+    metadata: {
+      canonicalId: "doc:계약서-검토-의견",
+      normalizedCitations: ["doc:계약서-검토-의견"],
+    },
   },
 ];
 
