@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChatKitPanel, type FactAction } from "@/components/ChatKitPanel";
+import { LazyChatKitPanel, type FactAction } from "@/components/LazyChatKitPanel";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { UserMenu } from "@/components/auth/UserMenu";
 import {
@@ -71,7 +71,7 @@ export default function App() {
 
       <div className="material-app-shell__content">
         <div className="material-app-shell__canvas">
-          <ChatKitPanel
+          <LazyChatKitPanel
             theme={scheme}
             onWidgetAction={handleWidgetAction}
             onResponseEnd={handleResponseEnd}

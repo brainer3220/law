@@ -12,6 +12,7 @@ import {
 import { ErrorOverlay } from "./ErrorOverlay";
 import type { ColorScheme } from "@/hooks/useColorScheme";
 import { SharePanel } from "./SharePanel";
+import ChatKitScript from "./ChatKitScript";
 
 export type FactAction = {
   type: "save";
@@ -459,6 +460,7 @@ export function ChatKitPanel({
       aria-busy={isInitializingSession}
       className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-sm transition-all duration-300 ease-in-out dark:bg-slate-900"
     >
+      <ChatKitScript />
       {/* Screen reader announcements */}
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
         {isInitializingSession && getLoadingMessage(loadingPhase)}

@@ -12,7 +12,7 @@ import {
 } from '@/lib/workspace/client'
 import { useAuth } from '@/lib/auth/AuthContext'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
-import { ChatKitPanel, type FactAction } from '@/components/ChatKitPanel'
+import { LazyChatKitPanel, type FactAction } from '@/components/LazyChatKitPanel'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { useWorkspaceLayout } from '../layout'
 import {
@@ -453,14 +453,16 @@ export default function ProjectDetailPage({ params }: PageProps) {
             <XMarkIcon className="material-icon" aria-hidden="true" />
           </button>
         </div>
-        <div className="material-project-sidebar__content">
-          <ChatKitPanel
-            theme={scheme}
-            onWidgetAction={handleChatWidgetAction}
-            onResponseEnd={handleChatResponseEnd}
-            onThemeRequest={setScheme}
-          />
-        </div>
+        {chatSidebarOpen ? (
+          <div className="material-project-sidebar__content">
+            <LazyChatKitPanel
+              theme={scheme}
+              onWidgetAction={handleChatWidgetAction}
+              onResponseEnd={handleChatResponseEnd}
+              onThemeRequest={setScheme}
+            />
+          </div>
+        ) : null}
       </aside>
     </div>
   )

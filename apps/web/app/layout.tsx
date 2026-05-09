@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth/AuthContext";
-import ChatKitScript from "@/components/ChatKitScript";
 
 export const metadata: Metadata = {
   title: "Law Analytics Platform",
@@ -22,9 +21,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-screen overflow-hidden">
-      <head>
-        <ChatKitScript />
-      </head>
       <body className="antialiased h-screen overflow-hidden">
         <AuthProvider>{children}</AuthProvider>
       </body>
