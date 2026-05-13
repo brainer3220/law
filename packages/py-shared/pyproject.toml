@@ -9,7 +9,7 @@ description = "Shared Python utilities for the Law monorepo"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
-    "langchain>=0.3,<0.4",
+    "langchain>=0.3.30,<0.4",
     "langchain-openai>=0.2",
     "langchain-google-genai>=1.0",
     "langgraph>=0.6.0,<0.7",
