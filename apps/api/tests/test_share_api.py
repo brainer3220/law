@@ -15,9 +15,17 @@ def _create_client() -> TestClient:
         external_base_url="https://share.test",
         default_link_ttl_days=7,
         token_bytes=8,
+        management_api_key="test-share-key",
     )
     app = create_app(settings)
     return TestClient(app)
+
+
+def _auth_headers(actor_id: str = "user-123") -> dict[str, str]:
+    return {
+        "Authorization": "Bearer test-share-key",
+        "X-Actor-ID": actor_id,
+    }
 
 
 def test_share_flow_round_trip() -> None:
@@ -59,26 +67,28 @@ def test_share_flow_round_trip() -> None:
         "create_link": True,
         "link_domain_whitelist": ["share.test"],
     }
-    created = client.post("/v1/shares", json=share_payload)
+    created = client.post("/v1/shares", json=share_payload, headers=_auth_headers())
     assert created.status_code == 200
     share_data = created.json()
     assert share_data["mode"] == "unlisted"
     assert share_data["links"], "Link should be created on share creation"
     share_id = share_data["id"]
 
-    fetched = client.get(f"/v1/shares/{share_id}")
+    fetched = client.get(f"/v1/shares/{share_id}", headers=_auth_headers())
     assert fetched.status_code == 200
     fetched_data = fetched.json()
     assert fetched_data["id"] == share_id
 
     link_request = {"actor_id": "user-123", "domain_whitelist": ["share.test"]}
-    new_link = client.post(f"/v1/shares/{share_id}/links", json=link_request)
+    new_link = client.post(
+        f"/v1/shares/{share_id}/links", json=link_request, headers=_auth_headers()
+    )
     assert new_link.status_code == 200
     new_link_data = new_link.json()
     token = new_link_data["token"]
     assert re.match(r"^[A-Za-z0-9]+$", token)
 
-    access = client.get(f"/v1/s/{token}", params={"domain": "share.test"})
+    access = client.get(f"/v1/s/{token}", headers={"Origin": "https://share.test"})
     assert access.status_code == 200
     access_data = access.json()
     assert access_data["share"]["id"] == share_id
@@ -91,11 +101,15 @@ def test_share_flow_round_trip() -> None:
             "role": "viewer",
         }
     ]
-    perm_resp = client.post("/v1/permissions/bulk", json=permissions_payload)
+    perm_resp = client.post(
+        "/v1/permissions/bulk", json=permissions_payload, headers=_auth_headers()
+    )
     assert perm_resp.status_code == 200
     assert perm_resp.json()[0]["principal_id"] == "viewer-1"
 
-    audit = client.get("/v1/audit", params={"resource_id": resource_id})
+    audit = client.get(
+        "/v1/audit", params={"resource_id": resource_id}, headers=_auth_headers()
+    )
     assert audit.status_code == 200
     audit_entries = audit.json()["results"]
     assert any(entry["action"] == "share.create" for entry in audit_entries)
@@ -137,15 +151,61 @@ def test_share_link_requires_domain_for_whitelist() -> None:
         "create_link": True,
         "link_domain_whitelist": ["share.test"],
     }
-    created = client.post("/v1/shares", json=share_payload)
+    created = client.post("/v1/shares", json=share_payload, headers=_auth_headers())
     assert created.status_code == 200
     share_id = created.json()["id"]
 
     link_request = {"actor_id": "user-123", "domain_whitelist": ["share.test"]}
-    link_resp = client.post(f"/v1/shares/{share_id}/links", json=link_request)
+    link_resp = client.post(
+        f"/v1/shares/{share_id}/links", json=link_request, headers=_auth_headers()
+    )
     assert link_resp.status_code == 200
     token = link_resp.json()["token"]
 
     access = client.get(f"/v1/s/{token}")
     assert access.status_code == 410
-    assert access.json()["detail"] == "Domain required"
+    assert access.json()["detail"] == "Domain not allowed"
+
+
+def test_share_management_requires_authentication() -> None:
+    client = _create_client()
+
+    created = client.post(
+        "/v1/shares",
+        json={
+            "resource_id": "00000000-0000-0000-0000-000000000001",
+            "actor_id": "attacker",
+        },
+    )
+
+    assert created.status_code == 401
+
+
+def test_share_management_rejects_actor_without_resource_permission() -> None:
+    client = _create_client()
+
+    applied = client.post(
+        "/v1/redactions/apply",
+        json={
+            "actor_id": "user-123",
+            "resource": {
+                "type": "conversation",
+                "owner_id": "user-123",
+                "title": "테스트 대화",
+            },
+            "payloads": {},
+        },
+    )
+    assert applied.status_code == 200
+
+    created = client.post(
+        "/v1/shares",
+        json={
+            "resource_id": applied.json()["resource"]["id"],
+            "actor_id": "user-123",
+            "mode": "unlisted",
+        },
+        headers=_auth_headers("attacker"),
+    )
+
+    assert created.status_code == 403

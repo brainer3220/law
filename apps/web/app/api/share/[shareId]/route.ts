@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { requireAuthenticatedUserId } from "../../auth/require-user";
 import {
   callShareService,
   forwardShareServiceResponse,
@@ -16,8 +17,13 @@ type RouteParams = {
 export async function GET(_: Request, context: RouteParams): Promise<Response> {
   const params = await context.params;
   try {
+    const userId = await requireAuthenticatedUserId();
+    if (userId instanceof Response) {
+      return userId;
+    }
     const upstream = await callShareService(`/v1/shares/${params.shareId}`, {
       method: "GET",
+      actorId: userId,
     });
     return forwardShareServiceResponse(upstream);
   } catch (error) {

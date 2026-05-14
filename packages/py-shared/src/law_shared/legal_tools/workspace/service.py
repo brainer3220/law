@@ -40,6 +40,7 @@ class WorkspaceSettings:
     database_url: str
     enable_audit: bool = True
     auto_create_default_org: bool = False
+    api_key: str | None = None
 
     @classmethod
     def from_env(cls) -> WorkspaceSettings:
@@ -55,6 +56,8 @@ class WorkspaceSettings:
                 "LAW_WORKSPACE_AUTO_CREATE_DEFAULT_ORG", "false"
             ).lower()
             == "true",
+            api_key=os.getenv("LAW_WORKSPACE_API_KEY")
+            or os.getenv("LAW_API_KEY"),
         )
 
 
@@ -139,6 +142,25 @@ class WorkspaceService:
             raise PermissionError(f"Requires {required_role.value} role or higher")
 
         return member
+
+    def _is_owner(self, project_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        try:
+            self._check_permission(project_id, user_id, PermissionRole.OWNER)
+        except PermissionError:
+            return False
+        return True
+
+    def _require_owner_for_owner_role(
+        self,
+        project_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        requested_role: PermissionRole,
+        existing_role: PermissionRole | None = None,
+    ) -> None:
+        touches_owner = requested_role == PermissionRole.OWNER
+        touches_owner = touches_owner or existing_role == PermissionRole.OWNER
+        if touches_owner and not self._is_owner(project_id, actor_id):
+            raise PermissionError("Only owners can grant or change owner membership")
 
     def _log_audit(
         self,
@@ -321,6 +343,7 @@ class WorkspaceService:
     ) -> ProjectMember:
         """멤버 추가."""
         self._check_permission(project_id, user_id, PermissionRole.MAINTAINER)
+        self._require_owner_for_owner_role(project_id, user_id, request.role)
 
         member = ProjectMember(
             project_id=project_id,
@@ -380,6 +403,9 @@ class WorkspaceService:
         if not member:
             raise NoResultFound()
 
+        self._require_owner_for_owner_role(
+            project_id, user_id, request.role, existing_role=member.role
+        )
         member.role = request.role
         self.session.commit()
         self._log_audit(
@@ -413,6 +439,9 @@ class WorkspaceService:
         if not member:
             raise NoResultFound()
 
+        self._require_owner_for_owner_role(
+            project_id, user_id, member.role, existing_role=member.role
+        )
         self.session.delete(member)
         self.session.commit()
         self._log_audit(

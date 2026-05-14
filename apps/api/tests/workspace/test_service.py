@@ -266,6 +266,36 @@ def test_updates_require_membership(temp_db_path):
         cleanup()
 
 
+def test_maintainer_cannot_grant_owner_role(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        owner = uuid.uuid4()
+        maintainer = uuid.uuid4()
+        target = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Owner restricted"),
+            owner,
+        )
+        service.add_member(
+            project.id,
+            schemas.MemberAddRequest(
+                user_id=maintainer, role=schemas.PermissionRole.MAINTAINER
+            ),
+            owner,
+        )
+
+        with pytest.raises(PermissionError):
+            service.add_member(
+                project.id,
+                schemas.MemberAddRequest(
+                    user_id=target, role=schemas.PermissionRole.OWNER
+                ),
+                maintainer,
+            )
+    finally:
+        cleanup()
+
+
 def test_delete_update_removes_entry(temp_db_path):
     service, cleanup = _build_service(temp_db_path)
     try:

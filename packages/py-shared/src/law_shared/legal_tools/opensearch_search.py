@@ -5,6 +5,8 @@ from typing import List, Optional
 
 from law_shared.legal_tools.opensearch_client import request_json, resolve_index_name
 
+MAX_OPENSEARCH_LIMIT = 100
+
 
 @dataclass
 class OpenSearchDoc:
@@ -43,6 +45,7 @@ def search_opensearch(
         return []
 
     index_name = resolve_index_name(index)
+    safe_limit = min(max(0, limit), MAX_OPENSEARCH_LIMIT)
     payload = {
         "query": {
             "multi_match": {
@@ -58,7 +61,7 @@ def search_opensearch(
             }
         },
         "from": max(0, offset),
-        "size": max(0, limit),
+        "size": safe_limit,
         "_source": [
             "id",
             "doc_id",

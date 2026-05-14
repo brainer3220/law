@@ -5,6 +5,13 @@
 import { createServerClient } from '@supabase/ssr/dist/module/createServerClient'
 import { NextResponse, type NextRequest } from 'next/server'
 
+function safeLocalPath(path: string | null) {
+  if (!path || !path.startsWith('/') || path.startsWith('//')) {
+    return '/'
+  }
+  return path
+}
+
 export async function updateSession(request: NextRequest) {
   // Check if Supabase is configured
   const supabaseUrl = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_URL
@@ -87,7 +94,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname !== '/auth/update-password'
   ) {
     const redirectTo = request.nextUrl.searchParams.get('redirectTo')
-    const safeRedirectTo = redirectTo?.startsWith('/') ? redirectTo : '/'
+    const safeRedirectTo = safeLocalPath(redirectTo)
     const url = new URL(safeRedirectTo, request.url)
     console.log(`Redirecting authenticated user from ${request.nextUrl.pathname} to ${url.pathname}`)
     return NextResponse.redirect(url)

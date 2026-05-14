@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { NextRequest } from 'next/server'
 
 function getSafeNextPath(next: string | null) {
-  if (!next || !next.startsWith('/')) {
+  if (!next || !next.startsWith('/') || next.startsWith('//')) {
     return '/auth/login?verified=1'
   }
 

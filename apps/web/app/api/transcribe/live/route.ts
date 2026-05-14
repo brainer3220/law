@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { createMockTranscription, transcribeWithOpenAI } from "@/lib/server/transcription";
+import { requireAuthenticatedUserId } from "../../auth/require-user";
 import type {
   LiveTranscribeClientMessage,
   LiveTranscribeServerMessage,
@@ -13,6 +14,8 @@ const CONNECTION_TIMEOUT_MS = 30000; // 30 seconds idle timeout
 const MAX_CHUNK_RATE = 10; // Maximum chunks per second
 const CHUNK_RATE_WINDOW_MS = 1000; // Rate limiting window
 const HEARTBEAT_INTERVAL_MS = 15000; // Send heartbeat every 15 seconds
+const MAX_CHUNK_BYTES = 1024 * 1024;
+const MAX_QUEUE_BYTES = 5 * 1024 * 1024;
 
 interface EdgeWebSocket extends WebSocket {
   accept(): void;
@@ -70,6 +73,8 @@ class LiveTranscribeSession {
   private diarize = true;
 
   private jobs: ChunkJob[] = [];
+
+  private queuedBytes = 0;
 
   private processing = false;
 
@@ -134,6 +139,7 @@ class LiveTranscribeSession {
   private cleanup() {
     this.closed = true;
     this.jobs = [];
+    this.queuedBytes = 0;
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -172,6 +178,13 @@ class LiveTranscribeSession {
         });
         break;
       case "audio-chunk":
+        if (message.data.length > Math.ceil((MAX_CHUNK_BYTES * 4) / 3) + 4) {
+          sendMessage(this.downstream, {
+            type: "error",
+            message: "오디오 청크가 허용 크기를 초과했습니다.",
+          });
+          return;
+        }
         // Rate limiting check
         if (!this.checkRateLimit()) {
           sendMessage(this.downstream, {
@@ -180,12 +193,31 @@ class LiveTranscribeSession {
           });
           return;
         }
-        this.enqueueChunk({
-          id: message.id,
-          bytes: base64ToUint8Array(message.data),
-          mimeType: message.mimeType || "audio/webm",
-          receivedAt: Date.now(),
-        });
+        {
+          let bytes: Uint8Array;
+          try {
+            bytes = base64ToUint8Array(message.data);
+          } catch {
+            sendMessage(this.downstream, {
+              type: "error",
+              message: "오디오 청크 인코딩이 올바르지 않습니다.",
+            });
+            return;
+          }
+          if (bytes.byteLength > MAX_CHUNK_BYTES) {
+            sendMessage(this.downstream, {
+              type: "error",
+              message: "오디오 청크가 허용 크기를 초과했습니다.",
+            });
+            return;
+          }
+          this.enqueueChunk({
+            id: message.id,
+            bytes,
+            mimeType: message.mimeType || "audio/webm",
+            receivedAt: Date.now(),
+          });
+        }
         break;
       case "commit":
         // handled implicitly per chunk.
@@ -231,6 +263,14 @@ class LiveTranscribeSession {
     if (this.closed) {
       return;
     }
+    if (this.queuedBytes + job.bytes.byteLength > MAX_QUEUE_BYTES) {
+      sendMessage(this.downstream, {
+        type: "error",
+        message: "오디오 처리 대기열이 허용 크기를 초과했습니다.",
+      });
+      return;
+    }
+    this.queuedBytes += job.bytes.byteLength;
     this.jobs.push(job);
     void this.processQueue();
   }
@@ -246,6 +286,7 @@ class LiveTranscribeSession {
       if (!job) {
         continue;
       }
+      this.queuedBytes = Math.max(0, this.queuedBytes - job.bytes.byteLength);
       try {
         if (this.hasOpenAIKey) {
           await this.processOpenAI(job);
@@ -321,6 +362,10 @@ class LiveTranscribeSession {
 }
 
 export async function GET(req: NextRequest) {
+  const userId = await requireAuthenticatedUserId();
+  if (userId instanceof Response) {
+    return userId;
+  }
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return new Response("Expected WebSocket upgrade", { status: 426 });
   }

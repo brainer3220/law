@@ -12,6 +12,7 @@ export function buildShareServiceUrl(path: string): string {
 
 export interface ShareServiceRequestInit extends RequestInit {
   headers?: HeadersInit;
+  actorId?: string;
 }
 
 export async function callShareService(
@@ -27,10 +28,15 @@ export async function callShareService(
   if (apiKey && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${apiKey}`);
   }
+  if (init?.actorId && !headers.has("X-Actor-ID")) {
+    headers.set("X-Actor-ID", init.actorId);
+  }
 
   const url = buildShareServiceUrl(path);
+  const fetchInit = { ...(init ?? {}) };
+  delete fetchInit.actorId;
   return fetch(url, {
-    ...init,
+    ...fetchInit,
     headers,
   });
 }

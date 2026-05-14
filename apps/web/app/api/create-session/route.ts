@@ -1,5 +1,5 @@
 import { WORKFLOW_ID } from "@/lib/config";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUserId } from "../auth/require-user";
 
 // Remove edge runtime to support Supabase
 // export const runtime = "edge";
@@ -11,14 +11,11 @@ interface CreateSessionRequestBody {
 }
 
 const DEFAULT_CHATKIT_BASE = "https://api.openai.com";
-const SESSION_COOKIE_NAME = "chatkit_session_id";
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export async function POST(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return methodNotAllowedResponse();
   }
-  let sessionCookie: string | null = null;
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
@@ -35,10 +32,17 @@ export async function POST(request: Request): Promise<Response> {
     const parsedBody = await safeParseJson<CreateSessionRequestBody>(request);
     console.log("[create-session] Parsed body:", parsedBody);
     
-    const { userId, sessionCookie: resolvedSessionCookie } = await resolveUserId(request);
+    const userId = await resolveUserId();
+    if (!userId) {
+      return buildJsonResponse(
+        { error: "Authentication required" },
+        401,
+        { "Content-Type": "application/json" },
+        null
+      );
+    }
     console.log("[create-session] Resolved userId:", userId);
-    
-    sessionCookie = resolvedSessionCookie;
+
     const resolvedWorkflowId =
       parsedBody?.workflow?.id ?? parsedBody?.workflowId ?? WORKFLOW_ID;
 
@@ -58,7 +62,7 @@ export async function POST(request: Request): Promise<Response> {
         { error: "Missing workflow id" },
         400,
         { "Content-Type": "application/json" },
-        sessionCookie
+        null
       );
     }
 
@@ -102,7 +106,7 @@ export async function POST(request: Request): Promise<Response> {
         },
         upstreamResponse.status,
         { "Content-Type": "application/json" },
-        sessionCookie
+        null
       );
     }
 
@@ -123,7 +127,7 @@ export async function POST(request: Request): Promise<Response> {
       responsePayload,
       200,
       { "Content-Type": "application/json" },
-      sessionCookie
+      null
     );
   } catch (error) {
     console.error("Create session error", error);
@@ -131,7 +135,7 @@ export async function POST(request: Request): Promise<Response> {
       { error: "Unexpected error" },
       500,
       { "Content-Type": "application/json" },
-      sessionCookie
+      null
     );
   }
 }
@@ -147,78 +151,9 @@ function methodNotAllowedResponse(): Response {
   });
 }
 
-async function resolveUserId(request: Request): Promise<{
-  userId: string;
-  sessionCookie: string | null;
-}> {
+async function resolveUserId(): Promise<string | null> {
   console.log('[create-session] Resolving user ID...');
-  
-  // Try to get Supabase authenticated user first
-  try {
-    console.log('[create-session] Attempting to get Supabase user...');
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    
-    console.log('[create-session] Supabase user result:', { userId: user?.id, error });
-    
-    if (user?.id) {
-      // Use Supabase user ID as the ChatKit user ID
-      console.log('[create-session] Using Supabase user ID:', user.id);
-      return { 
-        userId: user.id, 
-        sessionCookie: serializeSessionCookie(user.id) 
-      };
-    }
-  } catch (error) {
-    console.error('[create-session] Error getting Supabase user:', error);
-  }
-
-  // Fallback to cookie-based or generated ID
-  console.log('[create-session] Falling back to cookie or generated ID');
-  const existing = getCookieValue(request.headers.get("cookie"), SESSION_COOKIE_NAME);
-  if (existing) {
-    console.log('[create-session] Using existing cookie ID');
-    return { userId: existing, sessionCookie: null };
-  }
-
-  const generated = typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2);
-
-  console.log('[create-session] Generated new ID:', generated);
-  return {
-    userId: generated,
-    sessionCookie: serializeSessionCookie(generated),
-  };
-}
-
-function getCookieValue(cookieHeader: string | null, name: string): string | null {
-  if (!cookieHeader) {
-    return null;
-  }
-
-  const cookies = cookieHeader.split(";");
-  for (const cookie of cookies) {
-    const [rawName, ...rest] = cookie.split("=");
-    if (!rawName || rest.length === 0) { continue; }
-    if (rawName.trim() === name) { return rest.join("=").trim(); }
-  }
-  return null;
-}
-
-function serializeSessionCookie(value: string): string {
-  const attributes = [
-    `${SESSION_COOKIE_NAME}=${encodeURIComponent(value)}`,
-    "Path=/",
-    `Max-Age=${SESSION_COOKIE_MAX_AGE}`,
-    "HttpOnly",
-    "SameSite=Lax",
-  ];
-
-  if (process.env.NODE_ENV === "production") {
-    attributes.push("Secure");
-  }
-  return attributes.join("; ");
+  return getAuthenticatedUserId();
 }
 
 function buildJsonResponse(

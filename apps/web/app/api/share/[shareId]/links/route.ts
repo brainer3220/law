@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { requireAuthenticatedUserId } from "../../../auth/require-user";
 import {
   callShareService,
   forwardShareServiceResponse,
@@ -16,10 +17,16 @@ type RouteParams = {
 export async function POST(request: Request, context: RouteParams): Promise<Response> {
   const params = await context.params;
   try {
-    const body = await request.text();
+    const userId = await requireAuthenticatedUserId();
+    if (userId instanceof Response) {
+      return userId;
+    }
+    const payload = (await request.json()) as Record<string, unknown>;
+    payload.actor_id = userId;
     const upstream = await callShareService(`/v1/shares/${params.shareId}/links`, {
       method: "POST",
-      body,
+      body: JSON.stringify(payload),
+      actorId: userId,
       headers: {
         "Content-Type": "application/json",
       },

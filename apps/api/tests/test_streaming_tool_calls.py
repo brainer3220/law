@@ -20,6 +20,8 @@ from langchain_core.messages import (
 
 from law_shared.legal_tools.api_server import (
     ChatHandler,
+    _thread_belongs_to_actor,
+    _thread_prefix_for_actor,
     _normalize_tool_call_chunk,
     _normalize_tool_calls,
 )
@@ -28,6 +30,14 @@ from law_shared.legal_tools.multi_turn_chat import ChatResponse, PostgresChatMan
 
 def _make_manager() -> PostgresChatManager:
     return PostgresChatManager.__new__(PostgresChatManager)
+
+
+def test_thread_ids_are_bound_to_actor_prefix() -> None:
+    actor = "user-123"
+    owned_thread = f"{_thread_prefix_for_actor(actor)}-abc"
+
+    assert _thread_belongs_to_actor(owned_thread, actor)
+    assert not _thread_belongs_to_actor(owned_thread, "other-user")
 
 
 @dataclass

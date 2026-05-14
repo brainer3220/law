@@ -7,6 +7,7 @@ import json
 import os
 from typing import Dict, Iterable, Optional, Tuple
 from urllib import error, request
+from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_URL_ENV: tuple[str, ...] = (
     "LAW_OPENSEARCH_URL",
@@ -75,6 +76,21 @@ def resolve_index_name(explicit: Optional[str] = None) -> str:
     return first_env(DEFAULT_INDEX_ENV) or "legal-docs"
 
 
+def redact_url_credentials(url: str) -> str:
+    """Return ``url`` without inline credentials."""
+
+    parsed = urlsplit(url)
+    if not parsed.username and not parsed.password:
+        return url
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    netloc = hostname
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+
+
 def request_json(
     method: str,
     path: str,
@@ -107,7 +123,7 @@ def request_json(
         ) from exc
     except error.URLError as exc:  # pragma: no cover - network failure
         raise RuntimeError(
-            f"Failed to reach OpenSearch at {url}: {exc.reason}"
+            f"Failed to reach OpenSearch at {redact_url_credentials(url)}: {exc.reason}"
         ) from exc
 
 
@@ -123,5 +139,5 @@ __all__ = [
     "first_env",
     "request_json",
     "resolve_index_name",
+    "redact_url_credentials",
 ]
-

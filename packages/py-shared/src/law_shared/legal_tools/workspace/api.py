@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import uuid
+import hmac
 from typing import Generator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
@@ -56,11 +57,19 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
         return WorkspaceService(session=session, settings=settings)
 
     def get_current_user(request: Request) -> uuid.UUID:
-        """Extract user_id from auth header (구현 필요)."""
-        # TODO: JWT/OAuth 토큰 검증
+        """Extract a trusted upstream user_id after API key authentication."""
+        if not settings.api_key:
+            raise HTTPException(
+                status_code=503, detail="Workspace API key is not configured"
+            )
+        scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(
+            token, settings.api_key
+        ):
+            raise HTTPException(status_code=401, detail="Authentication required")
         user_id = request.headers.get("X-User-ID")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+            raise HTTPException(status_code=401, detail="User identity required")
         return uuid.UUID(user_id)
 
     @app.exception_handler(Exception)

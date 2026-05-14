@@ -10,13 +10,29 @@ export function buildLawApiUrl(path: string): string {
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-export async function callLawApi(path: string, init?: RequestInit): Promise<Response> {
+export interface LawApiRequestInit extends RequestInit {
+  actorId?: string;
+}
+
+export async function callLawApi(
+  path: string,
+  init?: LawApiRequestInit
+): Promise<Response> {
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
   }
+  const apiKey = process.env.LAW_API_KEY ?? process.env.LAW_SERVICE_API_KEY;
+  if (apiKey && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${apiKey}`);
+  }
+  if (init?.actorId && !headers.has("X-Actor-ID")) {
+    headers.set("X-Actor-ID", init.actorId);
+  }
+  const fetchInit = { ...(init ?? {}) };
+  delete fetchInit.actorId;
   return fetch(buildLawApiUrl(path), {
-    ...init,
+    ...fetchInit,
     headers,
   });
 }

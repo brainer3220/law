@@ -15,6 +15,8 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import AuditLog, Base, Permission, Resource, Share, ShareLink
+from .models import PermissionRole as SharePermissionRole
+from .models import PrincipalType
 from .redaction import RedactionEngine
 from .schemas import (
     PermissionEntry,
@@ -39,6 +41,7 @@ class ShareSettings:
     external_base_url: str = "http://localhost:8081"
     default_link_ttl_days: int = 14
     token_bytes: int = 16
+    management_api_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "ShareSettings":
@@ -52,11 +55,15 @@ class ShareSettings:
         external_base_url = os.getenv("LAW_SHARE_BASE_URL", "http://localhost:8081")
         default_ttl = int(os.getenv("LAW_SHARE_LINK_TTL_DAYS", "14"))
         token_bytes = int(os.getenv("LAW_SHARE_TOKEN_BYTES", "16"))
+        management_api_key = os.getenv("LAW_SHARE_SERVICE_API_KEY") or os.getenv(
+            "SHARE_SERVICE_API_KEY"
+        )
         return cls(
             database_url=database_url,
             external_base_url=external_base_url,
             default_link_ttl_days=default_ttl,
             token_bytes=token_bytes,
+            management_api_key=management_api_key,
         )
 
 
@@ -163,12 +170,15 @@ class ShareService:
         )
 
     # ---------------------------- shares -----------------------------
-    def create_share(self, request: ShareCreateRequest) -> Share:
+    def create_share(self, request: ShareCreateRequest, actor_id: str) -> Share:
         from .models import ShareMode
 
         resource = self.session.get(Resource, request.resource_id)
         if not resource:
             raise NoResultFound("Resource not found")
+        self._require_resource_role(
+            resource, actor_id, {SharePermissionRole.OWNER, SharePermissionRole.EDITOR}
+        )
         expires_at = request.expires_at
         if not expires_at:
             expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
@@ -177,7 +187,7 @@ class ShareService:
         share = Share(
             resource_id=request.resource_id,
             mode=ShareMode(request.mode),
-            created_by=request.actor_id,
+            created_by=actor_id,
             allow_download=request.allow_download,
             allow_comments=request.allow_comments,
             is_live=request.is_live,
@@ -186,9 +196,10 @@ class ShareService:
         self.session.add(share)
         self.session.flush()
         if request.permissions:
+            self._require_resource_role(resource, actor_id, {SharePermissionRole.OWNER})
             self._upsert_permissions(request.permissions)
         self._log(
-            actor_id=request.actor_id,
+            actor_id=actor_id,
             action="share.create",
             resource_id=resource.id,
             context={"share_id": str(share.id), "mode": share.mode.value},
@@ -200,6 +211,7 @@ class ShareService:
 
     def revoke_share(self, share_id: uuid.UUID, actor_id: str) -> Share:
         share = self._get_share_or_raise(share_id)
+        self._require_resource_role(share.resource, actor_id, {SharePermissionRole.OWNER})
         now = dt.datetime.now(dt.timezone.utc)
         share.revoked_at = now
         for link in share.links:
@@ -217,6 +229,9 @@ class ShareService:
         self, share_id: uuid.UUID, request: ShareLinkCreateRequest, actor_id: str
     ) -> ShareLinkCreateResponse:
         share = self._get_share_or_raise(share_id)
+        self._require_resource_role(
+            share.resource, actor_id, {SharePermissionRole.OWNER, SharePermissionRole.EDITOR}
+        )
         token = self._create_link(share, request.domain_whitelist)
         self._log(
             actor_id=actor_id,
@@ -236,8 +251,19 @@ class ShareService:
             ),
         )
 
-    def get_share(self, share_id: uuid.UUID) -> Share:
-        return self._get_share_or_raise(share_id)
+    def get_share(self, share_id: uuid.UUID, actor_id: str) -> Share:
+        share = self._get_share_or_raise(share_id)
+        self._require_resource_role(
+            share.resource,
+            actor_id,
+            {
+                SharePermissionRole.OWNER,
+                SharePermissionRole.EDITOR,
+                SharePermissionRole.COMMENTER,
+                SharePermissionRole.VIEWER,
+            },
+        )
+        return share
 
     def access_via_token(
         self, token: str, domain: Optional[str] = None, ip: str | None = None
@@ -274,9 +300,17 @@ class ShareService:
         self.session.commit()
         return link
 
-    def bulk_permissions(self, entries: Iterable[PermissionEntry]) -> List[Permission]:
+    def bulk_permissions(
+        self, entries: Iterable[PermissionEntry], actor_id: str
+    ) -> List[Permission]:
         updated: List[Permission] = []
         for entry in entries:
+            resource = self.session.get(Resource, entry.resource_id)
+            if not resource:
+                raise NoResultFound("Resource not found")
+            self._require_resource_role(
+                resource, actor_id, {SharePermissionRole.OWNER}
+            )
             permission = (
                 self.session.query(Permission)
                 .filter(
@@ -301,8 +335,18 @@ class ShareService:
         return updated
 
     def list_audit_logs(
-        self, *, resource_id: Optional[uuid.UUID] = None, action: Optional[str] = None
+        self,
+        *,
+        actor_id: str,
+        resource_id: Optional[uuid.UUID] = None,
+        action: Optional[str] = None,
     ) -> List[AuditLog]:
+        if resource_id is None:
+            raise PermissionError("resource_id is required")
+        resource = self.session.get(Resource, resource_id)
+        if not resource:
+            raise NoResultFound("Resource not found")
+        self._require_resource_role(resource, actor_id, {SharePermissionRole.OWNER})
         stmt = select(AuditLog)
         if resource_id:
             stmt = stmt.where(AuditLog.resource_id == resource_id)
@@ -312,6 +356,24 @@ class ShareService:
         return list(self.session.scalars(stmt))
 
     # ---------------------------- helpers -----------------------------
+    def _require_resource_role(
+        self, resource: Resource, actor_id: str, allowed_roles: set[SharePermissionRole]
+    ) -> None:
+        if resource.owner_id == actor_id:
+            return
+        permission = (
+            self.session.query(Permission)
+            .filter(
+                Permission.resource_id == resource.id,
+                Permission.principal_type == PrincipalType.USER,
+                Permission.principal_id == actor_id,
+            )
+            .one_or_none()
+        )
+        if permission and permission.role in allowed_roles:
+            return
+        raise PermissionError("Not authorized for resource")
+
     def _create_link(
         self, share: Share, domain_whitelist: Optional[List[str]]
     ) -> GeneratedToken:

@@ -1,10 +1,16 @@
+import { requireAuthenticatedUserId } from "../auth/require-user";
 import { callLawApi, forwardLawApiResponse } from "./service";
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const userId = await requireAuthenticatedUserId();
+    if (userId instanceof Response) {
+      return userId;
+    }
     const payload = await request.json();
     const upstream = await callLawApi("/v1/chat/completions", {
       method: "POST",
+      actorId: userId,
       body: JSON.stringify({
         model: payload.model ?? "gpt-5-mini-2025-08-07",
         messages: payload.messages ?? [],

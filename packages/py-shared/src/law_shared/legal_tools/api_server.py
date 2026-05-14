@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -32,6 +34,19 @@ logger.addHandler(logging.NullHandler())
 
 _CHAT_MANAGER: Optional[PostgresChatManager] = None
 _CHAT_MANAGER_ERROR: Optional[str] = None
+
+
+def _configured_api_key() -> str:
+    return os.getenv("LAW_API_KEY") or os.getenv("LAW_SERVICE_API_KEY") or ""
+
+
+def _thread_prefix_for_actor(actor_id: str) -> str:
+    digest = hashlib.sha256(actor_id.encode("utf-8")).hexdigest()[:16]
+    return f"thread-u-{digest}"
+
+
+def _thread_belongs_to_actor(thread_id: str, actor_id: str) -> bool:
+    return thread_id.startswith(f"{_thread_prefix_for_actor(actor_id)}-")
 
 
 def _extract_question(messages: List[Dict[str, Any]]) -> str:
@@ -308,22 +323,43 @@ class ChatHandler(BaseHTTPRequestHandler):
             super().log_message(format, *args)
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
+        actor_id = self._authorize_request()
+        if actor_id is None:
+            return
         parsed = urlparse(self.path)
         parts = [segment for segment in parsed.path.split("/") if segment]
         if len(parts) == 3 and parts[0] == "threads" and parts[2] == "history":
-            self._handle_thread_history(parts[1])
+            self._handle_thread_history(parts[1], actor_id=actor_id)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
+        actor_id = self._authorize_request()
+        if actor_id is None:
+            return
         if self.path.rstrip("/") == "/v1/chat/completions":
-            self._handle_chat_completions()
+            self._handle_chat_completions(actor_id=actor_id)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
+    def _authorize_request(self) -> Optional[str]:
+        expected = _configured_api_key()
+        if not expected:
+            self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "LAW_API_KEY is not configured")
+            return None
+        scheme, _, token = (self.headers.get("Authorization") or "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(token, expected):
+            self.send_error(HTTPStatus.UNAUTHORIZED, "Authentication required")
+            return None
+        actor_id = (self.headers.get("X-Actor-ID") or "").strip()
+        if not actor_id:
+            self.send_error(HTTPStatus.UNAUTHORIZED, "Actor identity required")
+            return None
+        return actor_id
+
     # ---------------- OpenAI-compatible Chat Completions -----------------
 
-    def _handle_chat_completions(self) -> None:
+    def _handle_chat_completions(self, *, actor_id: str) -> None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except Exception:
@@ -347,6 +383,9 @@ class ChatHandler(BaseHTTPRequestHandler):
         configure_langsmith()
 
         thread_id = str(req.get("thread_id") or "").strip()
+        if thread_id and not _thread_belongs_to_actor(thread_id, actor_id):
+            self.send_error(HTTPStatus.FORBIDDEN, "Thread does not belong to actor")
+            return
         metadata = {
             "model": model,
             "stream": stream,
@@ -365,7 +404,9 @@ class ChatHandler(BaseHTTPRequestHandler):
             metadata["multi_turn_enabled"] = bool(manager)
             if manager is not None and messages:
                 if not thread_id:
-                    thread_id = manager.new_thread_id()
+                    thread_id = manager.new_thread_id(
+                        prefix=_thread_prefix_for_actor(actor_id)
+                    )
                 if stream:
                     stream_method = getattr(manager, "stream_messages", None)
                     if callable(stream_method):
@@ -757,7 +798,10 @@ class ChatHandler(BaseHTTPRequestHandler):
 
         return final_response
 
-    def _handle_thread_history(self, thread_id: str) -> None:
+    def _handle_thread_history(self, thread_id: str, *, actor_id: str) -> None:
+        if not _thread_belongs_to_actor(thread_id, actor_id):
+            self.send_error(HTTPStatus.FORBIDDEN, "Thread does not belong to actor")
+            return
         manager = _get_chat_manager()
         if manager is None:
             self.send_error(
