@@ -60,7 +60,7 @@ export async function updateSession(request: NextRequest) {
     error: userError,
   } = await supabase.auth.getUser()
 
-  if (userError) {
+  if (userError && userError.name !== 'AuthSessionMissingError') {
     console.error('Error getting user in middleware:', userError)
   }
 
