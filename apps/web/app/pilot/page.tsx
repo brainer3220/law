@@ -307,10 +307,15 @@ function renderAnswerWithClaims(
   if (filteredClaims.length === 0) {
     return <p>{answer}</p>;
   }
+  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+  const evidenceOrder = new Map(evidence.map((item, index) => [item.id, index]));
   return (
     <div className="space-y-3">
       {filteredClaims.map((claim) => {
-        const linkedEvidence = evidence.filter((item) => claim.evidenceIds.includes(item.id));
+        const linkedEvidence = claim.evidenceIds
+          .map((id) => evidenceById.get(id))
+          .filter((item): item is EvidenceSource => Boolean(item))
+          .sort((a, b) => (evidenceOrder.get(a.id) ?? 0) - (evidenceOrder.get(b.id) ?? 0));
         return (
           <p key={claim.id}>
             <CitationPopover
@@ -326,22 +331,26 @@ function renderAnswerWithClaims(
 }
 
 function buildCells(claims: Claim[], evidence: EvidenceSource[]): ClaimEvidenceCell[] {
-  return claims.flatMap((claim) =>
-    evidence.map((item) => ({
-      claimId: claim.id,
-      evidenceId: item.id,
-      relevance: claim.evidenceIds.includes(item.id)
-        ? claim.status === "verified"
-          ? 0.95
-          : claim.status === "partial"
-            ? 0.65
-            : claim.status === "stale"
-              ? 0.55
-              : 0.35
-        : 0.15,
-      isSupporting: claim.evidenceIds.includes(item.id),
-    }))
-  );
+  return claims.flatMap((claim) => {
+    const evidenceIds = new Set(claim.evidenceIds);
+    return evidence.map((item) => {
+      const isSupporting = evidenceIds.has(item.id);
+      return {
+        claimId: claim.id,
+        evidenceId: item.id,
+        relevance: isSupporting
+          ? claim.status === "verified"
+            ? 0.95
+            : claim.status === "partial"
+              ? 0.65
+              : claim.status === "stale"
+                ? 0.55
+                : 0.35
+          : 0.15,
+        isSupporting,
+      };
+    });
+  });
 }
 
 function dedupeEvidenceByCanonicalId(evidence: EvidenceSource[]): EvidenceSource[] {

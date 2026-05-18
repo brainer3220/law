@@ -262,6 +262,7 @@ class EvidenceStore:
         self.context_chars = max(0, int(context_chars))
         self._items: List[Tuple[int, Hit]] = []
         self._seen: set[Tuple[str, str, str]] = set()
+        self._ranked_dirty = False
         self.queries: List[str] = []
         self.actions: List[Dict[str, Any]] = []
         self.focus_query = focus_query
@@ -285,8 +286,7 @@ class EvidenceStore:
             idx = len(self._items) + 1
             self._items.append((idx, hit))
             formatted.append(self._format_hit(idx, hit))
-        if self._items:
-            self._rerank_items()
+            self._ranked_dirty = True
         if not formatted:
             return "검색 결과가 없습니다."
         return "\n".join(formatted)
@@ -305,10 +305,12 @@ class EvidenceStore:
         return f"[{idx}] {hit.title} ({hit.doc_id}) {pin}: {snippet}"
 
     def observations_text(self) -> str:
+        self._ensure_ranked()
         lines = [self._format_hit(idx, hit) for idx, hit in self._items[: self.top_k]]
         return "\n".join(lines)
 
     def citations(self) -> List[Dict[str, Any]]:
+        self._ensure_ranked()
         cites: List[Dict[str, Any]] = []
         for idx, hit in self._items[: self.top_k]:
             cites.append(
@@ -329,6 +331,7 @@ class EvidenceStore:
         return cites
 
     def evidence_payload(self) -> List[Dict[str, Any]]:
+        self._ensure_ranked()
         payload: List[Dict[str, Any]] = []
         for idx, hit in self._items[: self.top_k]:
             payload.append(
@@ -348,7 +351,12 @@ class EvidenceStore:
         return payload
 
     def total_hits(self) -> int:
+        self._ensure_ranked()
         return len(self._items)
+
+    def _ensure_ranked(self) -> None:
+        if self._ranked_dirty and self._items:
+            self._rerank_items()
 
     def _rerank_items(self) -> None:
         ranked: List[Tuple[float, Hit]] = [
@@ -358,6 +366,7 @@ class EvidenceStore:
         if self.focus_terms and any(score > 0 for score, _ in ranked):
             ranked = [(score, hit) for score, hit in ranked if score > 0]
         self._items = [(idx, hit) for idx, (_, hit) in enumerate(ranked, start=1)]
+        self._ranked_dirty = False
 
 
 class KeywordSearchArgs(BaseModel):

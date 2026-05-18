@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { type Claim, type EvidenceSource, type ClaimEvidenceCell } from "@/lib/types";
 import { cn, getCiteStatusColorClass } from "@/lib/utils";
 
@@ -31,10 +31,19 @@ export function ClaimEvidenceMatrix({
     evidenceId: string;
   } | null>(null);
 
+  const cellByPair = useMemo(() => {
+    const indexed = new Map<string, ClaimEvidenceCell>();
+    for (const cell of cells) {
+      const key = `${cell.claimId}\u001f${cell.evidenceId}`;
+      if (!indexed.has(key)) {
+        indexed.set(key, cell);
+      }
+    }
+    return indexed;
+  }, [cells]);
+
   const getCellData = (claimId: string, evidenceId: string) => {
-    return cells.find(
-      (c) => c.claimId === claimId && c.evidenceId === evidenceId
-    );
+    return cellByPair.get(`${claimId}\u001f${evidenceId}`);
   };
 
   const handleCellClick = (claimId: string, evidenceId: string) => {
