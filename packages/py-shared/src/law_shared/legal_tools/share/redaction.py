@@ -68,9 +68,11 @@ class RedactionEngine:
         updated = text
         matches: List[RedactionMatch] = []
         for rule in self.rules:
-            for match in rule.pattern.finditer(text):
+            rule_matches = list(rule.pattern.finditer(text))
+            if rule_matches:
+                updated = rule.pattern.sub(rule.replacement, updated)
+            for match in rule_matches:
                 replacement = rule.replacement
-                updated = updated.replace(match.group(0), replacement)
                 matches.append(
                     RedactionMatch(
                         field=field,

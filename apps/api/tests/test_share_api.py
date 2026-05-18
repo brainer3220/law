@@ -99,13 +99,20 @@ def test_share_flow_round_trip() -> None:
             "principal_type": "user",
             "principal_id": "viewer-1",
             "role": "viewer",
-        }
+        },
+        {
+            "resource_id": resource_id,
+            "principal_type": "user",
+            "principal_id": "viewer-2",
+            "role": "commenter",
+        },
     ]
     perm_resp = client.post(
         "/v1/permissions/bulk", json=permissions_payload, headers=_auth_headers()
     )
     assert perm_resp.status_code == 200
     assert perm_resp.json()[0]["principal_id"] == "viewer-1"
+    assert perm_resp.json()[1]["principal_id"] == "viewer-2"
 
     audit = client.get(
         "/v1/audit", params={"resource_id": resource_id}, headers=_auth_headers()

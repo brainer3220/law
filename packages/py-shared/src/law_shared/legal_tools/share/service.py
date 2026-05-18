@@ -11,7 +11,7 @@ from typing import Iterable, List, Optional
 from sqlalchemy import create_engine, select
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import AuditLog, Base, Permission, Resource, Share, ShareLink
@@ -303,23 +303,20 @@ class ShareService:
     def bulk_permissions(
         self, entries: Iterable[PermissionEntry], actor_id: str
     ) -> List[Permission]:
+        entries = list(entries)
+        if not entries:
+            return []
+        resources = self._resources_by_id({entry.resource_id for entry in entries})
+        self._require_resources_role(
+            resources, actor_id, {SharePermissionRole.OWNER}
+        )
+        permissions = self._permissions_by_key(entries)
         updated: List[Permission] = []
         for entry in entries:
-            resource = self.session.get(Resource, entry.resource_id)
-            if not resource:
+            if entry.resource_id not in resources:
                 raise NoResultFound("Resource not found")
-            self._require_resource_role(
-                resource, actor_id, {SharePermissionRole.OWNER}
-            )
-            permission = (
-                self.session.query(Permission)
-                .filter(
-                    Permission.resource_id == entry.resource_id,
-                    Permission.principal_type == entry.principal_type,
-                    Permission.principal_id == entry.principal_id,
-                )
-                .one_or_none()
-            )
+            key = self._permission_key(entry)
+            permission = permissions.get(key)
             if permission:
                 permission.role = entry.role
             else:
@@ -330,6 +327,7 @@ class ShareService:
                     role=entry.role,
                 )
                 self.session.add(permission)
+                permissions[key] = permission
             updated.append(permission)
         self.session.commit()
         return updated
@@ -374,6 +372,73 @@ class ShareService:
             return
         raise PermissionError("Not authorized for resource")
 
+    def _require_resources_role(
+        self,
+        resources: dict[uuid.UUID, Resource],
+        actor_id: str,
+        allowed_roles: set[SharePermissionRole],
+    ) -> None:
+        owner_resource_ids = {
+            resource_id
+            for resource_id, resource in resources.items()
+            if resource.owner_id == actor_id
+        }
+        remaining_ids = set(resources) - owner_resource_ids
+        if not remaining_ids:
+            return
+        permissions = self.session.scalars(
+            select(Permission).where(
+                Permission.resource_id.in_(remaining_ids),
+                Permission.principal_type == PrincipalType.USER,
+                Permission.principal_id == actor_id,
+            )
+        )
+        allowed_resource_ids = {
+            permission.resource_id
+            for permission in permissions
+            if permission.role in allowed_roles
+        }
+        if remaining_ids - allowed_resource_ids:
+            raise PermissionError("Not authorized for resource")
+
+    def _resources_by_id(self, resource_ids: set[uuid.UUID]) -> dict[uuid.UUID, Resource]:
+        if not resource_ids:
+            return {}
+        resources = self.session.scalars(
+            select(Resource).where(Resource.id.in_(resource_ids))
+        )
+        return {resource.id: resource for resource in resources}
+
+    @staticmethod
+    def _permission_key(
+        entry: PermissionEntry | Permission,
+    ) -> tuple[uuid.UUID, PrincipalType, str]:
+        return (entry.resource_id, entry.principal_type, entry.principal_id)
+
+    def _permissions_by_key(
+        self, entries: list[PermissionEntry]
+    ) -> dict[tuple[uuid.UUID, PrincipalType, str], Permission]:
+        resource_ids = {entry.resource_id for entry in entries}
+        principal_types = {entry.principal_type for entry in entries}
+        principal_ids = {entry.principal_id for entry in entries}
+        if not resource_ids or not principal_types or not principal_ids:
+            return {}
+        permissions: dict[tuple[uuid.UUID, PrincipalType, str], Permission] = {}
+        for permission in self.session.scalars(
+            select(Permission).where(
+                Permission.resource_id.in_(resource_ids),
+                Permission.principal_type.in_(principal_types),
+                Permission.principal_id.in_(principal_ids),
+            )
+        ):
+            key = self._permission_key(permission)
+            if key in permissions:
+                raise MultipleResultsFound(
+                    "Multiple permission rows found for resource/principal"
+                )
+            permissions[key] = permission
+        return permissions
+
     def _create_link(
         self, share: Share, domain_whitelist: Optional[List[str]]
     ) -> GeneratedToken:
@@ -394,16 +459,11 @@ class ShareService:
         return share
 
     def _upsert_permissions(self, entries: Iterable[PermissionEntry]) -> None:
+        entries = list(entries)
+        permissions = self._permissions_by_key(entries)
         for entry in entries:
-            permission = (
-                self.session.query(Permission)
-                .filter(
-                    Permission.resource_id == entry.resource_id,
-                    Permission.principal_type == entry.principal_type,
-                    Permission.principal_id == entry.principal_id,
-                )
-                .one_or_none()
-            )
+            key = self._permission_key(entry)
+            permission = permissions.get(key)
             if permission:
                 permission.role = entry.role
             else:
@@ -414,6 +474,7 @@ class ShareService:
                     role=entry.role,
                 )
                 self.session.add(permission)
+                permissions[key] = permission
 
     def _log(
         self,
