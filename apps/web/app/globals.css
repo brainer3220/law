@@ -125,6 +125,9 @@ body {
 
 .material-landing {
   min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
+  scroll-behavior: smooth;
   background: linear-gradient(135deg, 
     var(--md-sys-color-surface, #f8fafc) 0%,
     color-mix(in srgb, var(--md-sys-color-primary, #2563eb) 3%, var(--md-sys-color-surface, #f8fafc)) 100%
@@ -1500,6 +1503,7 @@ body {
   border: none;
   position: relative;
   overflow: hidden;
+  text-decoration: none;
 }
 
 .material-filled-button::before,
