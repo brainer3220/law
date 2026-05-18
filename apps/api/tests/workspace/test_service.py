@@ -207,6 +207,57 @@ def test_instruction_queries_require_membership(temp_db_path):
         cleanup()
 
 
+def test_latest_instructions_returns_latest_per_project(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        creator = uuid.uuid4()
+        first_project = service.create_project(
+            schemas.ProjectCreateRequest(name="First"),
+            creator,
+        )
+        second_project = service.create_project(
+            schemas.ProjectCreateRequest(name="Second"),
+            creator,
+        )
+
+        service.create_instruction(
+            first_project.id,
+            schemas.InstructionCreateRequest(content="first-v1"),
+            creator,
+        )
+        latest_first = service.create_instruction(
+            first_project.id,
+            schemas.InstructionCreateRequest(content="first-v2"),
+            creator,
+        )
+
+        latest = service.latest_instructions(
+            [first_project.id, second_project.id],
+            creator,
+        )
+
+        assert latest[first_project.id] == latest_first
+        assert latest[second_project.id] is None
+    finally:
+        cleanup()
+
+
+def test_latest_instructions_requires_membership_for_all_projects(temp_db_path):
+    service, cleanup = _build_service(temp_db_path)
+    try:
+        owner = uuid.uuid4()
+        outsider = uuid.uuid4()
+        project = service.create_project(
+            schemas.ProjectCreateRequest(name="Restricted latest"),
+            owner,
+        )
+
+        with pytest.raises(PermissionError):
+            service.latest_instructions([project.id], outsider)
+    finally:
+        cleanup()
+
+
 def test_create_update_records_entry(temp_db_path):
     service, cleanup = _build_service(temp_db_path)
     try:

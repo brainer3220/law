@@ -21,6 +21,8 @@ __all__ = [
     "MemberUpdateRequest",
     "MemberResponse",
     "InstructionCreateRequest",
+    "LatestInstructionsRequest",
+    "LatestInstructionsResponse",
     "InstructionResponse",
     "UpdateCreateRequest",
     "UpdateResponse",
@@ -153,6 +155,18 @@ class InstructionResponse(BaseModel):
     content: str
     created_by: uuid.UUID
     created_at: dt.datetime
+
+
+class LatestInstructionsRequest(BaseModel):
+    """최신 지침 일괄 조회 요청."""
+
+    project_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+
+
+class LatestInstructionsResponse(BaseModel):
+    """프로젝트별 최신 지침 응답."""
+
+    instructions: dict[uuid.UUID, Optional[InstructionResponse]]
 
 
 # ========================================================================

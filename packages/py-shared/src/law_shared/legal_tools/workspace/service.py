@@ -503,6 +503,48 @@ class WorkspaceService:
             ).scalars()
         )
 
+    def latest_instructions(
+        self, project_ids: list[uuid.UUID], user_id: uuid.UUID
+    ) -> dict[uuid.UUID, Optional[Instruction]]:
+        """프로젝트별 최신 지침을 한 번에 조회."""
+        ordered_ids = list(dict.fromkeys(project_ids))
+        if not ordered_ids:
+            return {}
+
+        accessible_ids = set(
+            self.session.execute(
+                select(ProjectMember.project_id).where(
+                    and_(
+                        ProjectMember.user_id == user_id,
+                        ProjectMember.project_id.in_(ordered_ids),
+                    )
+                )
+            ).scalars()
+        )
+        if len(accessible_ids) != len(ordered_ids):
+            raise PermissionError("Not a project member")
+
+        latest_versions = (
+            select(
+                Instruction.project_id,
+                func.max(Instruction.version).label("version"),
+            )
+            .where(Instruction.project_id.in_(ordered_ids))
+            .group_by(Instruction.project_id)
+            .subquery()
+        )
+        latest = self.session.execute(
+            select(Instruction).join(
+                latest_versions,
+                and_(
+                    Instruction.project_id == latest_versions.c.project_id,
+                    Instruction.version == latest_versions.c.version,
+                ),
+            )
+        ).scalars()
+        by_project = {instruction.project_id: instruction for instruction in latest}
+        return {project_id: by_project.get(project_id) for project_id in ordered_ids}
+
     def get_instruction(
         self, project_id: uuid.UUID, version: int, user_id: uuid.UUID
     ) -> Instruction:

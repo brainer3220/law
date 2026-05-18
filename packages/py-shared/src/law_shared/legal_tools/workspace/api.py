@@ -259,6 +259,31 @@ def create_app(settings: WorkspaceSettings | None = None) -> FastAPI:
     # ========================================================================
 
     @app.post(
+        "/v1/instructions/latest",
+        response_model=schemas.LatestInstructionsResponse,
+    )
+    def latest_instructions(
+        request: schemas.LatestInstructionsRequest,
+        service: WorkspaceService = Depends(get_service),
+        user_id: uuid.UUID = Depends(get_current_user),
+    ) -> schemas.LatestInstructionsResponse:
+        """프로젝트별 최신 지침 일괄 조회."""
+        try:
+            latest = service.latest_instructions(request.project_ids, user_id)
+            return schemas.LatestInstructionsResponse(
+                instructions={
+                    project_id: (
+                        schemas.InstructionResponse.from_orm(instruction)
+                        if instruction
+                        else None
+                    )
+                    for project_id, instruction in latest.items()
+                }
+            )
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from None
+
+    @app.post(
         "/v1/projects/{project_id}/instructions",
         response_model=schemas.InstructionResponse,
         status_code=201,

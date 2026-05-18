@@ -82,6 +82,10 @@ export const InstructionCreateSchema = z.object({
   content: z.string().min(1),
 })
 
+export const LatestInstructionsResponseSchema = z.object({
+  instructions: z.record(z.string(), InstructionSchema.nullable()),
+})
+
 export const UpdateSchema = z.object({
   id: z.string().uuid(),
   project_id: z.string().uuid().nullable(),
@@ -121,6 +125,7 @@ export type MemberAdd = z.infer<typeof MemberAddSchema>
 export type MemberUpdate = z.infer<typeof MemberUpdateSchema>
 export type Instruction = z.infer<typeof InstructionSchema>
 export type InstructionCreate = z.infer<typeof InstructionCreateSchema>
+export type LatestInstructionsResponse = z.infer<typeof LatestInstructionsResponseSchema>
 export type Update = z.infer<typeof UpdateSchema>
 export type UpdateCreate = z.infer<typeof UpdateCreateSchema>
 
@@ -334,6 +339,17 @@ export class WorkspaceClient {
       `/v1/projects/${projectId}/instructions`,
       {},
       z.array(InstructionSchema)
+    )
+  }
+
+  async latestInstructions(projectIds: string[]): Promise<LatestInstructionsResponse> {
+    return this.request(
+      '/v1/instructions/latest',
+      {
+        method: 'POST',
+        body: JSON.stringify({ project_ids: projectIds }),
+      },
+      LatestInstructionsResponseSchema
     )
   }
 

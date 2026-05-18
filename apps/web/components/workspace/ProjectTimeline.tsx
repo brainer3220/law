@@ -51,21 +51,13 @@ export default function ProjectTimeline({
       try {
         setInstructionsLoading(true)
         workspaceClient.setUserId(userId)
-        const entries = await Promise.all(
-          projects.map(async (project) => {
-            try {
-              const instructions = await workspaceClient.listInstructions(project.id)
-              if (instructions.length === 0) {
-                return [project.id, null] as const
-              }
-              const latest = [...instructions].sort((a, b) => b.version - a.version)[0]
-              return [project.id, latest] as const
-            } catch (instructionError) {
-              console.error(`Failed to load instructions for project ${project.id}:`, instructionError)
-              return [project.id, null] as const
-            }
-          })
+        const { instructions } = await workspaceClient.latestInstructions(
+          projects.map((project) => project.id)
         )
+        const entries = projects.map((project) => [
+          project.id,
+          instructions[project.id] ?? null,
+        ] as const)
         if (!cancelled) {
           setLatestInstructions(Object.fromEntries(entries))
         }
