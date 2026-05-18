@@ -1823,7 +1823,8 @@ body {
   grid-template-columns: minmax(400px, 500px) minmax(500px, 600px);
   width: 100%;
   max-width: 1200px;
-  min-height: 640px;
+  height: min(640px, calc(100vh - 80px));
+  min-height: 0;
   border-radius: 32px;
   overflow: hidden;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
@@ -1833,6 +1834,7 @@ body {
 .material-auth__container {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 40px 48px;
   background: var(--md-sys-color-surface-container-lowest, #ffffff);
   overflow-y: auto;
@@ -2074,6 +2076,7 @@ body {
 /* Auth Visual */
 .material-auth__visual {
   position: relative;
+  min-height: 0;
   overflow: hidden;
   background: linear-gradient(135deg,
     rgba(37, 99, 235, 0.08) 0%,
@@ -2175,7 +2178,8 @@ body {
   .material-auth__wrapper {
     grid-template-columns: 1fr;
     max-width: 500px;
-    min-height: auto;
+    height: min(640px, calc(100vh - 40px));
+    min-height: 0;
   }
 
   .material-auth__visual {
@@ -2195,6 +2199,7 @@ body {
 
   .material-auth__wrapper {
     border-radius: 24px;
+    height: calc(100vh - 24px);
   }
 
   .material-auth__container {
