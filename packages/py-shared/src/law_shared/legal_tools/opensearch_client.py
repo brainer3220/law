@@ -91,6 +91,18 @@ def redact_url_credentials(url: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+def _headers(content_type: str) -> Dict[str, str]:
+    headers = {"Content-Type": content_type, "Accept": "application/json"}
+    if key := api_key():
+        headers["Authorization"] = f"ApiKey {key}"
+    else:
+        username, password = basic_auth()
+        if username and password:
+            token = base64.b64encode(f"{username}:{password}".encode("utf-8"))
+            headers["Authorization"] = f"Basic {token.decode('ascii')}"
+    return headers
+
+
 def request_json(
     method: str,
     path: str,
@@ -101,16 +113,38 @@ def request_json(
     """Perform an HTTP request against OpenSearch and parse the JSON response."""
 
     url = f"{base_url().rstrip('/')}{path}"
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if key := api_key():
-        headers["Authorization"] = f"ApiKey {key}"
-    else:
-        username, password = basic_auth()
-        if username and password:
-            token = base64.b64encode(f"{username}:{password}".encode("utf-8"))
-            headers["Authorization"] = f"Basic {token.decode('ascii')}"
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = request.Request(url, data=data, method=method, headers=headers)
+    req = request.Request(url, data=data, method=method, headers=_headers("application/json"))
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            text = resp.read().decode("utf-8")
+            return json.loads(text) if text else {}
+    except error.HTTPError as exc:  # pragma: no cover - network failure
+        body = exc.read().decode("utf-8", "ignore")
+        status = getattr(exc, "code", None) or getattr(exc, "status", "")
+        raise RuntimeError(
+            f"OpenSearch {method} {path} failed: {status} {body}"
+        ) from exc
+    except error.URLError as exc:  # pragma: no cover - network failure
+        raise RuntimeError(
+            f"Failed to reach OpenSearch at {redact_url_credentials(url)}: {exc.reason}"
+        ) from exc
+
+
+def request_ndjson(
+    method: str,
+    path: str,
+    payload: str,
+    *,
+    timeout: float = 30.0,
+) -> Dict:
+    """Perform an NDJSON request against OpenSearch and parse the JSON response."""
+
+    url = f"{base_url().rstrip('/')}{path}"
+    data = payload.encode("utf-8")
+    req = request.Request(
+        url, data=data, method=method, headers=_headers("application/x-ndjson")
+    )
     try:
         with request.urlopen(req, timeout=timeout) as resp:
             text = resp.read().decode("utf-8")
@@ -138,6 +172,7 @@ __all__ = [
     "basic_auth",
     "first_env",
     "request_json",
+    "request_ndjson",
     "resolve_index_name",
     "redact_url_credentials",
 ]

@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from law_shared.scripts.opensearch_load import collect_documents, chunked
+from law_shared.scripts import opensearch_load
+from law_shared.scripts.opensearch_load import (
+    build_bulk_payload,
+    collect_documents,
+    chunked,
+    upload_documents,
+    validate_bulk_response,
+)
 
 
 def make_sample(path: Path) -> None:
@@ -58,3 +65,58 @@ def test_chunked_batches_list(tmp_path: Path) -> None:
 
 def test_chunked_handles_empty_list() -> None:
     assert list(chunked([], 3)) == []
+
+
+def test_build_bulk_payload_uses_one_bulk_action_per_document() -> None:
+    payload = build_bulk_payload(
+        [
+            {"id": "DOC-1", "title": "첫 번째 문서"},
+            {"doc_id": "DOC-2", "title": "두 번째 문서"},
+        ]
+    )
+
+    lines = payload.splitlines()
+    assert len(lines) == 4
+    assert json.loads(lines[0]) == {"index": {"_id": "DOC-1"}}
+    assert json.loads(lines[2]) == {"index": {"_id": "DOC-2"}}
+    assert payload.endswith("\n")
+
+
+def test_upload_documents_posts_bulk_payload(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_request_ndjson(method, path, payload):  # type: ignore[no-untyped-def]
+        captured["method"] = method
+        captured["path"] = path
+        captured["payload"] = payload
+        return {"errors": False, "items": []}
+
+    monkeypatch.setattr(opensearch_load, "request_ndjson", fake_request_ndjson)
+
+    upload_documents("legal-docs", [{"id": "DOC-1", "title": "문서"}], show_progress=False)
+
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/legal-docs/_bulk"
+    assert '"_id": "DOC-1"' in captured["payload"]
+
+
+def test_validate_bulk_response_raises_on_failed_item() -> None:
+    response = {
+        "errors": True,
+        "items": [
+            {
+                "index": {
+                    "_id": "DOC-1",
+                    "status": 400,
+                    "error": {"type": "mapper_parsing_exception"},
+                }
+            }
+        ],
+    }
+
+    try:
+        validate_bulk_response(response)
+    except RuntimeError as exc:
+        assert "DOC-1" in str(exc)
+    else:
+        raise AssertionError("Expected bulk response validation to fail")

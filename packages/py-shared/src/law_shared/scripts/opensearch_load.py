@@ -19,7 +19,11 @@ except ImportError:  # pragma: no cover - fallback when tqdm is unavailable
         return iterable
 
 from law_shared.env import load_env
-from law_shared.legal_tools.opensearch_client import request_json, resolve_index_name
+from law_shared.legal_tools.opensearch_client import (
+    request_json,
+    request_ndjson,
+    resolve_index_name,
+)
 
 load_env()
 
@@ -181,6 +185,32 @@ def chunked(seq: List[dict], size: int) -> Iterable[List[dict]]:
         yield seq[i : i + size]
 
 
+def build_bulk_payload(documents: List[dict]) -> str:
+    lines: list[str] = []
+    for doc in documents:
+        doc_id = str(doc.get("id") or doc.get("doc_id") or "").strip()
+        if not doc_id:
+            raise RuntimeError("Document is missing an 'id' field")
+        lines.append(json.dumps({"index": {"_id": doc_id}}, ensure_ascii=False))
+        lines.append(json.dumps(doc, ensure_ascii=False))
+    return "\n".join(lines) + "\n"
+
+
+def validate_bulk_response(response: dict) -> None:
+    if not response.get("errors"):
+        return
+    failures = []
+    for item in response.get("items", []):
+        action = item.get("index") or item.get("create") or item.get("update") or {}
+        status = int(action.get("status") or 0)
+        if status >= 400:
+            failures.append(
+                f"{action.get('_id', '<unknown>')} status={status} error={action.get('error')}"
+            )
+    detail = "; ".join(failures[:5]) or "OpenSearch bulk response reported errors"
+    raise RuntimeError(detail)
+
+
 def upload_documents(
     index_name: str,
     documents: List[dict],
@@ -206,14 +236,11 @@ def upload_documents(
         iterator = batches
 
     for batch in iterator:
+        payload = build_bulk_payload(batch)
         for attempt in range(1, max_retries + 1):
             try:
-                for doc in batch:
-                    doc_id = str(doc.get("id") or doc.get("doc_id") or "").strip()
-                    if not doc_id:
-                        raise RuntimeError("Document is missing an 'id' field")
-                    path = f"/{index_name}/_doc/{quote(doc_id, safe='')}"
-                    request_json("PUT", path, doc)
+                response = request_ndjson("POST", f"/{quote(index_name, safe='')}/_bulk", payload)
+                validate_bulk_response(response)
                 break
             except RuntimeError as exc:
                 if attempt == max_retries:
