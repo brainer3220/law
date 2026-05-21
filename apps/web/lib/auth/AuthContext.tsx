@@ -34,7 +34,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      setUser(session?.user ?? null)
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       setUser(user)
     } catch (error) {
       console.error('Error refreshing user:', error)
@@ -48,13 +55,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Get initial session
     const initializeAuth = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        setUser(user)
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        setUser(session?.user ?? null)
       } catch (error) {
-        console.error('Error getting user:', error)
+        console.error('Error getting initial session:', error)
         setUser(null)
       } finally {
         setLoading(false)
@@ -62,8 +70,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     initializeAuth()
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+    }).catch((error) => {
+      console.error('Error verifying user:', error)
+      setUser(null)
+    })
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setUser(session?.user ?? null)

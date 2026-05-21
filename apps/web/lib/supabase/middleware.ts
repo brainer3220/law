@@ -13,6 +13,13 @@ function safeLocalPath(path: string | null) {
 }
 
 export async function updateSession(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+  const isPublicPath = pathname === '/' || pathname.startsWith('/api')
+
+  if (isPublicPath) {
+    return NextResponse.next({ request })
+  }
+
   // Check if Supabase is configured
   const supabaseUrl = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.KIM_BYUN_NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -89,9 +96,9 @@ export async function updateSession(request: NextRequest) {
   // Redirect authenticated users away from auth pages (except logout)
   if (
     user &&
-    request.nextUrl.pathname.startsWith('/auth/') &&
-    !request.nextUrl.pathname.startsWith('/auth/logout') &&
-    request.nextUrl.pathname !== '/auth/update-password'
+    pathname.startsWith('/auth/') &&
+    !pathname.startsWith('/auth/logout') &&
+    pathname !== '/auth/update-password'
   ) {
     const redirectTo = request.nextUrl.searchParams.get('redirectTo')
     const safeRedirectTo = safeLocalPath(redirectTo)
