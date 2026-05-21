@@ -3,131 +3,109 @@
  * 프로젝트 관리 API와 통신하는 클라이언트
  */
 
-import { z } from 'zod'
-
 const API_BASE = process.env.NEXT_PUBLIC_WORKSPACE_API_URL || 'http://localhost:8001'
 
-// ========================================================================
-// Schemas (align with backend Pydantic models)
-// ========================================================================
-
-export const PermissionRoleSchema = z.enum([
+export const PERMISSION_ROLES = [
   'owner',
   'maintainer',
   'editor',
   'commenter',
   'viewer',
-])
-
-export const ProjectSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  description: z.string().nullable(),
-  status: z.string().nullable().optional(),
-  org_id: z.string().uuid().nullable(),
-  archived: z.boolean(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-  created_by: z.string().uuid(),
-})
-
-export const ProjectListResponseSchema = z.object({
-  projects: z.array(ProjectSchema),
-  total: z.number(),
-})
-
-export const ProjectCreateSchema = z.object({
-  name: z.string().max(255),
-  description: z.string().optional(),
-  status: z.string().default('active'),
-  org_id: z.string().uuid().optional(),
-})
-
-export const ProjectUpdateSchema = z.object({
-  name: z.string().max(255).optional(),
-  description: z.string().optional(),
-  status: z.string().optional(),
-  org_id: z.string().uuid().optional(),
-})
-
-export const ProjectCloneSchema = z.object({
-  name: z.string().max(255),
-})
-
-export const MemberSchema = z.object({
-  user_id: z.string().uuid(),
-  role: PermissionRoleSchema,
-  invited_by: z.string().uuid().nullable(),
-  created_at: z.string().datetime(),
-})
-
-export const MemberAddSchema = z.object({
-  user_id: z.string().uuid(),
-  role: PermissionRoleSchema,
-})
-
-export const MemberUpdateSchema = z.object({
-  role: PermissionRoleSchema,
-})
-
-export const InstructionSchema = z.object({
-  project_id: z.string().uuid(),
-  version: z.number(),
-  content: z.string(),
-  created_by: z.string().uuid(),
-  created_at: z.string().datetime(),
-})
-
-export const InstructionCreateSchema = z.object({
-  content: z.string().min(1),
-})
-
-export const LatestInstructionsResponseSchema = z.object({
-  instructions: z.record(z.string(), InstructionSchema.nullable()),
-})
-
-export const UpdateSchema = z.object({
-  id: z.string().uuid(),
-  project_id: z.string().uuid().nullable(),
-  body: z.string().nullable(),
-  created_by: z.string().uuid().nullable(),
-  created_at: z.string().datetime().nullable(),
-  project_update_file_id: z.string().uuid().nullable(),
-})
-
-export const UpdateCreateSchema = z
-  .object({
-    body: z.string().min(1).optional(),
-    project_update_file_id: z.string().uuid().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (!data.body && !data.project_update_file_id) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'body or project_update_file_id is required',
-        path: ['body'],
-      })
-    }
-  })
+] as const
 
 // ========================================================================
 // Types
 // ========================================================================
 
-export type PermissionRole = z.infer<typeof PermissionRoleSchema>
-export type Project = z.infer<typeof ProjectSchema>
-export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>
-export type ProjectCreate = z.infer<typeof ProjectCreateSchema>
-export type ProjectUpdate = z.infer<typeof ProjectUpdateSchema>
-export type ProjectClone = z.infer<typeof ProjectCloneSchema>
-export type Member = z.infer<typeof MemberSchema>
-export type MemberAdd = z.infer<typeof MemberAddSchema>
-export type MemberUpdate = z.infer<typeof MemberUpdateSchema>
-export type Instruction = z.infer<typeof InstructionSchema>
-export type InstructionCreate = z.infer<typeof InstructionCreateSchema>
-export type LatestInstructionsResponse = z.infer<typeof LatestInstructionsResponseSchema>
-export type Update = z.infer<typeof UpdateSchema>
-export type UpdateCreate = z.infer<typeof UpdateCreateSchema>
+export type PermissionRole = (typeof PERMISSION_ROLES)[number]
+
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  status?: string | null
+  org_id: string | null
+  archived: boolean
+  created_at: string
+  updated_at: string
+  created_by: string
+}
+
+export interface ProjectListResponse {
+  projects: Project[]
+  total: number
+}
+
+export interface ProjectCreate {
+  name: string
+  description?: string
+  status?: string
+  org_id?: string
+}
+
+export interface ProjectUpdate {
+  name?: string
+  description?: string
+  status?: string
+  org_id?: string
+}
+
+export interface ProjectClone {
+  name: string
+}
+
+export interface Member {
+  user_id: string
+  role: PermissionRole
+  invited_by: string | null
+  created_at: string
+}
+
+export interface MemberAdd {
+  user_id: string
+  role: PermissionRole
+}
+
+export interface MemberUpdate {
+  role: PermissionRole
+}
+
+export interface Instruction {
+  project_id: string
+  version: number
+  content: string
+  created_by: string
+  created_at: string
+}
+
+export interface InstructionCreate {
+  content: string
+}
+
+export interface LatestInstructionsResponse {
+  instructions: Record<string, Instruction | null>
+}
+
+export interface Update {
+  id: string
+  project_id: string | null
+  body: string | null
+  created_by: string | null
+  created_at: string | null
+  project_update_file_id: string | null
+}
+
+export interface UpdateCreate {
+  body?: string
+  project_update_file_id?: string
+}
+
+function validateUpdateCreate(data: UpdateCreate): UpdateCreate {
+  if (!data.body && !data.project_update_file_id) {
+    throw new Error('body or project_update_file_id is required')
+  }
+  return data
+}
 
 // ========================================================================
 // Client
@@ -147,8 +125,7 @@ export class WorkspaceClient {
 
   private async request<T>(
     path: string,
-    options: RequestInit = {},
-    schema?: z.ZodType<T>
+    options: RequestInit = {}
   ): Promise<T> {
     const headers = new Headers(options.headers)
     if (this.userId) {
@@ -181,7 +158,7 @@ export class WorkspaceClient {
     }
 
     const data = (await response.json()) as unknown
-    return schema ? schema.parse(data) : (data as T)
+    return data as T
   }
 
   // ======================================================================
@@ -201,32 +178,30 @@ export class WorkspaceClient {
     if (params?.offset) query.set('offset', String(params.offset))
 
     const suffix = query.toString() ? `?${query.toString()}` : ''
-    return this.request(`/v1/projects${suffix}`, {}, ProjectListResponseSchema)
+    return this.request<ProjectListResponse>(`/v1/projects${suffix}`)
   }
 
   async getProject(projectId: string): Promise<Project> {
-    return this.request(`/v1/projects/${projectId}`, {}, ProjectSchema)
+    return this.request<Project>(`/v1/projects/${projectId}`)
   }
 
   async createProject(data: ProjectCreate): Promise<Project> {
-    return this.request(
+    return this.request<Project>(
       '/v1/projects',
       {
         method: 'POST',
         body: JSON.stringify(data),
-      },
-      ProjectSchema
+      }
     )
   }
 
   async updateProject(projectId: string, data: ProjectUpdate): Promise<Project> {
-    return this.request(
+    return this.request<Project>(
       `/v1/projects/${projectId}`,
       {
         method: 'PATCH',
         body: JSON.stringify(data),
-      },
-      ProjectSchema
+      }
     )
   }
 
@@ -238,13 +213,12 @@ export class WorkspaceClient {
   }
 
   async cloneProject(projectId: string, data: ProjectClone): Promise<Project> {
-    return this.request(
+    return this.request<Project>(
       `/v1/projects/${projectId}/clone`,
       {
         method: 'POST',
         body: JSON.stringify(data),
-      },
-      ProjectSchema
+      }
     )
   }
 
@@ -253,21 +227,19 @@ export class WorkspaceClient {
   // ======================================================================
 
   async listMembers(projectId: string): Promise<Member[]> {
-    return this.request(
+    return this.request<Member[]>(
       `/v1/projects/${projectId}/members`,
-      {},
-      z.array(MemberSchema)
+      {}
     )
   }
 
   async addMember(projectId: string, data: MemberAdd): Promise<Member> {
-    return this.request(
+    return this.request<Member>(
       `/v1/projects/${projectId}/members`,
       {
         method: 'POST',
         body: JSON.stringify(data),
-      },
-      MemberSchema
+      }
     )
   }
 
@@ -276,13 +248,12 @@ export class WorkspaceClient {
     memberUserId: string,
     data: MemberUpdate
   ): Promise<Member> {
-    return this.request(
+    return this.request<Member>(
       `/v1/projects/${projectId}/members/${memberUserId}`,
       {
         method: 'PATCH',
         body: JSON.stringify(data),
-      },
-      MemberSchema
+      }
     )
   }
 
@@ -297,30 +268,26 @@ export class WorkspaceClient {
   // ======================================================================
 
   async listUpdates(projectId: string): Promise<Update[]> {
-    return this.request(
+    return this.request<Update[]>(
       `/v1/projects/${projectId}/updates`,
-      {},
-      z.array(UpdateSchema)
+      {}
     )
   }
 
   async getUpdate(projectId: string, updateId: string): Promise<Update> {
-    return this.request(
-      `/v1/projects/${projectId}/updates/${updateId}`,
-      {},
-      UpdateSchema
+    return this.request<Update>(
+      `/v1/projects/${projectId}/updates/${updateId}`
     )
   }
 
   async createUpdate(projectId: string, data: UpdateCreate): Promise<Update> {
-    const payload = UpdateCreateSchema.parse(data)
-    return this.request(
+    const payload = validateUpdateCreate(data)
+    return this.request<Update>(
       `/v1/projects/${projectId}/updates`,
       {
         method: 'POST',
         body: JSON.stringify(payload),
-      },
-      UpdateSchema
+      }
     )
   }
 
@@ -335,40 +302,35 @@ export class WorkspaceClient {
   // ======================================================================
 
   async listInstructions(projectId: string): Promise<Instruction[]> {
-    return this.request(
+    return this.request<Instruction[]>(
       `/v1/projects/${projectId}/instructions`,
-      {},
-      z.array(InstructionSchema)
+      {}
     )
   }
 
   async latestInstructions(projectIds: string[]): Promise<LatestInstructionsResponse> {
-    return this.request(
+    return this.request<LatestInstructionsResponse>(
       '/v1/instructions/latest',
       {
         method: 'POST',
         body: JSON.stringify({ project_ids: projectIds }),
-      },
-      LatestInstructionsResponseSchema
+      }
     )
   }
 
   async getInstruction(projectId: string, version: number): Promise<Instruction> {
-    return this.request(
-      `/v1/projects/${projectId}/instructions/${version}`,
-      {},
-      InstructionSchema
+    return this.request<Instruction>(
+      `/v1/projects/${projectId}/instructions/${version}`
     )
   }
 
   async createInstruction(projectId: string, data: InstructionCreate): Promise<Instruction> {
-    return this.request(
+    return this.request<Instruction>(
       `/v1/projects/${projectId}/instructions`,
       {
         method: 'POST',
         body: JSON.stringify(data),
-      },
-      InstructionSchema
+      }
     )
   }
 }
