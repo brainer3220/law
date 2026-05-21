@@ -21,6 +21,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-screen overflow-hidden">
+      <head>
+        <link
+          rel="preconnect"
+          href="https://cdn.platform.openai.com"
+          crossOrigin="anonymous"
+        />
+        <link rel="dns-prefetch" href="https://cdn.platform.openai.com" />
+        <link
+          rel="preconnect"
+          href="https://api.openai.com"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="antialiased h-screen overflow-hidden">
         <AuthProvider>{children}</AuthProvider>
       </body>
