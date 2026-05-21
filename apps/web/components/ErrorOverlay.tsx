@@ -57,10 +57,10 @@ const ErrorOverlayComponent = ({
   const helpText = isError ? ERROR_HELP_TEXT[errorType] : null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex h-full w-full flex-col justify-center rounded-[inherit] bg-white/85 p-6 text-center backdrop-blur transition-opacity duration-300 dark:bg-slate-900/90">
-      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-4 rounded-xl bg-white px-6 py-6 shadow-lg transition-all duration-300 ease-out animate-in fade-in slide-in-from-bottom-4 dark:bg-slate-800">
+    <div className="pointer-events-none absolute inset-0 z-10 flex h-full w-full flex-col justify-center rounded-[inherit] bg-white/85 p-6 text-center backdrop-blur transition-opacity duration-150 dark:bg-slate-900/90">
+      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-4 rounded-xl bg-white px-6 py-6 shadow-lg transition-[opacity,transform] duration-150 ease-out animate-in fade-in slide-in-from-bottom-4 dark:bg-slate-800">
         {/* Icon */}
-        <div className="text-5xl animate-in zoom-in duration-500" role="img" aria-label={title || '로딩 중'}>
+        <div className="text-5xl animate-in zoom-in duration-150" role="img" aria-label={title || '로딩 중'}>
           {icon}
         </div>
 
@@ -87,7 +87,7 @@ const ErrorOverlayComponent = ({
         {error && onRetry ? (
           <button
             type="button"
-            className="mt-4 inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-slate-800 hover:shadow-md hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-95 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="mt-4 inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-[background-color,color,transform] duration-100 hover:bg-slate-800 hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 active:scale-95 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
             onClick={onRetry}
           >
             {retryLabel ?? "다시 시도"}

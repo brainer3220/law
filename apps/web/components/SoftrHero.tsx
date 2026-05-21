@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Type definition for iframe-resizer library
 interface IFrameResizerOptions {
   checkOrigin: boolean
   log: boolean
+  warningTimeout?: number
 }
 
 interface WindowWithIFrameResize extends Window {
@@ -19,8 +20,35 @@ interface WindowWithIFrameResize extends Window {
  * Uses iframe-resizer to automatically adjust iframe height based on content.
  */
 export default function SoftrHero() {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const [shouldLoad, setShouldLoad] = useState(false)
+
   useEffect(() => {
-    // Dynamically load iframe-resizer script
+    const host = hostRef.current
+    if (!host) {
+      return
+    }
+    if (!('IntersectionObserver' in window)) {
+      setShouldLoad(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setShouldLoad(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '320px' }
+    )
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!shouldLoad) {
+      return
+    }
     const script = document.createElement('script')
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.2.11/iframeResizer.min.js'
     script.async = true
@@ -32,7 +60,8 @@ export default function SoftrHero() {
         win.iFrameResize(
           { 
             checkOrigin: false, 
-            log: true 
+            log: false,
+            warningTimeout: 0,
           }, 
           '#softr-594e1786-4514-4322-984e-9376ef328935-hero-public'
         )
@@ -47,20 +76,25 @@ export default function SoftrHero() {
         document.body.removeChild(script)
       }
     }
-  }, [])
+  }, [shouldLoad])
 
   return (
-    <div className="w-full">
-      <iframe
-        id="softr-594e1786-4514-4322-984e-9376ef328935-hero-public"
-        src="https://codecraft-tobias14981.softr.app/embed/pages/594e1786-4514-4322-984e-9376ef328935/blocks/hero-public"
-        width="100%"
-        height="1000"
-        scrolling="no"
-        frameBorder="0"
-        style={{ border: 'none' }}
-        title="Softr Hero Section"
-      />
+    <div ref={hostRef} className="w-full">
+      {shouldLoad ? (
+        <iframe
+          id="softr-594e1786-4514-4322-984e-9376ef328935-hero-public"
+          src="https://codecraft-tobias14981.softr.app/embed/pages/594e1786-4514-4322-984e-9376ef328935/blocks/hero-public"
+          width="100%"
+          height="1000"
+          loading="lazy"
+          scrolling="no"
+          frameBorder="0"
+          style={{ border: 'none' }}
+          title="Softr Hero Section"
+        />
+      ) : (
+        <div className="min-h-[640px]" aria-hidden="true" />
+      )}
     </div>
   )
 }

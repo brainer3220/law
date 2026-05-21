@@ -458,7 +458,7 @@ export function ChatKitPanel({
       aria-label="법률 AI 에이전트 채팅"
       aria-live="polite"
       aria-busy={isInitializingSession}
-      className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-sm transition-all duration-300 ease-in-out dark:bg-slate-900"
+      className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-sm transition-colors duration-150 ease-out dark:bg-slate-900"
     >
       <ChatKitScript />
       {/* Screen reader announcements */}
@@ -472,8 +472,8 @@ export function ChatKitPanel({
         control={chatkit.control}
         className={
           blockingError || isInitializingSession
-            ? "pointer-events-none opacity-0 scale-95 transition-all duration-500 ease-out"
-            : "block h-full w-full opacity-100 scale-100 transition-all duration-500 ease-out"
+            ? "pointer-events-none opacity-0 scale-95 transition-[opacity,transform] duration-150 ease-out"
+            : "block h-full w-full opacity-100 scale-100 transition-[opacity,transform] duration-100 ease-out"
         }
       />
       <ErrorOverlay

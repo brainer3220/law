@@ -321,7 +321,7 @@ body {
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
   font-weight: 500;
   animation: floatCard 3s ease-in-out infinite;
-  transition: all 0.3s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .material-landing__hero-card:hover {
@@ -607,7 +607,6 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  transition: grid-template-columns 0.3s ease;
   background: var(--md-sys-color-surface, #f8fafc);
   color: var(--md-sys-color-on-surface, #0f172a);
   animation: fadeIn 0.3s ease-out;
@@ -1301,7 +1300,6 @@ body {
   flex-direction: column;
   background: var(--md-sys-color-surface, #f8fafc);
   color: var(--md-sys-color-on-surface, #0f172a);
-  transition: padding-right 0.3s ease;
   overflow-y: auto;
   height: 100vh;
   height: 100dvh;
