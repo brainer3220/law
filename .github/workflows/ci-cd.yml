@@ -11,7 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
+
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+
+    defaults:
+      run:
+        working-directory: apps/api
 
     steps:
     - uses: actions/checkout@v5
@@ -33,33 +40,22 @@ jobs:
         key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
         restore-keys: |
           ${{ runner.os }}-uv-
-    
+
+    - name: Validate shared package dependencies
+      working-directory: packages/py-shared
+      run: uv sync --frozen
+
     - name: Install dependencies
-      run: |
-        uv sync --extra dev
-    
-    - name: Format check with black
-      run: uv run black --check --diff .
-    
-    - name: Import sort check with isort
-      run: uv run isort --check-only --diff .
-    
-    - name: Lint with flake8
-      run: |
-        uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
-    
+      run: uv sync --extra dev --frozen
+
+    - name: Lint with Ruff
+      run: uv run ruff check .
+
+    - name: Type check with MyPy
+      run: uv run mypy app
+
     - name: Test with pytest
-      run: |
-        uv run pytest --cov=. --cov-report=xml --cov-report=html
-    
-    - name: Upload coverage to Codecov
-      if: matrix.python-version == '3.10'
-      uses: codecov/codecov-action@v5
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
+      run: uv run pytest -q
 
   docker-build:
     runs-on: ubuntu-latest
