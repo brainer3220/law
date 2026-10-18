@@ -85,6 +85,7 @@ export async function POST(request: Request): Promise<Response> {
       console.info("[create-session] upstream response", {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
+        requestId: upstreamResponse.headers.get("x-request-id"),
       });
     }
 
@@ -92,17 +93,23 @@ export async function POST(request: Request): Promise<Response> {
       | Record<string, unknown>
       | undefined;
 
+    // OpenAI support uses this header to trace ChatKit API failures.
+    const upstreamRequestId = upstreamResponse.headers.get("x-request-id");
+
     if (!upstreamResponse.ok) {
       const upstreamError = extractUpstreamError(upstreamJson);
       console.error("OpenAI ChatKit session creation failed", {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
         body: upstreamJson,
+        requestId: upstreamRequestId,
       });
       return buildJsonResponse(
         {
           error: upstreamError ?? `Failed to create session: ${upstreamResponse.statusText}`,
           details: upstreamJson,
+          // Surfaced so it can be relayed to OpenAI support (BRA-13).
+          request_id: upstreamRequestId ?? undefined,
         },
         upstreamResponse.status,
         { "Content-Type": "application/json" },
