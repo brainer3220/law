@@ -18,7 +18,7 @@ function asArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null;
 }
 
-const OPENAI_API_URL = "https://api.openai.com/v1/responses";
+const OPENAI_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 const DEFAULT_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe";
 
 export function guessAudioFormat(file: File, filename?: string | null): string {
@@ -53,20 +53,6 @@ export function guessAudioFormat(file: File, filename?: string | null): string {
   }
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64");
-  }
-
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const subArray = bytes.subarray(i, Math.min(bytes.length, i + chunkSize));
-    binary += String.fromCharCode(...subArray);
-  }
-  return btoa(binary);
-}
-
 export async function transcribeWithOpenAI(
   file: File,
   bytes: Uint8Array,
@@ -77,185 +63,60 @@ export async function transcribeWithOpenAI(
     throw new Error("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.");
   }
 
-  const format = guessAudioFormat(file, file.name);
-  const base64 = bytesToBase64(bytes);
-
-  const schema = {
-    name: "transcription_payload",
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        language: { type: "string", description: "ISO 639-1 or BCP-47 language tag" },
-        duration: { type: "number", description: "Audio duration in seconds" },
-        summary: { type: "string", description: "Short summary of the conversation" },
-        segments: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["speaker", "start", "end", "text"],
-            properties: {
-              speaker: { type: "string", description: "Speaker identifier" },
-              start: { type: "number", description: "Segment start time in seconds" },
-              end: { type: "number", description: "Segment end time in seconds" },
-              text: { type: "string", description: "Transcribed content" },
-              confidence: {
-                type: "number",
-                description: "Model confidence between 0 and 1",
-              },
-            },
-          },
-        },
-      },
-      required: ["segments"],
-    },
-    strict: true,
-  };
-
-  const body = {
-    model: DEFAULT_MODEL,
-    modalities: ["text"],
-    audio: diarize ? { diarization: { enable: true } } : undefined,
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: diarize
-              ? "Transcribe the audio and produce a diarized JSON structure with speaker segments."
-              : "Transcribe the audio and produce JSON segments.",
-          },
-          {
-            type: "input_audio",
-            audio: {
-              data: base64,
-              format,
-            },
-          },
-        ],
-      },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: schema,
-    },
-  };
+  const model = diarize
+    ? process.env.OPENAI_DIARIZE_MODEL ?? "gpt-4o-transcribe-diarize"
+    : DEFAULT_MODEL;
+  const body = new FormData();
+  // Supply the bytes actually read by the route, retaining the recording name.
+  body.append("file", new Blob([new Uint8Array(bytes)], { type: file.type || "application/octet-stream" }), file.name);
+  body.append("model", model);
+  body.append("response_format", diarize ? "diarized_json" : model === "whisper-1" ? "verbose_json" : "json");
+  if (diarize) body.append("chunking_strategy", "auto");
 
   const response = await fetch(OPENAI_API_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body,
   });
-
-  const json = (await response.json().catch(() => null)) as unknown;
-  const jsonRecord = asRecord(json);
-
+  const result = asRecord(await response.json().catch(() => null));
   if (!response.ok) {
-    const errorRecord =
-      jsonRecord && typeof jsonRecord.error === "object" && jsonRecord.error !== null
-        ? asRecord(jsonRecord.error)
-        : null;
-    const messageValue = errorRecord?.message;
-    const errorMessage =
-      typeof messageValue === "string"
-        ? messageValue
-        : `OpenAI 응답이 실패했습니다. (HTTP ${response.status})`;
-    throw new Error(errorMessage);
+    const message = asRecord(result?.error)?.message;
+    throw new Error(typeof message === "string" ? message : `OpenAI 응답이 실패했습니다. (HTTP ${response.status})`);
   }
+  if (!result) throw new Error("전사 JSON을 해석하지 못했습니다.");
 
-  let raw: unknown = null;
-  if (jsonRecord) {
-    if (typeof jsonRecord["output_text"] === "string") {
-      raw = jsonRecord["output_text"];
-    } else if (Array.isArray(jsonRecord["output"])) {
-      const [firstOutput] = jsonRecord["output"] as unknown[];
-      const firstOutputRecord = asRecord(firstOutput);
-      const firstContent = firstOutputRecord?.["content"];
-      if (Array.isArray(firstContent)) {
-        const [firstItem] = firstContent as unknown[];
-        const firstItemRecord = asRecord(firstItem);
-        if (firstItemRecord && typeof firstItemRecord["text"] === "string") {
-          raw = firstItemRecord["text"];
-        }
-      }
-    }
+  const segments: SpeakerSegment[] = (asArray(result.segments) ?? []).flatMap((value) => {
+    const segment = asRecord(value);
+    if (typeof segment?.text !== "string" || !segment.text.trim()) return [];
+    const start = typeof segment.start === "number" && Number.isFinite(segment.start) ? Math.max(0, segment.start) : 0;
+    const end = typeof segment.end === "number" && Number.isFinite(segment.end) ? Math.max(start, segment.end) : start;
+    return [{
+      speaker: typeof segment.speaker === "string" && segment.speaker.trim() ? segment.speaker.trim() : "speaker",
+      start,
+      end,
+      text: segment.text,
+    }];
+  });
+  const duration = typeof result.duration === "number" && Number.isFinite(result.duration) ? Math.max(0, result.duration) : undefined;
+  // Ordinary transcription JSON provides text, not speaker/timing annotations.
+  // Keep that distinction explicit instead of inventing timestamps or speakers.
+  if (!segments.length && typeof result.text === "string" && result.text.trim()) {
+    if (diarize) throw new Error("화자 분리 응답에 화자 구간이 포함되어 있지 않습니다.");
+    segments.push({ speaker: "speaker", start: 0, end: duration ?? 0, text: result.text });
   }
-
-  if (!raw) {
-    throw new Error("OpenAI 응답에서 전사 결과를 찾을 수 없습니다.");
-  }
-
-  let parsedValue: unknown = raw;
-  if (typeof raw === "string") {
-    try {
-      parsedValue = JSON.parse(raw);
-    } catch {
-      throw new Error("전사 JSON을 해석하지 못했습니다.");
-    }
-  }
-
-  const parsedRecord = asRecord(parsedValue);
-  if (!parsedRecord) {
-    throw new Error("전사 JSON을 해석하지 못했습니다.");
-  }
-
-  const segments: SpeakerSegment[] = (asArray(parsedRecord.segments) ?? []).map(
-    (segmentValue, index) => {
-      const segmentRecord = asRecord(segmentValue);
-      const speakerValue = segmentRecord?.["speaker"];
-      const startValue = segmentRecord?.["start"];
-      const endValue = segmentRecord?.["end"];
-      const textValue = segmentRecord?.["text"];
-      const confidenceValue = segmentRecord?.["confidence"];
-
-      return {
-        speaker:
-          typeof speakerValue === "string" && speakerValue.trim()
-            ? speakerValue.trim()
-            : `speaker_${index + 1}`,
-        start: typeof startValue === "number" ? startValue : 0,
-        end: typeof endValue === "number" ? endValue : 0,
-        text: typeof textValue === "string" ? textValue : "",
-        confidence:
-          typeof confidenceValue === "number" && Number.isFinite(confidenceValue)
-            ? Math.min(Math.max(confidenceValue, 0), 1)
-            : undefined,
-      } satisfies SpeakerSegment;
-    },
-  );
-
-  if (segments.length === 0) {
-    throw new Error("전사 결과에 화자 구간이 포함되어 있지 않습니다.");
-  }
+  if (!segments.length) throw new Error("OpenAI 응답에서 전사 결과를 찾을 수 없습니다.");
 
   return {
-    id:
-      jsonRecord && typeof jsonRecord["id"] === "string"
-        ? (jsonRecord["id"] as string)
-        : generateId(),
-    language:
-      typeof parsedRecord["language"] === "string"
-        ? (parsedRecord["language"] as string)
-        : undefined,
-    duration:
-      typeof parsedRecord["duration"] === "number"
-        ? (parsedRecord["duration"] as number)
-        : undefined,
-    summary:
-      typeof parsedRecord["summary"] === "string"
-        ? (parsedRecord["summary"] as string)
-        : undefined,
+    id: typeof result.id === "string" ? result.id : generateId(),
+    language: typeof result.language === "string" ? result.language : undefined,
+    duration,
     segments,
     metadata: {
       provider: "openai",
-      model: DEFAULT_MODEL,
+      model,
       diarization: diarize,
-      usage: jsonRecord?.["usage"] ?? null,
+      timestamps_available: Boolean(asArray(result.segments)?.length),
+      usage: result.usage ?? null,
     },
     generatedAt: new Date().toISOString(),
   };
