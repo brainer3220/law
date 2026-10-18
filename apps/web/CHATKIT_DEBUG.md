@@ -187,3 +187,14 @@ curl -X POST http://localhost:3000/api/create-session \
 # Ctrl+C로 서버 중지
 npm run dev
 ```
+
+## 📮 OpenAI 지원 요청 시 x-request-id 수집 (BRA-13)
+
+OpenAI 지원팀은 ChatKit API 실패 원인 파악을 위해 `x-request-id` 응답 헤더를 요구합니다.
+이제 `create-session` 라우트가 업스트림 실패 시 해당 헤더를 자동으로 수집합니다.
+
+- 서버 로그: `OpenAI ChatKit session creation failed` 항목의 `requestId` 필드
+- 클라이언트 응답: 에러 응답 JSON의 `request_id` 필드
+- 브라우저 Network 탭: 실패한 `create-session` 또는 `chatkit` 요청의 응답 헤더에서 직접 확인 가능
+
+지원 요청 시 워크플로 ID와 함께 이 값을 전달하세요.

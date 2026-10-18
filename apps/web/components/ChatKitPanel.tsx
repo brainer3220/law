@@ -412,7 +412,22 @@ export function ChatKitPanel({
     onError: ({ error }: { error: unknown }) => {
       // Note that Chatkit UI handles errors for your users.
       // Thus, your app code doesn't need to display errors on UI.
-      console.error("ChatKit error", error);
+      // Serialize the full error (including non-enumerable fields and any
+      // request id embedded by the API) so support traces keep their ids (BRA-13).
+      let serialized: unknown = error;
+      if (error instanceof Error) {
+        serialized = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+          ...Object.fromEntries(
+            Object.getOwnPropertyNames(error)
+              .filter((key) => !["name", "message", "stack"].includes(key))
+              .map((key) => [key, (error as unknown as Record<string, unknown>)[key]])
+          ),
+        };
+      }
+      console.error("ChatKit error", serialized);
     },
   }), [
     getClientSecret,
